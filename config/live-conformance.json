@@ -1,0 +1,32 @@
+{
+  "_comment": "SSOT for live-conformance (adapter-brief patch item 5). For each SHIPPED adapter: the agent CLI its golden fixtures (src/fixtures/<agent>.json) are known-good against, and the metadata the two conformance tiers need. Tier 1 (deterministic, secret-free) is the fixture-freshness check — .github/scripts/check-fixture-freshness.mjs compares captured_version to the CLI's latest npm release and flags re-capture on drift. Tier 2 (real-payload capture) needs the provider secret + a live model turn and is documented, not automated, in docs/live-conformance.md. captured_version is the version each fixture is verified against; bump it when you re-capture. 'rolling' versioning skips the drift compare (no semver release story). event_name/tool_matcher/secret drive the Tier-2 recipe.",
+  "adapters": [
+    {
+      "agent": "claude",
+      "package": "@anthropic-ai/claude-code",
+      "versioning": "semver",
+      "captured_version": "2.1.198",
+      "event_name": "PreToolUse",
+      "tool_matcher": "Bash",
+      "secret": "ANTHROPIC_API_KEY"
+    },
+    {
+      "agent": "codex",
+      "package": "@openai/codex",
+      "versioning": "semver",
+      "captured_version": "0.142.5",
+      "event_name": "PreToolUse",
+      "tool_matcher": "^Bash$",
+      "secret": "OPENAI_API_KEY"
+    },
+    {
+      "agent": "amp",
+      "package": "@sourcegraph/amp",
+      "versioning": "rolling",
+      "captured_version": "unversioned (rolling release)",
+      "event_name": "delegate",
+      "tool_matcher": "Bash",
+      "secret": "AMP_API_KEY"
+    }
+  ]
+}

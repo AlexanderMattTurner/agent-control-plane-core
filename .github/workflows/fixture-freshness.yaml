@@ -1,0 +1,40 @@
+name: Fixture freshness
+
+# The deterministic, secret-free tier of live-conformance (adapter-brief item 5):
+# flag when an agent CLI has shipped a newer release than the version its golden
+# fixtures are known-good against, so a maintainer re-captures before the fixture
+# rots silently. See docs/live-conformance.md.
+#
+# Schedule + manual ONLY — deliberately NOT on pull_request. The check compares
+# against npm's moving `latest`, so a version bump between commit and CI would
+# turn a PR red for a reason unrelated to its diff. This is an advisory signal
+# ("a newer CLI shipped, go re-verify"), not a merge gate; the SSOT's own
+# well-formedness is gated by test/check-fixture-freshness.test.mjs under the
+# normal Node tests. A red run here means "re-capture," not "this repo is broken."
+
+on:
+  schedule:
+    - cron: "17 9 * * 1" # Mondays 09:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fixture-freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup base environment
+        uses: ./.github/actions/setup-base-env
+
+      - name: Check fixtures against latest published CLI versions
+        run: node .github/scripts/check-fixture-freshness.mjs
