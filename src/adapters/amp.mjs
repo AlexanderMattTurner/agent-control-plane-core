@@ -46,7 +46,6 @@ export function parse(native) {
     agent: AGENT,
     native_event: "delegate",
     integration_mode: INTEGRATION_MODE,
-    can_enforce: true,
     primary_gate_present: true,
     passthrough: collectPassthrough(raw, CONSUMED),
   };
@@ -57,6 +56,7 @@ export function parse(native) {
     tool: asStringOrNull(raw.tool),
     input: asObject(raw.input),
     response: undefined,
+    this_call_vetoable: true,
     meta,
   });
 }
@@ -71,7 +71,7 @@ export function parse(native) {
  */
 export function render(verdict, event) {
   const vd = normalizeVerdict(verdict);
-  const enforced = vd.decision === Decision.DENY && event.meta.can_enforce;
+  const enforced = vd.decision === Decision.DENY && event.this_call_vetoable;
   const exit_code = enforced ? 2 : vd.decision === Decision.ASK ? 1 : 0;
   return nativeResponse({ transport: INTEGRATION_MODE, exit_code, enforced });
 }

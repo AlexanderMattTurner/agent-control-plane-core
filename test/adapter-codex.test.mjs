@@ -31,6 +31,44 @@ describe("codex adapter conformance", () => {
   });
 });
 
+describe("codex adapter: allow = abstain by default, soleGate opt-in", () => {
+  const event = codexAdapter.parse({
+    hook_event_name: "PreToolUse",
+    version: "0.135.0",
+    tool_name: "Bash",
+    tool_input: { command: "ls" },
+  });
+
+  it("default render never emits permissionDecision on allow", () => {
+    const out = codexAdapter.render({ decision: "allow" }, event);
+    assert.ok(!("permissionDecision" in out.stdout.hookSpecificOutput));
+    assert.equal(out.enforced, false);
+    assert.equal(out.exit_code, 0);
+  });
+
+  it("soleGate: true emits the real permissionDecision: allow", () => {
+    const out = codexAdapter.render({ decision: "allow" }, event, {
+      soleGate: true,
+    });
+    assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "allow");
+    assert.equal(out.enforced, false);
+    assert.equal(out.exit_code, 0);
+  });
+
+  it("soleGate: true does not change deny rendering", () => {
+    const denyDefault = codexAdapter.render(
+      { decision: "deny", reason: "r" },
+      event,
+    );
+    const denySoleGate = codexAdapter.render(
+      { decision: "deny", reason: "r" },
+      event,
+      { soleGate: true },
+    );
+    assert.deepEqual(denyDefault, denySoleGate);
+  });
+});
+
 describe("canEnforce version gate (≥ v0.135)", () => {
   // Driven per boundary so the major/minor/invalid branches are each pinned.
   for (const [version, expected] of [

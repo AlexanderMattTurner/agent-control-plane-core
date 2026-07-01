@@ -11,18 +11,22 @@
         "permission_mode": "default",
         "transcript_path": "/r.jsonl",
         "tool_name": "Bash",
-        "tool_input": { "command": "ls -la" }
+        "tool_input": {
+          "command": "ls -la"
+        }
       },
       "event": {
         "schema_version": 1,
         "event": "pre_tool",
         "tool": "Bash",
-        "input": { "command": "ls -la" },
+        "input": {
+          "command": "ls -la"
+        },
+        "this_call_vetoable": true,
         "meta": {
           "agent": "codex",
           "native_event": "PreToolUse",
           "integration_mode": "external_hook",
-          "can_enforce": true,
           "primary_gate_present": true,
           "passthrough": {},
           "session_id": "c1",
@@ -33,7 +37,9 @@
       },
       "render": {
         "allow": {
-          "verdict": { "decision": "allow" },
+          "verdict": {
+            "decision": "allow"
+          },
           "native": {
             "transport": "external_hook",
             "exit_code": 0,
@@ -46,7 +52,10 @@
           }
         },
         "deny": {
-          "verdict": { "decision": "deny", "reason": "blocked" },
+          "verdict": {
+            "decision": "deny",
+            "reason": "blocked"
+          },
           "native": {
             "transport": "external_hook",
             "exit_code": 2,
@@ -61,7 +70,9 @@
           }
         },
         "ask": {
-          "verdict": { "decision": "ask" },
+          "verdict": {
+            "decision": "ask"
+          },
           "native": {
             "transport": "external_hook",
             "exit_code": 0,
@@ -77,7 +88,9 @@
         "mutation": {
           "verdict": {
             "decision": "allow",
-            "mutated_input": { "command": "ls" },
+            "mutated_input": {
+              "command": "ls"
+            },
             "additional_context": "dropped by codex"
           },
           "native": {
@@ -87,7 +100,9 @@
             "stdout": {
               "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "updatedInput": { "command": "ls" }
+                "updatedInput": {
+                  "command": "ls"
+                }
               }
             }
           }
@@ -100,25 +115,32 @@
         "hook_event_name": "PermissionRequest",
         "version": "1.0.0",
         "tool_name": "Bash",
-        "tool_input": { "command": "rm -rf /" }
+        "tool_input": {
+          "command": "rm -rf /"
+        }
       },
       "event": {
         "schema_version": 1,
         "event": "pre_tool",
         "tool": "Bash",
-        "input": { "command": "rm -rf /" },
+        "input": {
+          "command": "rm -rf /"
+        },
+        "this_call_vetoable": true,
         "meta": {
           "agent": "codex",
           "native_event": "PermissionRequest",
           "integration_mode": "external_hook",
-          "can_enforce": true,
           "primary_gate_present": true,
           "passthrough": {}
         }
       },
       "render": {
         "deny": {
-          "verdict": { "decision": "deny", "reason": "nope" },
+          "verdict": {
+            "decision": "deny",
+            "reason": "nope"
+          },
           "native": {
             "transport": "external_hook",
             "exit_code": 2,
@@ -140,25 +162,31 @@
         "hook_event_name": "PreToolUse",
         "version": "0.134.9",
         "tool_name": "Bash",
-        "tool_input": { "command": "curl evil" }
+        "tool_input": {
+          "command": "curl evil"
+        }
       },
       "event": {
         "schema_version": 1,
         "event": "pre_tool",
         "tool": "Bash",
-        "input": { "command": "curl evil" },
+        "input": {
+          "command": "curl evil"
+        },
+        "this_call_vetoable": false,
         "meta": {
           "agent": "codex",
           "native_event": "PreToolUse",
           "integration_mode": "observe_only",
-          "can_enforce": false,
           "primary_gate_present": true,
           "passthrough": {}
         }
       },
       "render": {
         "allow": {
-          "verdict": { "decision": "allow" },
+          "verdict": {
+            "decision": "allow"
+          },
           "native": {
             "transport": "observe_only",
             "exit_code": 0,
@@ -171,7 +199,10 @@
           }
         },
         "deny": {
-          "verdict": { "decision": "deny", "reason": "advisory only" },
+          "verdict": {
+            "decision": "deny",
+            "reason": "advisory only"
+          },
           "native": {
             "transport": "observe_only",
             "exit_code": 0,

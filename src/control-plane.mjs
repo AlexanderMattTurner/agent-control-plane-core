@@ -93,7 +93,6 @@ export const IntegrationMode = Object.freeze({
  * @property {string} agent producing agent id ("claude", "codex", …)
  * @property {string} native_event original native event name, preserved verbatim
  * @property {"external_hook"|"in_process"|"observe_only"} integration_mode how the guardrail attaches
- * @property {boolean} can_enforce false ⇒ the Verdict is advisory; the hard stop is the sandbox, not the hook
  * @property {boolean} primary_gate_present the agent's own native gate already ran (⇒ the monitor is a SECOND opinion; the LLM call can be skipped when the native gate already blocked)
  * @property {string} [session_id]
  * @property {string} [cwd]
@@ -138,6 +137,7 @@ export const IntegrationMode = Object.freeze({
  * @property {string|null} tool tool name (null for prompt/session events)
  * @property {Record<string, unknown>} input passthrough tool input; a submitted prompt is folded into `input.prompt`
  * @property {unknown} [response] tool output, post_tool only (string or structured), verbatim
+ * @property {boolean} this_call_vetoable false ⇒ the guardrail cannot veto THIS call; a monitor must auto-degrade deny to notify, and any render of it stays advisory (never `enforced`)
  * @property {EventMeta} meta
  */
 
@@ -166,16 +166,24 @@ export const IntegrationMode = Object.freeze({
  * Build a normalized {@link ToolCallEvent}, stamping the schema version. Pure —
  * adapters pass already-normalized parts. `response` is omitted unless defined
  * so a pre_tool event has no `response` key at all.
- * @param {{ event: string, tool: string|null, input: Record<string, unknown>, response?: unknown, meta: EventMeta }} parts
+ * @param {{ event: string, tool: string|null, input: Record<string, unknown>, response?: unknown, this_call_vetoable: boolean, meta: EventMeta }} parts
  * @returns {ToolCallEvent}
  */
-export function makeEvent({ event, tool, input, response, meta }) {
+export function makeEvent({
+  event,
+  tool,
+  input,
+  response,
+  this_call_vetoable,
+  meta,
+}) {
   /** @type {ToolCallEvent} */
   const evt = {
     schema_version: SCHEMA_VERSION,
     event: /** @type {ToolCallEvent["event"]} */ (event),
     tool,
     input,
+    this_call_vetoable,
     meta,
   };
   if (response !== undefined) evt.response = response;

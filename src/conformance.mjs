@@ -19,6 +19,13 @@
  *      MUST carry a real block signal — a non-zero `exit_code` or a `throw_` —
  *      not just a JSON body the agent is free to ignore. At least one enforced
  *      deny must appear, so the honesty check is never vacuous.
+ *   5. non-vetoable honesty: when the parsed event's `this_call_vetoable` is
+ *      false, EVERY render for that case must be `enforced === false` — a
+ *      guardrail that cannot veto this call must never render as if it did.
+ *   6. allow = abstain: by default (no `soleGate` opt-in) every `allow` render
+ *      is `enforced === false` AND `exit_code === 0` — an "I have no objection"
+ *      verdict never renders as a block, on any adapter. At least one `allow`
+ *      must be rendered, so this is never vacuous.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
@@ -62,6 +69,25 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
           `enforced deny carries no block signal: ${testCase.name} / ${scenario}`,
         );
         enforcedDenySeen = true;
+      }
+      if (parsed.this_call_vetoable === false) {
+        assert.equal(
+          rendered.enforced,
+          false,
+          `non-vetoable call rendered as enforced: ${testCase.name} / ${scenario}`,
+        );
+      }
+      if (spec.verdict.decision === "allow") {
+        assert.equal(
+          rendered.enforced,
+          false,
+          `allow rendered as enforced: ${testCase.name} / ${scenario}`,
+        );
+        assert.equal(
+          rendered.exit_code,
+          0,
+          `allow rendered a non-zero exit_code: ${testCase.name} / ${scenario}`,
+        );
       }
       decisionsSeen.add(spec.verdict.decision);
       if (spec.verdict.mutated_input !== undefined) mutationSeen = true;
