@@ -1,0 +1,11 @@
+{
+  "check-coverage": true,
+  "per-file": true,
+  "lines": 100,
+  "branches": 100,
+  "functions": 100,
+  "statements": 100,
+  "include": ["src/**/*.mjs"],
+  "reporter": ["text", "text-summary"],
+  "all": true
+}
