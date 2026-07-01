@@ -1,0 +1,272 @@
+{
+  "agent": "claude",
+  "cases": [
+    {
+      "name": "pre_tool Bash, full meta, all verdicts",
+      "native": {
+        "hook_event_name": "PreToolUse",
+        "session_id": "s1",
+        "cwd": "/w",
+        "permission_mode": "default",
+        "transcript_path": "/t.jsonl",
+        "tool_name": "Bash",
+        "tool_input": { "command": "ls -la" }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "Bash",
+        "input": { "command": "ls -la" },
+        "meta": {
+          "agent": "claude",
+          "native_event": "PreToolUse",
+          "integration_mode": "external_hook",
+          "can_enforce": true,
+          "primary_gate_present": true,
+          "passthrough": {},
+          "session_id": "s1",
+          "cwd": "/w",
+          "permission_mode": "default",
+          "transcript_path": "/t.jsonl"
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": { "decision": "allow" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse"
+              }
+            }
+          }
+        },
+        "deny": {
+          "verdict": { "decision": "deny", "reason": "blocked rm" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "blocked rm"
+              }
+            }
+          }
+        },
+        "ask": {
+          "verdict": { "decision": "ask", "reason": "confirm" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "ask",
+                "permissionDecisionReason": "confirm"
+              }
+            }
+          }
+        },
+        "mutation": {
+          "verdict": {
+            "decision": "allow",
+            "mutated_input": { "command": "ls" },
+            "additional_context": "normalized"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "updatedInput": { "command": "ls" },
+                "additionalContext": "normalized"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "pre_tool Read, bare meta + passthrough",
+      "native": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": { "file_path": "/etc/passwd" },
+        "future_field": { "x": 1 }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "Read",
+        "input": { "file_path": "/etc/passwd" },
+        "meta": {
+          "agent": "claude",
+          "native_event": "PreToolUse",
+          "integration_mode": "external_hook",
+          "can_enforce": true,
+          "primary_gate_present": true,
+          "passthrough": { "future_field": { "x": 1 } }
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": { "decision": "allow" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "post_tool Bash, non-gating block",
+      "native": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": { "command": "ls" },
+        "tool_response": "file1\nfile2"
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "post_tool",
+        "tool": "Bash",
+        "input": { "command": "ls" },
+        "response": "file1\nfile2",
+        "meta": {
+          "agent": "claude",
+          "native_event": "PostToolUse",
+          "integration_mode": "external_hook",
+          "can_enforce": true,
+          "primary_gate_present": true,
+          "passthrough": {}
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow",
+            "additional_context": "redacted 1 secret"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": "redacted 1 secret"
+              }
+            }
+          }
+        },
+        "deny": {
+          "verdict": { "decision": "deny", "reason": "leak" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true,
+            "stdout": {
+              "hookSpecificOutput": { "hookEventName": "PostToolUse" },
+              "decision": "block",
+              "reason": "leak"
+            }
+          }
+        },
+        "ask": {
+          "verdict": { "decision": "ask" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": { "hookEventName": "PostToolUse" },
+              "decision": "block"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "prompt_submit folds prompt into input",
+      "native": {
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "hello world",
+        "session_id": "s2"
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "prompt_submit",
+        "tool": null,
+        "input": { "prompt": "hello world" },
+        "meta": {
+          "agent": "claude",
+          "native_event": "UserPromptSubmit",
+          "integration_mode": "external_hook",
+          "can_enforce": true,
+          "primary_gate_present": true,
+          "passthrough": {},
+          "session_id": "s2"
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": { "decision": "allow" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": { "hookEventName": "UserPromptSubmit" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "session_start carries source in passthrough",
+      "native": { "hook_event_name": "SessionStart", "source": "startup" },
+      "event": {
+        "schema_version": 1,
+        "event": "session_start",
+        "tool": null,
+        "input": {},
+        "meta": {
+          "agent": "claude",
+          "native_event": "SessionStart",
+          "integration_mode": "external_hook",
+          "can_enforce": true,
+          "primary_gate_present": true,
+          "passthrough": { "source": "startup" }
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": { "decision": "allow" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": { "hookEventName": "SessionStart" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

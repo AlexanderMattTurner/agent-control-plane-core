@@ -1,19 +1,58 @@
 {
-  "name": "my-project",
-  "version": "1.0.0",
-  "description": "Project with Claude Code automation",
+  "name": "agent-control-plane",
+  "version": "0.1.0",
+  "description": "Vendor-neutral control-plane contract for coding agents: a normalized ToolCallEvent/Verdict schema with per-agent adapters (Claude Code, Codex) and a conformance suite.",
   "type": "module",
-  "private": true,
+  "license": "MIT",
   "packageManager": "pnpm@11.8.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./src/index.mjs",
+  "types": "./types/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.mts",
+      "import": "./src/index.mjs"
+    },
+    "./claude": {
+      "types": "./types/adapters/claude.d.mts",
+      "import": "./src/adapters/claude.mjs"
+    },
+    "./codex": {
+      "types": "./types/adapters/codex.d.mts",
+      "import": "./src/adapters/codex.mjs"
+    },
+    "./conformance": {
+      "types": "./types/conformance.d.mts",
+      "import": "./src/conformance.mjs"
+    }
+  },
+  "files": [
+    "src",
+    "types",
+    "bin"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "codex",
+    "agent",
+    "control-plane",
+    "hooks",
+    "adapter",
+    "guardrail"
+  ],
   "scripts": {
-    "postinstall": "git config core.hooksPath .hooks",
-    "dev": "echo 'ERROR: Configure dev script in package.json' && exit 1",
-    "build": "echo 'ERROR: Configure build script in package.json' && exit 1",
-    "start": "echo 'ERROR: Configure start script in package.json' && exit 1",
-    "test": "echo 'ERROR: Configure test script in package.json' && exit 1",
-    "lint": "echo 'ERROR: Configure lint script in package.json' && exit 1",
-    "check": "echo 'ERROR: Configure check script in package.json' && exit 1",
-    "format": "prettier --write ."
+    "prepare": "git config core.hooksPath .hooks",
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "pnpm build",
+    "test": "node --test test/*.test.mjs",
+    "test:coverage": "c8 node --test test/*.test.mjs",
+    "check": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "lint-staged": {
     "*.{css,scss}": [
@@ -25,8 +64,9 @@
     "*.json.example": [
       "prettier --write --parser json"
     ],
-    "*.{js,jsx,ts,tsx}": [
-      "prettier --write"
+    "*.{js,jsx,ts,tsx,mjs}": [
+      "prettier --write",
+      "eslint --fix"
     ],
     "*.{yaml,yml}": [
       "prettier --write"
@@ -48,7 +88,14 @@
   "devDependencies": {
     "@commitlint/cli": "^21.0.1",
     "@commitlint/config-conventional": "^21.0.1",
+    "@eslint/js": "^9.13.0",
+    "@types/node": "^22.7.0",
+    "c8": "^10.1.2",
+    "eslint": "^9.13.0",
+    "fast-check": "^3.22.0",
+    "globals": "^15.11.0",
     "lint-staged": "^17.0.5",
-    "prettier": "^3.0.0"
+    "prettier": "^3.0.0",
+    "typescript": "^5.6.0"
   }
 }

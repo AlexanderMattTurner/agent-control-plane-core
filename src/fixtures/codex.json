@@ -1,0 +1,191 @@
+{
+  "agent": "codex",
+  "cases": [
+    {
+      "name": "PreToolUse v0.135 enforcing, all verdicts",
+      "native": {
+        "hook_event_name": "PreToolUse",
+        "version": "0.135.0",
+        "session_id": "c1",
+        "cwd": "/w",
+        "permission_mode": "default",
+        "transcript_path": "/r.jsonl",
+        "tool_name": "Bash",
+        "tool_input": { "command": "ls -la" }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "Bash",
+        "input": { "command": "ls -la" },
+        "meta": {
+          "agent": "codex",
+          "native_event": "PreToolUse",
+          "integration_mode": "external_hook",
+          "can_enforce": true,
+          "primary_gate_present": true,
+          "passthrough": {},
+          "session_id": "c1",
+          "cwd": "/w",
+          "permission_mode": "default",
+          "transcript_path": "/r.jsonl"
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": { "decision": "allow" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse"
+              }
+            }
+          }
+        },
+        "deny": {
+          "verdict": { "decision": "deny", "reason": "blocked" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "blocked"
+              }
+            }
+          }
+        },
+        "ask": {
+          "verdict": { "decision": "ask" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "ask"
+              }
+            }
+          }
+        },
+        "mutation": {
+          "verdict": {
+            "decision": "allow",
+            "mutated_input": { "command": "ls" },
+            "additional_context": "dropped by codex"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "updatedInput": { "command": "ls" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "PermissionRequest round-trips the native event name",
+      "native": {
+        "hook_event_name": "PermissionRequest",
+        "version": "1.0.0",
+        "tool_name": "Bash",
+        "tool_input": { "command": "rm -rf /" }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "Bash",
+        "input": { "command": "rm -rf /" },
+        "meta": {
+          "agent": "codex",
+          "native_event": "PermissionRequest",
+          "integration_mode": "external_hook",
+          "can_enforce": true,
+          "primary_gate_present": true,
+          "passthrough": {}
+        }
+      },
+      "render": {
+        "deny": {
+          "verdict": { "decision": "deny", "reason": "nope" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PermissionRequest",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "nope"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "pre-v0.135 downgrades to observe_only (advisory deny)",
+      "native": {
+        "hook_event_name": "PreToolUse",
+        "version": "0.134.9",
+        "tool_name": "Bash",
+        "tool_input": { "command": "curl evil" }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "Bash",
+        "input": { "command": "curl evil" },
+        "meta": {
+          "agent": "codex",
+          "native_event": "PreToolUse",
+          "integration_mode": "observe_only",
+          "can_enforce": false,
+          "primary_gate_present": true,
+          "passthrough": {}
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": { "decision": "allow" },
+          "native": {
+            "transport": "observe_only",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse"
+              }
+            }
+          }
+        },
+        "deny": {
+          "verdict": { "decision": "deny", "reason": "advisory only" },
+          "native": {
+            "transport": "observe_only",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "advisory only"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

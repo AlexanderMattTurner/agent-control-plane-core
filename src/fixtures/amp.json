@@ -1,0 +1,99 @@
+{
+  "agent": "amp",
+  "cases": [
+    {
+      "name": "delegate Bash, exit-code transport, all verdicts",
+      "native": {
+        "tool": "Bash",
+        "input": { "command": "ls -la" },
+        "session_id": "a1",
+        "cwd": "/w"
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "Bash",
+        "input": { "command": "ls -la" },
+        "meta": {
+          "agent": "amp",
+          "native_event": "delegate",
+          "integration_mode": "external_hook",
+          "can_enforce": true,
+          "primary_gate_present": true,
+          "passthrough": {},
+          "session_id": "a1",
+          "cwd": "/w"
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": { "decision": "allow" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        },
+        "deny": {
+          "verdict": { "decision": "deny", "reason": "blocked" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true
+          }
+        },
+        "ask": {
+          "verdict": { "decision": "ask", "reason": "confirm" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 1,
+            "enforced": false
+          }
+        },
+        "mutation": {
+          "verdict": {
+            "decision": "allow",
+            "mutated_input": { "command": "ls" }
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        }
+      }
+    },
+    {
+      "name": "delegate Read, bare meta + passthrough",
+      "native": {
+        "tool": "Read",
+        "input": { "file_path": "/x" },
+        "extra_meta": 7
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "Read",
+        "input": { "file_path": "/x" },
+        "meta": {
+          "agent": "amp",
+          "native_event": "delegate",
+          "integration_mode": "external_hook",
+          "can_enforce": true,
+          "primary_gate_present": true,
+          "passthrough": { "extra_meta": 7 }
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": { "decision": "allow" },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        }
+      }
+    }
+  ]
+}
