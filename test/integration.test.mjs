@@ -4,22 +4,17 @@ import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// End-to-end integration: run the hook entry as a real subprocess, feed a native
-// payload on stdin, and assert the transport actually delivers — the exit code
-// and stdout body a real agent would read. This is the only test that exercises
-// parse → judge → render as a process boundary, not an in-process call.
-const bin = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "bin",
-  "agent-hook.mjs",
-);
+// End-to-end integration: run each host's hook entry as a real subprocess, feed a
+// native payload on stdin, and assert the transport actually delivers — the exit
+// code and stdout body a real agent would read. This is the only suite that
+// exercises parse → judge → render across a process boundary, per host entry,
+// not as an in-process call.
+const binDir = join(dirname(fileURLToPath(import.meta.url)), "..", "bin");
+const hookBin = (host) => join(binDir, `${host}-hook.mjs`);
 
-function runHook(agent, payload) {
-  const res = spawnSync("node", [bin, "--agent", agent], {
-    input: JSON.stringify(payload),
-    encoding: "utf8",
-  });
+/** Spawn a host entry with a raw stdin string; return exit code + stdout. */
+function runRaw(host, input) {
+  const res = spawnSync("node", [hookBin(host)], { input, encoding: "utf8" });
   return {
     code: res.status,
     stdout: res.stdout,
@@ -27,7 +22,10 @@ function runHook(agent, payload) {
   };
 }
 
-describe("integration: adapter transports over a real process boundary", () => {
+/** Spawn a host entry with a JSON payload. */
+const runHook = (host, payload) => runRaw(host, JSON.stringify(payload));
+
+describe("integration: per-host hook transports over a real process boundary", () => {
   it("claude deny → exit 2 + permissionDecision deny in stdout", () => {
     const out = runHook("claude", {
       hook_event_name: "PreToolUse",
@@ -83,12 +81,32 @@ describe("integration: adapter transports over a real process boundary", () => {
     assert.equal(out.code, 0);
     assert.equal(out.json.hookSpecificOutput.permissionDecision, "deny");
   });
+});
 
-  it("unknown --agent → exit 64", () => {
-    const res = spawnSync("node", [bin, "--agent", "nope"], {
-      input: "{}",
-      encoding: "utf8",
+// Hook-suicide: when the guardrail process itself breaks (garbage or empty stdin
+// it can't parse), each host entry must degrade the way THAT host expects — NOT
+// a single shared default. claude/codex fail OPEN (exit 0, proceed); amp fails to
+// ASK (exit 1). The exit codes deliberately differ, so a regression that made
+// them uniform is caught here.
+describe("integration: hook-suicide fail-safe is per host", () => {
+  for (const garbage of ["not json at all {{{", "", "   "]) {
+    const label = JSON.stringify(garbage);
+    it(`claude unparseable (${label}) → fail OPEN, exit 0, no body`, () => {
+      const out = runRaw("claude", garbage);
+      assert.equal(out.code, 0);
+      assert.equal(out.stdout, "");
     });
-    assert.equal(res.status, 64);
-  });
+
+    it(`codex unparseable (${label}) → fail OPEN, exit 0, no body`, () => {
+      const out = runRaw("codex", garbage);
+      assert.equal(out.code, 0);
+      assert.equal(out.stdout, "");
+    });
+
+    it(`amp unparseable (${label}) → fail to ASK, exit 1, no body`, () => {
+      const out = runRaw("amp", garbage);
+      assert.equal(out.code, 1);
+      assert.equal(out.stdout, "");
+    });
+  }
 });
