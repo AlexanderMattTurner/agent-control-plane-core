@@ -5,16 +5,19 @@ import {
   SCHEMA_VERSION,
   EventKind,
   Decision,
+  IntegrationMode,
   MODELED_TOOLS,
   makeEvent,
   normalizeVerdict,
   collectPassthrough,
+  nativeResponse,
   asObject,
   asString,
   asStringOrNull,
 } from "../src/control-plane.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
 import { codexAdapter } from "../src/adapters/codex.mjs";
+import { ampAdapter } from "../src/adapters/amp.mjs";
 
 describe("control-plane contract is frozen and versioned", () => {
   it("pins the schema version (a bump must be deliberate)", () => {
@@ -25,10 +28,11 @@ describe("control-plane contract is frozen and versioned", () => {
   it("freezes the vocabulary enums", () => {
     assert.ok(Object.isFrozen(EventKind));
     assert.ok(Object.isFrozen(Decision));
+    assert.ok(Object.isFrozen(IntegrationMode));
     assert.ok(Object.isFrozen(MODELED_TOOLS));
   });
 
-  it("exposes the exact event kinds, decisions, and modeled tools", () => {
+  it("exposes the exact kinds, decisions, integration modes, and modeled tools", () => {
     assert.deepEqual(EventKind, {
       PRE_TOOL: "pre_tool",
       POST_TOOL: "post_tool",
@@ -37,6 +41,11 @@ describe("control-plane contract is frozen and versioned", () => {
       UNKNOWN: "unknown",
     });
     assert.deepEqual(Decision, { ALLOW: "allow", DENY: "deny", ASK: "ask" });
+    assert.deepEqual(IntegrationMode, {
+      EXTERNAL_HOOK: "external_hook",
+      IN_PROCESS: "in_process",
+      OBSERVE_ONLY: "observe_only",
+    });
     assert.deepEqual(
       [...MODELED_TOOLS],
       ["Bash", "Edit", "Write", "Read", "WebFetch"],
@@ -64,7 +73,14 @@ describe("coercion primitives never throw", () => {
 });
 
 describe("makeEvent stamps the version and omits absent response", () => {
-  const meta = { agent: "t", native_event: "X", passthrough: {} };
+  const meta = {
+    agent: "t",
+    native_event: "X",
+    integration_mode: "external_hook",
+    can_enforce: true,
+    primary_gate_present: true,
+    passthrough: {},
+  };
 
   it("includes response only when defined", () => {
     const withResp = makeEvent({
@@ -128,66 +144,78 @@ describe("collectPassthrough drops consumed keys, keeps the rest", () => {
   });
 });
 
-// ─── Forward-compatibility: additive upstream drift is a no-op, never an outage.
-// The acceptance test the whole seam exists for — an unknown event type carrying
-// an unknown tool_input key must pass through unmodelled and never throw.
-describe("forward-compat: unknown events/fields pass through (claude)", () => {
-  const native = {
-    hook_event_name: "PreCompact",
-    tool_name: "QuantumTool",
-    tool_input: { known: 1, unknown_key: { nested: true } },
-    brand_new_top_level: "keepme",
-  };
-
-  it("parses without throwing, preserving tool + unknown fields", () => {
-    const event = claudeAdapter.parse(native);
-    assert.equal(event.event, EventKind.UNKNOWN);
-    assert.equal(event.tool, "QuantumTool");
-    assert.deepEqual(event.input, { known: 1, unknown_key: { nested: true } });
-    assert.equal(event.meta.native_event, "PreCompact");
-    assert.deepEqual(event.meta.passthrough, { brand_new_top_level: "keepme" });
-  });
-
-  it("renders an unknown-kind verdict via the preserved native event name", () => {
-    const event = claudeAdapter.parse(native);
-    const out = claudeAdapter.render({ decision: "deny", reason: "r" }, event);
-    assert.equal(out.hookSpecificOutput.hookEventName, "PreCompact");
-    assert.equal(out.decision, "block");
-    assert.equal(out.reason, "r");
-  });
-});
-
-describe("forward-compat: unknown events/fields pass through (codex)", () => {
-  const native = {
-    type: "workspace.diff",
-    tool: { name: "future_tool", arguments: { a: 1, weird: [2] } },
-    novel_field: "keepme",
-  };
-
-  it("parses without throwing, preserving tool + unknown fields", () => {
-    const event = codexAdapter.parse(native);
-    assert.equal(event.event, EventKind.UNKNOWN);
-    assert.equal(event.tool, "future_tool");
-    assert.deepEqual(event.input, { a: 1, weird: [2] });
-    assert.equal(event.meta.native_event, "workspace.diff");
-    assert.deepEqual(event.meta.passthrough, { novel_field: "keepme" });
-  });
-
-  it("renders a codex approval verb regardless of kind", () => {
-    const event = codexAdapter.parse(native);
+describe("nativeResponse assembles transport channels", () => {
+  it("omits absent optional channels", () => {
     assert.deepEqual(
-      codexAdapter.render({ decision: "deny", reason: "r" }, event),
+      nativeResponse({
+        transport: "external_hook",
+        exit_code: 0,
+        enforced: false,
+      }),
+      { transport: "external_hook", exit_code: 0, enforced: false },
+    );
+  });
+
+  it("carries stdout, throw_, and fallback when present", () => {
+    assert.deepEqual(
+      nativeResponse({
+        transport: "in_process",
+        exit_code: 2,
+        enforced: true,
+        stdout: { a: 1 },
+        throw_: { message: "blocked" },
+        fallback: { kind: "config_deny", reason: "mcp", deny_globs: ["*"] },
+      }),
       {
-        decision: "denied",
-        note: "r",
+        transport: "in_process",
+        exit_code: 2,
+        enforced: true,
+        stdout: { a: 1 },
+        throw_: { message: "blocked" },
+        fallback: { kind: "config_deny", reason: "mcp", deny_globs: ["*"] },
       },
     );
   });
 });
 
-it("adapters never throw on non-object / array / primitive native input", () => {
-  for (const bad of [null, 42, "str", [1, 2], undefined]) {
-    assert.doesNotThrow(() => claudeAdapter.parse(bad));
-    assert.doesNotThrow(() => codexAdapter.parse(bad));
-  }
+// ─── Forward-compatibility: additive upstream drift is a no-op, never an outage.
+describe("forward-compat: unknown events/fields pass through", () => {
+  it("claude preserves tool + unknown fields, renders via native event name", () => {
+    const native = {
+      hook_event_name: "PreCompact",
+      tool_name: "QuantumTool",
+      tool_input: { known: 1, unknown_key: { nested: true } },
+      brand_new_top_level: "keepme",
+    };
+    const event = claudeAdapter.parse(native);
+    assert.equal(event.event, EventKind.UNKNOWN);
+    assert.equal(event.tool, "QuantumTool");
+    assert.deepEqual(event.input, { known: 1, unknown_key: { nested: true } });
+    assert.deepEqual(event.meta.passthrough, { brand_new_top_level: "keepme" });
+    const out = claudeAdapter.render({ decision: "deny", reason: "r" }, event);
+    assert.equal(out.stdout.hookSpecificOutput.hookEventName, "PreCompact");
+    assert.equal(out.exit_code, 2);
+    assert.equal(out.enforced, true);
+  });
+
+  it("codex falls back to PreToolUse when the native event name is empty", () => {
+    const event = codexAdapter.parse({
+      version: "1.0.0",
+      tool_name: "X",
+      tool_input: { a: 1 },
+      novel: 2,
+    });
+    assert.equal(event.event, EventKind.UNKNOWN);
+    assert.deepEqual(event.meta.passthrough, { novel: 2 });
+    const out = codexAdapter.render({ decision: "deny", reason: "r" }, event);
+    assert.equal(out.stdout.hookSpecificOutput.hookEventName, "PreToolUse");
+  });
+
+  it("adapters never throw on non-object / array / primitive native input", () => {
+    for (const bad of [null, 42, "str", [1, 2], undefined]) {
+      assert.doesNotThrow(() => claudeAdapter.parse(bad));
+      assert.doesNotThrow(() => codexAdapter.parse(bad));
+      assert.doesNotThrow(() => ampAdapter.parse(bad));
+    }
+  });
 });

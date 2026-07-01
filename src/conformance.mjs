@@ -15,13 +15,17 @@
  *   3. non-vacuity: the fixture set collectively renders an allow, a deny, an
  *      ask, AND a mutated_input, so a suite can't pass while silently skipping a
  *      decision the contract requires every adapter to express.
+ *   4. enforcement honesty: an enforceable deny (`rendered.enforced === true`)
+ *      MUST carry a real block signal — a non-zero `exit_code` or a `throw_` —
+ *      not just a JSON body the agent is free to ignore. At least one enforced
+ *      deny must appear, so the honesty check is never vacuous.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }) {
   assert.equal(
@@ -33,6 +37,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   /** @type {Set<string>} */
   const decisionsSeen = new Set();
   let mutationSeen = false;
+  let enforcedDenySeen = false;
   let renders = 0;
 
   for (const testCase of fixtures.cases) {
@@ -51,6 +56,13 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
         spec.native,
         `render mismatch: ${testCase.name} / ${scenario}`,
       );
+      if (rendered.enforced) {
+        assert.ok(
+          rendered.exit_code !== 0 || rendered.throw_ !== undefined,
+          `enforced deny carries no block signal: ${testCase.name} / ${scenario}`,
+        );
+        enforcedDenySeen = true;
+      }
       decisionsSeen.add(spec.verdict.decision);
       if (spec.verdict.mutated_input !== undefined) mutationSeen = true;
       renders += 1;
@@ -67,6 +79,10 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     mutationSeen,
     "conformance fixtures never render a mutated_input verdict — mutation is untested",
   );
+  assert.ok(
+    enforcedDenySeen,
+    "no enforced deny rendered — enforcement honesty is untested",
+  );
   assert.ok(renders > 0, "conformance fixtures render nothing");
 
   return {
@@ -74,5 +90,6 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     renders,
     decisionsSeen,
     mutationSeen,
+    enforcedDenySeen,
   };
 }

@@ -1,24 +1,23 @@
 /**
- * The Claude Code adapter — the REFERENCE control-plane translator.
+ * The Claude Code adapter — reference EXTERNAL_HOOK translator.
  *
- * This is the ONLY module that knows Claude Code's native hook field names
+ * The ONLY module that knows Claude Code's native hook field names
  * (`hook_event_name`, `tool_name`, `tool_input`, `tool_response`, `prompt`,
- * `permissionDecision`, `hookSpecificOutput`, …). `parse` maps a raw hook
- * payload to a normalized {@link ToolCallEvent}; `render` maps a normalized
- * {@link Verdict} back to the native hook response shape. Downstream guardrails
- * import the normalized types from control-plane.mjs and never touch this file's
- * vocabulary — swapping this adapter for another agent's swaps the whole
- * protocol without touching a single consumer.
+ * `permissionDecision`, `hookSpecificOutput`). Transport is external-hook: the
+ * agent shells out with stdin JSON and reads a deny body / exit code back.
  *
- * This adapter is the single source of Claude Code's native event-name spellings
- * ({@link HookEvent}); it exports them so a consumer never re-spells them.
+ * Deny signal (PreToolUse): `hookSpecificOutput.permissionDecision = "deny"`
+ * AND exit 2. can_enforce is true, but per the doctrine that is a useful FIRST
+ * filter, never the boundary — the Verdict stays advisory to the sandbox.
  */
 
 import {
   EventKind,
   Decision,
+  IntegrationMode,
   makeEvent,
   normalizeVerdict,
+  nativeResponse,
   collectPassthrough,
   asObject,
   asString,
@@ -28,6 +27,13 @@ import {
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
 /** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
+/** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
+
+/** Producing-agent id stamped onto every event this adapter parses. */
+export const AGENT = "claude";
+
+/** How this adapter attaches to the agent. */
+export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
 
 /** Claude Code native hook event names (the `hook_event_name` field). */
 export const HookEvent = Object.freeze({
@@ -37,10 +43,6 @@ export const HookEvent = Object.freeze({
   SESSION_START: "SessionStart",
 });
 
-/** Producing-agent id stamped onto every event this adapter parses. */
-export const AGENT = "claude";
-
-/** Native `hook_event_name` → normalized {@link EventKind}. */
 const NATIVE_TO_KIND = Object.freeze({
   [HookEvent.PRE_TOOL_USE]: EventKind.PRE_TOOL,
   [HookEvent.POST_TOOL_USE]: EventKind.POST_TOOL,
@@ -48,7 +50,6 @@ const NATIVE_TO_KIND = Object.freeze({
   [HookEvent.SESSION_START]: EventKind.SESSION_START,
 });
 
-/** Normalized {@link EventKind} → native `hook_event_name` (render side). */
 const KIND_TO_NATIVE = Object.freeze({
   [EventKind.PRE_TOOL]: HookEvent.PRE_TOOL_USE,
   [EventKind.POST_TOOL]: HookEvent.POST_TOOL_USE,
@@ -56,8 +57,6 @@ const KIND_TO_NATIVE = Object.freeze({
   [EventKind.SESSION_START]: HookEvent.SESSION_START,
 });
 
-// Top-level native keys the normalized shape consumes explicitly; everything
-// else (e.g. SessionStart's `source`, or a future field) rides in meta.passthrough.
 const CONSUMED = new Set([
   "hook_event_name",
   "session_id",
@@ -71,10 +70,6 @@ const CONSUMED = new Set([
 ]);
 
 /**
- * Normalized `input` for a claude event. A submitted prompt folds into
- * `input.prompt`; session events carry no input; every tool-bearing kind
- * (including UNKNOWN, so an unmodelled event's `tool_input` still round-trips)
- * carries `tool_input` verbatim.
  * @param {string} kind
  * @param {Record<string, unknown>} raw
  * @returns {Record<string, unknown>}
@@ -87,8 +82,6 @@ function claudeInput(kind, raw) {
 }
 
 /**
- * Normalized `tool` for a claude event: null for prompt/session, else the
- * native `tool_name` (preserved for UNKNOWN too).
  * @param {string} kind
  * @param {Record<string, unknown>} raw
  * @returns {string|null}
@@ -100,8 +93,6 @@ function claudeTool(kind, raw) {
 }
 
 /**
- * Build the normalized `meta`, copying only the string-typed known fields and
- * carrying every unmodelled top-level key in `passthrough`.
  * @param {string} nativeEvent
  * @param {Record<string, unknown>} raw
  * @returns {EventMeta}
@@ -111,6 +102,9 @@ function claudeMeta(nativeEvent, raw) {
   const meta = {
     agent: AGENT,
     native_event: nativeEvent,
+    integration_mode: INTEGRATION_MODE,
+    can_enforce: true,
+    primary_gate_present: true,
     passthrough: collectPassthrough(raw, CONSUMED),
   };
   if (typeof raw.session_id === "string") meta.session_id = raw.session_id;
@@ -124,10 +118,7 @@ function claudeMeta(nativeEvent, raw) {
 
 /**
  * Parse a raw Claude Code hook payload into a normalized {@link ToolCallEvent}.
- * Never throws on an unmodelled event type or tool-input field: an unrecognized
- * `hook_event_name` becomes {@link EventKind.UNKNOWN} (its native name kept in
- * `meta.native_event`), and every unknown field survives in `input` or
- * `meta.passthrough`.
+ * Never throws on an unmodelled event type or tool-input field.
  * @param {any} native
  * @returns {ToolCallEvent}
  */
@@ -148,13 +139,43 @@ export function parse(native) {
 }
 
 /**
- * Render a gating (PreToolUse) verdict: the decision auto-approves/blocks/asks,
- * `updatedInput` carries a mutated input, `additionalContext` rides along.
+ * Render into Claude Code's native external-hook transport: a
+ * `hookSpecificOutput` JSON body on stdout plus the exit code that carries the
+ * decision (deny ⇒ exit 2). A deny only counts as `enforced` when the event's
+ * `can_enforce` holds.
+ * @param {Verdict} verdict
+ * @param {ToolCallEvent} event
+ * @returns {NativeResponse}
+ */
+export function render(verdict, event) {
+  const vd = normalizeVerdict(verdict);
+  const kind = event.event;
+  const hookEventName =
+    /** @type {Record<string, string>} */ (KIND_TO_NATIVE)[kind] ??
+    event.meta.native_event;
+  const isDeny = vd.decision === Decision.DENY;
+  const enforced = isDeny && event.meta.can_enforce;
+
+  /** @type {Record<string, unknown>} */
+  const stdout =
+    kind === EventKind.PRE_TOOL
+      ? gatingBody(hookEventName, vd)
+      : nonGatingBody(hookEventName, vd);
+
+  return nativeResponse({
+    transport: INTEGRATION_MODE,
+    exit_code: enforced ? 2 : 0,
+    enforced,
+    stdout,
+  });
+}
+
+/**
  * @param {string} hookEventName
  * @param {Verdict} vd
  * @returns {Record<string, unknown>}
  */
-function renderGating(hookEventName, vd) {
+function gatingBody(hookEventName, vd) {
   /** @type {Record<string, unknown>} */
   const out = { hookEventName, permissionDecision: vd.decision };
   if (vd.reason !== undefined) out.permissionDecisionReason = vd.reason;
@@ -165,15 +186,11 @@ function renderGating(hookEventName, vd) {
 }
 
 /**
- * Render a non-gating verdict (PostToolUse / UserPromptSubmit / SessionStart /
- * unknown). These events cannot auto-approve or rewrite tool input, so a
- * mutated_input is intentionally dropped: only a `block` (deny/ask) with an
- * optional reason and an `additionalContext` are expressible.
  * @param {string} hookEventName
  * @param {Verdict} vd
  * @returns {Record<string, unknown>}
  */
-function renderNonGating(hookEventName, vd) {
+function nonGatingBody(hookEventName, vd) {
   /** @type {Record<string, unknown>} */
   const hookSpecificOutput = { hookEventName };
   if (vd.additional_context !== undefined)
@@ -187,23 +204,5 @@ function renderNonGating(hookEventName, vd) {
   return out;
 }
 
-/**
- * Render a normalized {@link Verdict} into Claude Code's native hook response.
- * The native event name comes from the parsed event (an unknown kind falls back
- * to the preserved `meta.native_event`).
- * @param {Verdict} verdict
- * @param {ToolCallEvent} event
- * @returns {Record<string, unknown>}
- */
-export function render(verdict, event) {
-  const vd = normalizeVerdict(verdict);
-  const kind = event.event;
-  const hookEventName =
-    /** @type {Record<string, string>} */ (KIND_TO_NATIVE)[kind] ??
-    event.meta.native_event;
-  if (kind === EventKind.PRE_TOOL) return renderGating(hookEventName, vd);
-  return renderNonGating(hookEventName, vd);
-}
-
 /** @type {import("../control-plane.mjs").Adapter} */
-export const claudeAdapter = { AGENT, parse, render };
+export const claudeAdapter = { AGENT, INTEGRATION_MODE, parse, render };

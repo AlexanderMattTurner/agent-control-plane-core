@@ -12,16 +12,19 @@ describe("public API surface (index barrel)", () => {
     "SCHEMA_VERSION",
     "EventKind",
     "Decision",
+    "IntegrationMode",
     "MODELED_TOOLS",
     "makeEvent",
     "normalizeVerdict",
     "collectPassthrough",
+    "nativeResponse",
     "asObject",
     "asString",
     "asStringOrNull",
     // adapters + harness
     "claudeAdapter",
     "codexAdapter",
+    "ampAdapter",
     "HookEvent",
     "runAdapterConformance",
   ];
@@ -33,7 +36,11 @@ describe("public API surface (index barrel)", () => {
   }
 
   it("adapters expose the { AGENT, parse, render } shape", () => {
-    for (const adapter of [pkg.claudeAdapter, pkg.codexAdapter]) {
+    for (const adapter of [
+      pkg.claudeAdapter,
+      pkg.codexAdapter,
+      pkg.ampAdapter,
+    ]) {
       assert.equal(typeof adapter.AGENT, "string");
       assert.equal(typeof adapter.parse, "function");
       assert.equal(typeof adapter.render, "function");

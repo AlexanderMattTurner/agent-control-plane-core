@@ -2,17 +2,26 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { runAdapterConformance } from "../src/conformance.mjs";
 
-// A framework-neutral echo adapter + fixtures, independent of the real claude/
-// codex adapters, so these self-tests pin the HARNESS mechanics (does it throw
-// on each way an adapter can be wrong) rather than re-testing an adapter. The
-// echo adapter's parse returns the native's precomputed `event`, and its render
-// returns the verdict verbatim — so a matching fixture passes trivially and any
-// injected mismatch is the harness's own detection under test.
+// A framework-neutral echo adapter, independent of the real adapters, so these
+// self-tests pin the HARNESS mechanics (does it throw on each way an adapter can
+// be wrong) rather than re-testing an adapter. parse echoes the native's
+// precomputed `event`; render derives a NativeResponse from the verdict.
 const echoAdapter = {
   AGENT: "t",
+  INTEGRATION_MODE: "external_hook",
   parse: (native) => native.event,
-  render: (verdict) => verdict,
+  render: (verdict) => ({
+    transport: "external_hook",
+    exit_code: verdict.decision === "deny" ? 2 : 0,
+    enforced: verdict.decision === "deny",
+  }),
 };
+
+const deny = (exit_code, enforced) => ({
+  transport: "external_hook",
+  exit_code,
+  enforced,
+});
 
 function fullFixtures() {
   return {
@@ -23,15 +32,12 @@ function fullFixtures() {
         native: { event: { k: 1 } },
         event: { k: 1 },
         render: {
-          allow: {
-            verdict: { decision: "allow" },
-            native: { decision: "allow" },
-          },
-          deny: { verdict: { decision: "deny" }, native: { decision: "deny" } },
-          ask: { verdict: { decision: "ask" }, native: { decision: "ask" } },
+          allow: { verdict: { decision: "allow" }, native: deny(0, false) },
+          deny: { verdict: { decision: "deny" }, native: deny(2, true) },
+          ask: { verdict: { decision: "ask" }, native: deny(0, false) },
           mutation: {
             verdict: { decision: "allow", mutated_input: { a: 1 } },
-            native: { decision: "allow", mutated_input: { a: 1 } },
+            native: deny(0, false),
           },
         },
       },
@@ -48,6 +54,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     assert.equal(summary.cases, 1);
     assert.equal(summary.renders, 4);
     assert.equal(summary.mutationSeen, true);
+    assert.equal(summary.enforcedDenySeen, true);
     assert.deepEqual(
       [...summary.decisionsSeen].sort(),
       ["allow", "ask", "deny"].sort(),
@@ -67,7 +74,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
   });
 
   it("throws when render output diverges from the golden native", () => {
-    const bad = { ...echoAdapter, render: () => ({}) };
+    const bad = { ...echoAdapter, render: () => deny(0, false) };
     assert.throws(() => run(bad, fullFixtures()), /render mismatch/);
   });
 
@@ -81,5 +88,38 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     const fx = fullFixtures();
     delete fx.cases[0].render.mutation;
     assert.throws(() => run(echoAdapter, fx), /mutation is untested/);
+  });
+
+  it("throws when an enforced deny carries no block signal", () => {
+    const bad = {
+      ...echoAdapter,
+      render: (v) => ({
+        transport: "external_hook",
+        exit_code: 0,
+        enforced: v.decision === "deny",
+      }),
+    };
+    const fx = fullFixtures();
+    fx.cases[0].render.deny.native = deny(0, true);
+    assert.throws(() => run(bad, fx), /carries no block signal/);
+  });
+
+  it("throws when no enforced deny is rendered at all", () => {
+    const advisory = {
+      ...echoAdapter,
+      render: () => ({
+        transport: "observe_only",
+        exit_code: 0,
+        enforced: false,
+      }),
+    };
+    const fx = fullFixtures();
+    for (const key of ["allow", "deny", "ask", "mutation"])
+      fx.cases[0].render[key].native = {
+        transport: "observe_only",
+        exit_code: 0,
+        enforced: false,
+      };
+    assert.throws(() => run(advisory, fx), /enforcement honesty is untested/);
   });
 });

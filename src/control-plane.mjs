@@ -73,14 +73,61 @@ export const MODELED_TOOLS = Object.freeze([
 ]);
 
 /**
+ * How a guardrail ATTACHES to an agent — the transport, kept separate from the
+ * normalized decision so the judge/Verdict core stays transport-agnostic:
+ *   - EXTERNAL_HOOK: the agent shells out to a hook (stdin JSON → deny body /
+ *     exit code). The decision can pre-empt the tool call.
+ *   - IN_PROCESS: an embedded analyzer or a driven confirm/reject loop over the
+ *     agent's own API. Can pre-empt.
+ *   - OBSERVE_ONLY: transcript reader; cannot pre-empt, so its Verdict is
+ *     advisory — the hard stop is the sandbox, not the hook.
+ */
+export const IntegrationMode = Object.freeze({
+  EXTERNAL_HOOK: "external_hook",
+  IN_PROCESS: "in_process",
+  OBSERVE_ONLY: "observe_only",
+});
+
+/**
  * @typedef {object} EventMeta
  * @property {string} agent producing agent id ("claude", "codex", …)
  * @property {string} native_event original native event name, preserved verbatim
+ * @property {"external_hook"|"in_process"|"observe_only"} integration_mode how the guardrail attaches
+ * @property {boolean} can_enforce false ⇒ the Verdict is advisory; the hard stop is the sandbox, not the hook
+ * @property {boolean} primary_gate_present the agent's own native gate already ran (⇒ the monitor is a SECOND opinion; the LLM call can be skipped when the native gate already blocked)
  * @property {string} [session_id]
  * @property {string} [cwd]
  * @property {string} [permission_mode]
  * @property {string} [transcript_path]
  * @property {Record<string, unknown>} passthrough unmodelled native top-level fields, verbatim
+ */
+
+/**
+ * The result of rendering a {@link Verdict} for a specific agent's transport —
+ * the ATTACH mechanism, not the decision. A caller applies whichever channels
+ * are present: write `stdout`, exit with `exit_code`, or `throw`.
+ * @typedef {object} NativeResponse
+ * @property {"external_hook"|"in_process"|"observe_only"} transport
+ * @property {number} exit_code process exit code carrying the decision (0 = proceed)
+ * @property {boolean} enforced whether THIS render actually blocks (false ⇒ advisory only)
+ * @property {unknown} [stdout] native JSON body to write to stdout, when the transport uses one
+ * @property {{ message: string }} [throw_] a thrown-error block signal (plugin transports, e.g. opencode)
+ * @property {ConfigFallback} [fallback] an out-of-band enforcement the adapter ALSO requires (external pin / config deny-wildcards)
+ */
+
+/**
+ * An enforcement the adapter cannot express in-band and so hands to the sandbox
+ * to apply out-of-band — because the in-agent hook has a documented hole:
+ *   - `external_pin`: the agent can re-enable/override its own hook, so the
+ *     sandbox must pin it from OUTSIDE (read-only config mount / PATH-shadow).
+ *   - `config_deny`: an in-agent throw doesn't reach every path (e.g. opencode
+ *     MCP tools / subagents), so a config-level deny-by-name wildcard is ALSO
+ *     required. `uncovered` names paths still not covered (a logged, known gap).
+ * @typedef {object} ConfigFallback
+ * @property {"external_pin"|"config_deny"} kind
+ * @property {string} reason
+ * @property {string[]} [deny_globs] tool-NAME globs to deny at config level (config_deny)
+ * @property {string[]} [uncovered] paths this fallback still cannot reach (known gap)
  */
 
 /**
@@ -105,12 +152,14 @@ export const MODELED_TOOLS = Object.freeze([
 
 /**
  * The translator for one agent's protocol. `parse` maps a native event to a
- * {@link ToolCallEvent} (never throwing on unmodelled input); `render` maps a
- * {@link Verdict} back to that agent's native response shape.
+ * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the
+ * integration mode / enforcement flags on `meta`); `render` maps a {@link Verdict}
+ * to that agent's native transport ({@link NativeResponse}), not just a JSON body.
  * @typedef {object} Adapter
  * @property {string} AGENT
+ * @property {"external_hook"|"in_process"|"observe_only"} INTEGRATION_MODE
  * @property {(native: any) => ToolCallEvent} parse
- * @property {(verdict: Verdict, event: ToolCallEvent) => any} render
+ * @property {(verdict: Verdict, event: ToolCallEvent) => NativeResponse} render
  */
 
 /**
@@ -213,4 +262,30 @@ export function asStringOrNull(value) {
  */
 export function asString(value, fallback) {
   return typeof value === "string" ? value : fallback;
+}
+
+/**
+ * Assemble a {@link NativeResponse}, omitting absent optional channels so a
+ * pure exit-code transport carries no `stdout` key and vice versa.
+ * @param {{ transport: string, exit_code: number, enforced: boolean, stdout?: unknown, throw_?: {message:string}, fallback?: ConfigFallback }} parts
+ * @returns {NativeResponse}
+ */
+export function nativeResponse({
+  transport,
+  exit_code,
+  enforced,
+  stdout,
+  throw_,
+  fallback,
+}) {
+  /** @type {NativeResponse} */
+  const out = {
+    transport: /** @type {NativeResponse["transport"]} */ (transport),
+    exit_code,
+    enforced,
+  };
+  if (stdout !== undefined) out.stdout = stdout;
+  if (throw_ !== undefined) out.throw_ = throw_;
+  if (fallback !== undefined) out.fallback = fallback;
+  return out;
 }
