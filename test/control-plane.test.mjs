@@ -77,7 +77,6 @@ describe("makeEvent stamps the version and omits absent response", () => {
     agent: "t",
     native_event: "X",
     integration_mode: "external_hook",
-    can_enforce: true,
     primary_gate_present: true,
     passthrough: {},
   };
@@ -88,19 +87,23 @@ describe("makeEvent stamps the version and omits absent response", () => {
       tool: "Bash",
       input: {},
       response: "out",
+      this_call_vetoable: true,
       meta,
     });
     assert.equal(withResp.schema_version, 1);
     assert.equal(withResp.response, "out");
+    assert.equal(withResp.this_call_vetoable, true);
 
     const withoutResp = makeEvent({
       event: "pre_tool",
       tool: "Bash",
       input: {},
       response: undefined,
+      this_call_vetoable: false,
       meta,
     });
     assert.ok(!("response" in withoutResp));
+    assert.equal(withoutResp.this_call_vetoable, false);
   });
 });
 

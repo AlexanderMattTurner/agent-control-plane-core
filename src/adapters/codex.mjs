@@ -7,8 +7,8 @@
  * Managed pin: /etc/codex/requirements.toml + allow_managed_hooks_only.
  *
  * VERSION GATE: hook enforcement only exists in v0.135+. Below that, there is no
- * veto, so parse marks the event OBSERVE_ONLY with can_enforce=false — the
- * adapter must not pretend to enforce on an old Codex.
+ * veto, so parse marks the event OBSERVE_ONLY with this_call_vetoable=false —
+ * the adapter must not pretend to enforce on an old Codex.
  */
 
 import {
@@ -67,8 +67,8 @@ export function canEnforce(version) {
 
 /**
  * Parse a raw Codex hook payload. Never throws on unmodelled input. Marks the
- * event observe-only (can_enforce=false) when the Codex version predates hook
- * enforcement.
+ * event observe-only (this_call_vetoable=false) when the Codex version
+ * predates hook enforcement.
  * @param {any} native
  * @returns {ToolCallEvent}
  */
@@ -86,7 +86,6 @@ export function parse(native) {
     integration_mode: enforce
       ? IntegrationMode.EXTERNAL_HOOK
       : IntegrationMode.OBSERVE_ONLY,
-    can_enforce: enforce,
     primary_gate_present: true,
     passthrough: collectPassthrough(raw, CONSUMED),
   };
@@ -102,6 +101,7 @@ export function parse(native) {
     tool: asStringOrNull(raw.tool_name),
     input: asObject(raw.tool_input),
     response: undefined,
+    this_call_vetoable: enforce,
     meta,
   });
 }
@@ -109,23 +109,29 @@ export function parse(native) {
 /**
  * Render into Codex's native external-hook transport: a `hookSpecificOutput`
  * body preserving the native event name (`PreToolUse`/`PermissionRequest`) plus
- * exit 2 on an enforceable deny. On a pre-v0.135 Codex (`can_enforce` false) the
- * body still renders but exit stays 0 and `enforced` is false — advisory only.
+ * exit 2 on an enforceable deny. On a pre-v0.135 Codex (`this_call_vetoable`
+ * false) the body still renders but exit stays 0 and `enforced` is false —
+ * advisory only.
+ *
+ * `soleGate` (default `false`) is the same dangerous, explicit opt-in as the
+ * Claude adapter: when `true` AND the verdict is `allow`, the render emits the
+ * real `permissionDecision: "allow"` instead of abstaining.
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
+ * @param {{ soleGate?: boolean }} [options]
  * @returns {NativeResponse}
  */
-export function render(verdict, event) {
+export function render(verdict, event, { soleGate = false } = {}) {
   const vd = normalizeVerdict(verdict);
-  const enforced = vd.decision === Decision.DENY && event.meta.can_enforce;
+  const enforced = vd.decision === Decision.DENY && event.this_call_vetoable;
   const hookEventName = event.meta.native_event || "PreToolUse";
 
-  // As in the Claude adapter, `allow` omits permissionDecision so the guardrail
-  // never auto-approves a call it merely had no objection to; only deny/ask emit
-  // an explicit decision.
+  // As in the Claude adapter, `allow` omits permissionDecision by default so the
+  // guardrail never auto-approves a call it merely had no objection to; only
+  // deny/ask emit an explicit decision, unless `soleGate` opts into it.
   /** @type {Record<string, unknown>} */
   const body = { hookEventName };
-  if (vd.decision !== Decision.ALLOW) {
+  if (vd.decision !== Decision.ALLOW || soleGate) {
     body.permissionDecision = vd.decision;
     if (vd.reason !== undefined) body.permissionDecisionReason = vd.reason;
   }

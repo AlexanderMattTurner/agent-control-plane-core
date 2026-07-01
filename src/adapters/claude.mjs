@@ -7,8 +7,9 @@
  * agent shells out with stdin JSON and reads a deny body / exit code back.
  *
  * Deny signal (PreToolUse): `hookSpecificOutput.permissionDecision = "deny"`
- * AND exit 2. can_enforce is true, but per the doctrine that is a useful FIRST
- * filter, never the boundary — the Verdict stays advisory to the sandbox.
+ * AND exit 2. this_call_vetoable is true, but per the doctrine that is a
+ * useful FIRST filter, never the boundary — the Verdict stays advisory to the
+ * sandbox.
  */
 
 import {
@@ -103,7 +104,6 @@ function claudeMeta(nativeEvent, raw) {
     agent: AGENT,
     native_event: nativeEvent,
     integration_mode: INTEGRATION_MODE,
-    can_enforce: true,
     primary_gate_present: true,
     passthrough: collectPassthrough(raw, CONSUMED),
   };
@@ -134,6 +134,7 @@ export function parse(native) {
     tool: claudeTool(kind, raw),
     input: claudeInput(kind, raw),
     response,
+    this_call_vetoable: true,
     meta: claudeMeta(nativeEvent, raw),
   });
 }
@@ -142,24 +143,31 @@ export function parse(native) {
  * Render into Claude Code's native external-hook transport: a
  * `hookSpecificOutput` JSON body on stdout plus the exit code that carries the
  * decision (deny ⇒ exit 2). A deny only counts as `enforced` when the event's
- * `can_enforce` holds.
+ * `this_call_vetoable` holds.
+ *
+ * `soleGate` (default `false`) is a dangerous, explicit opt-in: when `true` AND
+ * the verdict is `allow`, the render emits Claude Code's REAL
+ * `permissionDecision: "allow"`, which bypasses the native permission prompt.
+ * Default behavior always abstains on allow (see {@link gatingBody}) so the
+ * guardrail can never silently become the sole gate by accident.
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
+ * @param {{ soleGate?: boolean }} [options]
  * @returns {NativeResponse}
  */
-export function render(verdict, event) {
+export function render(verdict, event, { soleGate = false } = {}) {
   const vd = normalizeVerdict(verdict);
   const kind = event.event;
   const hookEventName =
     /** @type {Record<string, string>} */ (KIND_TO_NATIVE)[kind] ??
     event.meta.native_event;
   const isDeny = vd.decision === Decision.DENY;
-  const enforced = isDeny && event.meta.can_enforce;
+  const enforced = isDeny && event.this_call_vetoable;
 
   /** @type {Record<string, unknown>} */
   const stdout =
     kind === EventKind.PRE_TOOL
-      ? gatingBody(hookEventName, vd)
+      ? gatingBody(hookEventName, vd, soleGate)
       : nonGatingBody(hookEventName, vd);
 
   return nativeResponse({
@@ -172,18 +180,21 @@ export function render(verdict, event) {
 
 /**
  * Build a PreToolUse `hookSpecificOutput`. `allow` OMITS `permissionDecision`
- * — in Claude Code that field auto-approves the call, bypassing the normal
- * permission prompt, so a guardrail that merely has "no objection" must stay
- * silent on it and let the default flow run. Only `deny`/`ask` emit an explicit
- * `permissionDecision`. `updatedInput`/`additionalContext` ride along regardless.
+ * by default — in Claude Code that field auto-approves the call, bypassing the
+ * normal permission prompt, so a guardrail that merely has "no objection" must
+ * stay silent on it and let the default flow run. Only `deny`/`ask` emit an
+ * explicit `permissionDecision`, UNLESS `soleGate` is true, in which case an
+ * `allow` also emits the real `permissionDecision: "allow"` (the monitor-as-
+ * sole-gate opt-in). `updatedInput`/`additionalContext` ride along regardless.
  * @param {string} hookEventName
  * @param {Verdict} vd
+ * @param {boolean} soleGate
  * @returns {Record<string, unknown>}
  */
-function gatingBody(hookEventName, vd) {
+function gatingBody(hookEventName, vd, soleGate) {
   /** @type {Record<string, unknown>} */
   const out = { hookEventName };
-  if (vd.decision !== Decision.ALLOW) {
+  if (vd.decision !== Decision.ALLOW || soleGate) {
     out.permissionDecision = vd.decision;
     if (vd.reason !== undefined) out.permissionDecisionReason = vd.reason;
   }

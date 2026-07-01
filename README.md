@@ -72,6 +72,7 @@ pnpm add agent-control-plane-core
   tool: string | null,              // "Bash" | "Edit" | "Write" | "Read" | "WebFetch" | <passthrough> | null
   input: object,                    // tool input; a submitted prompt folds into input.prompt
   response?: unknown,               // post_tool only
+  this_call_vetoable: boolean,      // false ⇒ a deny here is advisory only; the guardrail cannot block THIS call
   meta: {
     agent: string,                  // "claude" | "codex" | …
     native_event: string,           // original native event name, preserved verbatim
