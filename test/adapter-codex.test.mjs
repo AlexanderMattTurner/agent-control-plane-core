@@ -46,6 +46,13 @@ describe("codex adapter: allow = abstain by default, soleGate opt-in", () => {
     assert.equal(out.exit_code, 0);
   });
 
+  it("soleGate: false (explicit) still abstains", () => {
+    const out = codexAdapter.render({ decision: "allow" }, event, {
+      soleGate: false,
+    });
+    assert.ok(!("permissionDecision" in out.stdout.hookSpecificOutput));
+  });
+
   it("soleGate: true emits the real permissionDecision: allow", () => {
     const out = codexAdapter.render({ decision: "allow" }, event, {
       soleGate: true,
@@ -66,6 +73,21 @@ describe("codex adapter: allow = abstain by default, soleGate opt-in", () => {
       { soleGate: true },
     );
     assert.deepEqual(denyDefault, denySoleGate);
+  });
+
+  it("soleGate: true on a non-vetoable (pre-v0.135) event still abstains from enforcement", () => {
+    const preEnforcing = codexAdapter.parse({
+      hook_event_name: "PreToolUse",
+      version: "0.134.9",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    });
+    const out = codexAdapter.render({ decision: "allow" }, preEnforcing, {
+      soleGate: true,
+    });
+    assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "allow");
+    assert.equal(out.enforced, false);
+    assert.equal(out.exit_code, 0);
   });
 });
 

@@ -159,7 +159,7 @@ export const IntegrationMode = Object.freeze({
  * @property {string} AGENT
  * @property {"external_hook"|"in_process"|"observe_only"} INTEGRATION_MODE
  * @property {(native: any) => ToolCallEvent} parse
- * @property {(verdict: Verdict, event: ToolCallEvent) => NativeResponse} render
+ * @property {(verdict: Verdict, event: ToolCallEvent, options?: { soleGate?: boolean }) => NativeResponse} render
  */
 
 /**
