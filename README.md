@@ -1,19 +1,65 @@
-# agent-control-plane
+# agent-control-plane-core
 
-A **vendor-neutral control-plane contract** for coding agents. It defines one
-normalized shape for "an agent is about to run / just ran a tool" and one for
-"the guardrail decided X", plus per-agent **adapters** that translate a specific
-agent's native hook/tool-call protocol to and from those shapes.
+**One shape for "a coding agent is about to run a tool" and "here's what my
+guardrail decided" — so you write your tool once and it works across every
+agent.**
 
-Write your monitor, deny-matcher, redactor, or sanitizer once against the
-normalized types; add a thin adapter per agent (Claude Code, Codex, …) and it
-works everywhere. The agent-specific field names live **only** inside that
-agent's adapter.
+## The problem this solves
+
+Coding agents — Claude Code, Codex, Gemini CLI, opencode, Amp, and friends — all
+let you hook into their tool-call loop: before a shell command runs, after a file
+is written, when a prompt is submitted. That's where you'd plug in a security
+guardrail, an audit log, a secret redactor, a policy engine.
+
+But **every agent speaks its own protocol.** One sends you `tool_name` +
+`tool_input` on stdin and wants `{"permissionDecision":"deny"}` back plus exit
+code 2. Another names the fields differently, blocks by throwing inside a plugin,
+or can only _observe_ and not veto. The field names differ, the "block this"
+signal differs, and each one drifts on its own release cadence.
+
+So if you build a tool that touches more than one agent, you end up writing and
+maintaining **N copies of the same logic** — one per agent — and re-testing all
+of them every time an agent ships a new field. That's the tax this package
+removes.
+
+## What it gives you
+
+- **`ToolCallEvent`** — one normalized, agent-agnostic view of "an agent event"
+  (a tool about to run, a tool that just ran, a prompt, a session start).
+- **`Verdict`** — one normalized way to say what your guardrail decided:
+  `allow` / `deny` / `ask`, optionally with a rewritten input or extra context.
+- **Adapters** — a thin `{ parse, render }` translator per agent. `parse` turns
+  that agent's raw hook payload into a `ToolCallEvent`; `render` turns your
+  `Verdict` back into the **real** native signal that agent enforces (the right
+  JSON body, exit code, or thrown error — not just a print).
+
+You write your logic **once** against the normalized types. Adding support for a
+new agent is a new adapter (~one file + fixtures), not a rewrite of your tool.
+The agent-specific field names live **only** inside that agent's adapter.
+
+## Who wants this
+
+Anyone building a tool that sits in the tool-call loop of **more than one**
+coding agent, and doesn't want to fork it per agent:
+
+- **Security guardrails** — deny-listers, command/path sanitizers, permission gates.
+- **Observability & audit** — log or replay every tool call in a uniform shape.
+- **Redaction / DLP** — strip secrets from tool inputs or outputs before they move.
+- **Policy engines** — one rule set enforced identically no matter which agent runs.
+
+If you only ever target a single agent, you don't need this — just use that
+agent's native hooks. The value is entirely in the _N-agents_ case.
+
+> **Not a security boundary.** A `Verdict` is advisory: a useful first filter,
+> never the last line of defense. Some agents can't enforce a `deny` at all (the
+> adapter marks those `observe_only`), so a real deployment still needs a sandbox
+> underneath. Treat the control plane as a policy layer on top of isolation, not
+> a replacement for it.
 
 ## Install
 
 ```bash
-pnpm add agent-control-plane
+pnpm add agent-control-plane-core
 ```
 
 ## The model
@@ -53,7 +99,7 @@ render(verdict, event) -> nativeResponse // the agent's native shape
 ## Usage
 
 ```js
-import { claudeAdapter } from "agent-control-plane/claude";
+import { claudeAdapter } from "agent-control-plane-core/claude";
 
 // 1. Normalize the agent's raw hook payload.
 const event = claudeAdapter.parse(rawHookJson);
@@ -77,7 +123,7 @@ import {
   claudeAdapter,
   codexAdapter,
   runAdapterConformance,
-} from "agent-control-plane";
+} from "agent-control-plane-core";
 ```
 
 ## Drift discipline (the point of the seam)
@@ -100,7 +146,7 @@ translator with its own golden fixtures. It must pass the conformance suite:
 ```js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runAdapterConformance } from "agent-control-plane/conformance";
+import { runAdapterConformance } from "agent-control-plane-core/conformance";
 import { myAdapter } from "./my-adapter.mjs";
 import fixtures from "./fixtures/my-agent.json" with { type: "json" };
 

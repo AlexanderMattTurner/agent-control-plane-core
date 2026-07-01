@@ -1,5 +1,5 @@
 {
-  "name": "agent-control-plane",
+  "name": "agent-control-plane-core",
   "version": "0.1.0",
   "description": "Vendor-neutral control-plane contract for coding agents: a normalized ToolCallEvent/Verdict schema with per-agent adapters (Claude Code, Codex) and a conformance suite.",
   "type": "module",
