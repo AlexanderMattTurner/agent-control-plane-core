@@ -1,4 +1,4 @@
-# agent-control-plane-contract
+# agent-control-plane-core
 
 **One shape for "a coding agent is about to run a tool" and "here's what my
 guardrail decided" — so you write your tool once and it works across every
@@ -59,7 +59,7 @@ agent's native hooks. The value is entirely in the _N-agents_ case.
 ## Install
 
 ```bash
-pnpm add agent-control-plane-contract
+pnpm add agent-control-plane-core
 ```
 
 ## The model
@@ -99,7 +99,7 @@ render(verdict, event) -> nativeResponse // the agent's native shape
 ## Usage
 
 ```js
-import { claudeAdapter } from "agent-control-plane-contract/claude";
+import { claudeAdapter } from "agent-control-plane-core/claude";
 
 // 1. Normalize the agent's raw hook payload.
 const event = claudeAdapter.parse(rawHookJson);
@@ -123,7 +123,7 @@ import {
   claudeAdapter,
   codexAdapter,
   runAdapterConformance,
-} from "agent-control-plane-contract";
+} from "agent-control-plane-core";
 ```
 
 ## Drift discipline (the point of the seam)
@@ -146,7 +146,7 @@ translator with its own golden fixtures. It must pass the conformance suite:
 ```js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runAdapterConformance } from "agent-control-plane-contract/conformance";
+import { runAdapterConformance } from "agent-control-plane-core/conformance";
 import { myAdapter } from "./my-adapter.mjs";
 import fixtures from "./fixtures/my-agent.json" with { type: "json" };
 

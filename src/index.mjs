@@ -1,11 +1,11 @@
 /**
- * agent-control-plane-contract — vendor-neutral control-plane contract for coding agents.
+ * agent-control-plane-core — vendor-neutral control-plane contract for coding agents.
  *
  * Re-exports the normalized {@link ToolCallEvent}/{@link Verdict} contract, the
  * transport-agnostic core (integration modes + {@link NativeResponse}), the
  * reference adapters, and the conformance harness every adapter must pass.
  * Individual adapters are also reachable at the subpath exports
- * `agent-control-plane-contract/claude`, `/codex`, `/amp`, and the harness at
+ * `agent-control-plane-core/claude`, `/codex`, `/amp`, and the harness at
  * `/conformance`.
  */
 
