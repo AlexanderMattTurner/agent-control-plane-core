@@ -39,8 +39,7 @@
             "enforced": false,
             "stdout": {
               "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "allow"
+                "hookEventName": "PreToolUse"
               }
             }
           }
@@ -88,7 +87,6 @@
             "stdout": {
               "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "permissionDecision": "allow",
                 "updatedInput": { "command": "ls" },
                 "additionalContext": "normalized"
               }
@@ -128,8 +126,7 @@
             "enforced": false,
             "stdout": {
               "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "allow"
+                "hookEventName": "PreToolUse"
               }
             }
           }

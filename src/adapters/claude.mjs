@@ -171,14 +171,22 @@ export function render(verdict, event) {
 }
 
 /**
+ * Build a PreToolUse `hookSpecificOutput`. `allow` OMITS `permissionDecision`
+ * — in Claude Code that field auto-approves the call, bypassing the normal
+ * permission prompt, so a guardrail that merely has "no objection" must stay
+ * silent on it and let the default flow run. Only `deny`/`ask` emit an explicit
+ * `permissionDecision`. `updatedInput`/`additionalContext` ride along regardless.
  * @param {string} hookEventName
  * @param {Verdict} vd
  * @returns {Record<string, unknown>}
  */
 function gatingBody(hookEventName, vd) {
   /** @type {Record<string, unknown>} */
-  const out = { hookEventName, permissionDecision: vd.decision };
-  if (vd.reason !== undefined) out.permissionDecisionReason = vd.reason;
+  const out = { hookEventName };
+  if (vd.decision !== Decision.ALLOW) {
+    out.permissionDecision = vd.decision;
+    if (vd.reason !== undefined) out.permissionDecisionReason = vd.reason;
+  }
   if (vd.mutated_input !== undefined) out.updatedInput = vd.mutated_input;
   if (vd.additional_context !== undefined)
     out.additionalContext = vd.additional_context;

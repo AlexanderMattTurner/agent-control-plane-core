@@ -120,9 +120,15 @@ export function render(verdict, event) {
   const enforced = vd.decision === Decision.DENY && event.meta.can_enforce;
   const hookEventName = event.meta.native_event || "PreToolUse";
 
+  // As in the Claude adapter, `allow` omits permissionDecision so the guardrail
+  // never auto-approves a call it merely had no objection to; only deny/ask emit
+  // an explicit decision.
   /** @type {Record<string, unknown>} */
-  const body = { hookEventName, permissionDecision: vd.decision };
-  if (vd.reason !== undefined) body.permissionDecisionReason = vd.reason;
+  const body = { hookEventName };
+  if (vd.decision !== Decision.ALLOW) {
+    body.permissionDecision = vd.decision;
+    if (vd.reason !== undefined) body.permissionDecisionReason = vd.reason;
+  }
   if (vd.mutated_input !== undefined) body.updatedInput = vd.mutated_input;
 
   return nativeResponse({

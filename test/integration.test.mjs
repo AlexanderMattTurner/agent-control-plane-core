@@ -38,14 +38,19 @@ describe("integration: adapter transports over a real process boundary", () => {
     assert.equal(out.json.hookSpecificOutput.permissionDecision, "deny");
   });
 
-  it("claude allow → exit 0 + permissionDecision allow", () => {
+  it("claude allow → exit 0 + NO permissionDecision (never auto-approves)", () => {
     const out = runHook("claude", {
       hook_event_name: "PreToolUse",
       tool_name: "Bash",
       tool_input: { command: "ls -la" },
     });
     assert.equal(out.code, 0);
-    assert.equal(out.json.hookSpecificOutput.permissionDecision, "allow");
+    assert.equal(out.json.hookSpecificOutput.hookEventName, "PreToolUse");
+    assert.equal(
+      "permissionDecision" in out.json.hookSpecificOutput,
+      false,
+      "an allow must not emit permissionDecision — that would auto-approve",
+    );
   });
 
   it("amp deny → exit 2 with NO stdout body (pure exit-code transport)", () => {
