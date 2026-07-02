@@ -42,6 +42,14 @@ jobs:
         if: steps.check.outputs.configured == 'true'
         run: pnpm test
 
+      # types/ is a committed build artifact (consumers installing the git dep
+      # with scripts ignored still need the declarations the exports map points
+      # at), so it must never drift from the source it was emitted from.
+      - name: Committed types/ match a fresh build
+        run: |
+          pnpm build
+          git diff --exit-code types/
+
   # Stable Required check: runs even when `test` is cancelled/skipped, so a
   # protected branch never gets stuck on a check that never reports.
   node-tests-passed: # required-check: true
