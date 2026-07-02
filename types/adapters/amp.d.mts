@@ -20,6 +20,16 @@ export function render(verdict: Verdict, event: ToolCallEvent): NativeResponse;
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
 export const AGENT: "amp";
 export const INTEGRATION_MODE: "external_hook";
+/**
+ * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). Every tool call is
+ * checked against the permission engine; `amp.mcpPermissions` runs MCP tools
+ * through the same rule syntax, and a rule's `context: "subagent"` selector
+ * gates calls inside subagents — so builtin, MCP, and subagent are all COVERED.
+ * Resumed-thread firing is a strong-but-uncited structural argument, so it is
+ * held at UNKNOWN until an item-⑤ probe confirms it.
+ */
+/** @type {import("../control-plane.mjs").CoverageMap} */
+export const COVERAGE: import("../control-plane.mjs").CoverageMap;
 /** @type {import("../control-plane.mjs").Adapter} */
 export const ampAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;

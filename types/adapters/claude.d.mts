@@ -32,6 +32,15 @@ export function render(verdict: Verdict, event: ToolCallEvent, { soleGate }?: {
 export const AGENT: "claude";
 /** How this adapter attaches to the agent. */
 export const INTEGRATION_MODE: "external_hook";
+/**
+ * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). `PreToolUse` fires
+ * for builtins, for MCP tools (surfaced as `mcp__<server>__<tool>` through the
+ * same hook), and for every tool a subagent uses (subagents do not inherit the
+ * parent's permissions, so the hook is often their only gate). Resumed sessions
+ * re-read hooks from settings and fire per new call — structural, uncontested.
+ */
+/** @type {import("../control-plane.mjs").CoverageMap} */
+export const COVERAGE: import("../control-plane.mjs").CoverageMap;
 /** Claude Code native hook event names (the `hook_event_name` field). */
 export const HookEvent: Readonly<{
     PRE_TOOL_USE: "PreToolUse";
