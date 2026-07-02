@@ -15,6 +15,10 @@ import {
   EventKind,
   Decision,
   IntegrationMode,
+  CallClass,
+  CoverageStatus,
+  classifyCallClass,
+  coverageAllowsVeto,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
@@ -30,6 +34,22 @@ import {
 
 export const AGENT = "amp";
 export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
+
+/**
+ * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). Every tool call is
+ * checked against the permission engine; `amp.mcpPermissions` runs MCP tools
+ * through the same rule syntax, and a rule's `context: "subagent"` selector
+ * gates calls inside subagents — so builtin, MCP, and subagent are all COVERED.
+ * Resumed-thread firing is a strong-but-uncited structural argument, so it is
+ * held at UNKNOWN until an item-⑤ probe confirms it.
+ */
+/** @type {import("../control-plane.mjs").CoverageMap} */
+export const COVERAGE = Object.freeze({
+  [CallClass.BUILTIN]: CoverageStatus.COVERED,
+  [CallClass.MCP]: CoverageStatus.COVERED,
+  [CallClass.SUBAGENT]: CoverageStatus.COVERED,
+  [CallClass.RESUMED]: CoverageStatus.UNKNOWN,
+});
 
 // Amp invokes the delegate for a tool call; the payload carries the tool name +
 // input and the session context. Pinned by fixtures/amp.json.
@@ -51,12 +71,15 @@ export function parse(native) {
   };
   if (typeof raw.session_id === "string") meta.session_id = raw.session_id;
   if (typeof raw.cwd === "string") meta.cwd = raw.cwd;
+  const tool = asStringOrNull(raw.tool);
   return makeEvent({
     event: EventKind.PRE_TOOL,
-    tool: asStringOrNull(raw.tool),
+    tool,
     input: asObject(raw.input),
     response: undefined,
-    this_call_vetoable: true,
+    this_call_vetoable: coverageAllowsVeto(
+      COVERAGE[classifyCallClass(tool, raw)],
+    ),
     meta,
   });
 }
@@ -79,4 +102,4 @@ export function render(verdict, event) {
 }
 
 /** @type {import("../control-plane.mjs").Adapter} */
-export const ampAdapter = { AGENT, INTEGRATION_MODE, parse, render };
+export const ampAdapter = { AGENT, INTEGRATION_MODE, COVERAGE, parse, render };

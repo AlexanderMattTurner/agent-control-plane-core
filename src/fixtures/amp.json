@@ -3,6 +3,7 @@
   "cases": [
     {
       "name": "delegate Bash, exit-code transport, all verdicts",
+      "call_class": "builtin",
       "native": {
         "tool": "Bash",
         "input": {

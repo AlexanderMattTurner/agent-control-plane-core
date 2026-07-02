@@ -16,6 +16,10 @@ import {
   EventKind,
   Decision,
   IntegrationMode,
+  CallClass,
+  CoverageStatus,
+  classifyCallClass,
+  coverageAllowsVeto,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
@@ -35,6 +39,21 @@ export const AGENT = "claude";
 
 /** How this adapter attaches to the agent. */
 export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
+
+/**
+ * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). `PreToolUse` fires
+ * for builtins, for MCP tools (surfaced as `mcp__<server>__<tool>` through the
+ * same hook), and for every tool a subagent uses (subagents do not inherit the
+ * parent's permissions, so the hook is often their only gate). Resumed sessions
+ * re-read hooks from settings and fire per new call — structural, uncontested.
+ */
+/** @type {import("../control-plane.mjs").CoverageMap} */
+export const COVERAGE = Object.freeze({
+  [CallClass.BUILTIN]: CoverageStatus.COVERED,
+  [CallClass.MCP]: CoverageStatus.COVERED,
+  [CallClass.SUBAGENT]: CoverageStatus.COVERED,
+  [CallClass.RESUMED]: CoverageStatus.COVERED,
+});
 
 /** Claude Code native hook event names (the `hook_event_name` field). */
 export const HookEvent = Object.freeze({
@@ -129,12 +148,15 @@ export function parse(native) {
     /** @type {Record<string, string>} */ (NATIVE_TO_KIND)[nativeEvent] ??
     EventKind.UNKNOWN;
   const response = kind === EventKind.POST_TOOL ? raw.tool_response : undefined;
+  const tool = claudeTool(kind, raw);
   return makeEvent({
     event: kind,
-    tool: claudeTool(kind, raw),
+    tool,
     input: claudeInput(kind, raw),
     response,
-    this_call_vetoable: true,
+    this_call_vetoable: coverageAllowsVeto(
+      COVERAGE[classifyCallClass(tool, raw)],
+    ),
     meta: claudeMeta(nativeEvent, raw),
   });
 }
@@ -224,4 +246,10 @@ function nonGatingBody(hookEventName, vd) {
 }
 
 /** @type {import("../control-plane.mjs").Adapter} */
-export const claudeAdapter = { AGENT, INTEGRATION_MODE, parse, render };
+export const claudeAdapter = {
+  AGENT,
+  INTEGRATION_MODE,
+  COVERAGE,
+  parse,
+  render,
+};

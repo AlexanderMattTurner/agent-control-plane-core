@@ -23,6 +23,10 @@ import {
   EventKind,
   Decision,
   IntegrationMode,
+  CallClass,
+  CoverageStatus,
+  classifyCallClass,
+  coverageAllowsVeto,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
@@ -38,6 +42,22 @@ import {
 
 export const AGENT = "gemini";
 export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
+
+/**
+ * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). `BeforeTool` gates
+ * builtins on v0.26+ (COVERED). MCP routing through the same matcher is only
+ * MEDIUM-confidence and unproven, subagent firing for a loaded agent is
+ * undocumented, and resumed-session behavior has no source — all three are
+ * UNKNOWN, held at fail-closed until an item-⑤ probe upgrades them. A guessed ✅
+ * here would be a silent fail-open.
+ */
+/** @type {import("../control-plane.mjs").CoverageMap} */
+export const COVERAGE = Object.freeze({
+  [CallClass.BUILTIN]: CoverageStatus.COVERED,
+  [CallClass.MCP]: CoverageStatus.UNKNOWN,
+  [CallClass.SUBAGENT]: CoverageStatus.UNKNOWN,
+  [CallClass.RESUMED]: CoverageStatus.UNKNOWN,
+});
 
 /** Gemini CLI native hook event names (the `hook_event_name` field). */
 export const HookEvent = Object.freeze({
@@ -85,9 +105,11 @@ function geminiMeta(nativeEvent, raw) {
 
 /**
  * Parse a raw Gemini CLI hook payload into a normalized {@link ToolCallEvent}.
- * Never throws on an unmodelled event type or tool-input field. Any payload we
- * receive comes from a hooks-capable Gemini (v0.26.0+) whose `BeforeTool` can
- * pre-empt via exit 2, so `this_call_vetoable` is true.
+ * Never throws on an unmodelled event type or tool-input field. A payload comes
+ * from a hooks-capable Gemini (v0.26.0+) whose `BeforeTool` can pre-empt builtin
+ * tools via exit 2. But MCP firing is only medium-confidence (COVERAGE.mcp is
+ * UNKNOWN), so an MCP-sourced call — flagged by `mcp_context` or an `mcp_`-named
+ * tool — parses non-vetoable until an item-⑤ probe confirms the hook fires.
  * @param {any} native
  * @returns {ToolCallEvent}
  */
@@ -100,12 +122,15 @@ export function parse(native) {
     EventKind.UNKNOWN;
   const gating = kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL;
   const response = kind === EventKind.POST_TOOL ? raw.tool_response : undefined;
+  const tool = gating ? asStringOrNull(raw.tool_name) : null;
   return makeEvent({
     event: kind,
-    tool: gating ? asStringOrNull(raw.tool_name) : null,
+    tool,
     input: gating ? asObject(raw.tool_input) : {},
     response,
-    this_call_vetoable: true,
+    this_call_vetoable: coverageAllowsVeto(
+      COVERAGE[classifyCallClass(tool, raw)],
+    ),
     meta: geminiMeta(nativeEvent, raw),
   });
 }
@@ -172,4 +197,10 @@ function decisionBody(vd, soleGate) {
 }
 
 /** @type {import("../control-plane.mjs").Adapter} */
-export const geminiAdapter = { AGENT, INTEGRATION_MODE, parse, render };
+export const geminiAdapter = {
+  AGENT,
+  INTEGRATION_MODE,
+  COVERAGE,
+  parse,
+  render,
+};

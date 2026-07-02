@@ -9,6 +9,17 @@
 > later teaching conformance to enforce such a matrix; it decides nothing about
 > the schema.
 
+**Status: now enforced.** The matrix below is encoded as each adapter's frozen
+`COVERAGE` map (`CallClass` → `CoverageStatus`, `src/control-plane.mjs`), and the
+conformance harness (`runAdapterConformance`) checks it three ways: every adapter
+classifies exactly the canonical `CALL_CLASSES`; a fixture case tagged with a
+`call_class` whose status doesn't permit a veto (uncovered/unknown — an ❓ is
+treated as ❌ via `coverageAllowsVeto`) MUST parse `this_call_vetoable: false`;
+and each adapter's `parse` derives vetoability from its own row, so an MCP-sourced
+call on a host whose MCP cell is not ✅ (Codex ❌, Gemini ❓) parses non-vetoable.
+Subagent/resumed cells stay advisory-only in code until an item-⑤ probe supplies a
+detectable signal — the tables below remain the SSOT for what each cell claims.
+
 ## Why "hook fires?" is exactly `this_call_vetoable`
 
 `ToolCallEvent.this_call_vetoable` (`src/control-plane.mjs:140`) is defined as:
