@@ -38,28 +38,41 @@ const DUMP_BIN = join(
 // STRING gets generated). This is a regression test for a real first-dispatch
 // bug: Gemini CLI runs hooks with a sandboxed env, so ACP_CAPTURE_FILE never
 // reached dump.mjs even though the parent gemini process had it. The fix moved
-// the target path onto the command line (argv[2]); this drives the actual
-// binary to prove the fix and pin the fallback/failure behavior.
-describe("dump.mjs: capture target via argv, with env fallback", () => {
-  // Merge onto process.env (for PATH etc.) rather than replacing it outright;
-  // explicitly delete ACP_CAPTURE_FILE first so a real CI env can't leak one in.
-  const run = (argv, envOverrides, stdin) => {
+// the target path onto the command line as a NAMED --capture-file=<path> flag
+// (searched by prefix, not a bare positional index) so a prepended argument —
+// ours or a host's — can never silently shift which value gets read; this
+// drives the actual binary to prove the fix and pin the fallback/failure
+// behavior.
+describe("dump.mjs: capture target via --capture-file flag, with env fallback", () => {
+  // cwd is pinned to the per-test temp dir — NOT the repo root — so a bug in
+  // dump.mjs that resolves a relative path (e.g. reading the wrong argv slot)
+  // writes a stray file into a directory this test deletes, never into the
+  // working tree. Merge onto process.env (for PATH etc.) rather than replacing
+  // it outright; explicitly delete ACP_CAPTURE_FILE first so a real CI env
+  // can't leak one in.
+  const run = (base, argv, envOverrides, stdin) => {
     const env = { ...process.env, ...envOverrides };
     delete env.ACP_CAPTURE_FILE;
     if (envOverrides.ACP_CAPTURE_FILE)
       env.ACP_CAPTURE_FILE = envOverrides.ACP_CAPTURE_FILE;
     return spawnSync("node", [DUMP_BIN, ...argv], {
+      cwd: base,
       env,
       input: stdin ?? "",
       encoding: "utf8",
     });
   };
 
-  it("writes stdin to the argv[2] target and exits 0, even with no env at all", () => {
+  it("writes stdin to the --capture-file target and exits 0, even with no env at all", () => {
     const base = mkdtempSync(join(tmpdir(), "acp-dump-"));
     try {
       const target = join(base, "out.json");
-      const res = run([target], {}, '{"hook_event_name":"BeforeTool"}');
+      const res = run(
+        base,
+        [`--capture-file=${target}`],
+        {},
+        '{"hook_event_name":"BeforeTool"}',
+      );
       assert.equal(res.status, 0);
       assert.equal(
         readFileSync(target, "utf8"),
@@ -70,11 +83,25 @@ describe("dump.mjs: capture target via argv, with env fallback", () => {
     }
   });
 
-  it("falls back to ACP_CAPTURE_FILE when no argv is given", () => {
+  it("finds --capture-file even with an unrelated flag prepended", () => {
     const base = mkdtempSync(join(tmpdir(), "acp-dump-"));
     try {
       const target = join(base, "out.json");
-      const res = run([], { ACP_CAPTURE_FILE: target }, "payload");
+      // Proves the fix: a positional index would have silently read "--verbose"
+      // instead of the real target here.
+      const res = run(base, ["--verbose", `--capture-file=${target}`], {}, "y");
+      assert.equal(res.status, 0);
+      assert.equal(readFileSync(target, "utf8"), "y");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to ACP_CAPTURE_FILE when no flag is given", () => {
+    const base = mkdtempSync(join(tmpdir(), "acp-dump-"));
+    try {
+      const target = join(base, "out.json");
+      const res = run(base, [], { ACP_CAPTURE_FILE: target }, "payload");
       assert.equal(res.status, 0);
       assert.equal(readFileSync(target, "utf8"), "payload");
     } finally {
@@ -82,24 +109,34 @@ describe("dump.mjs: capture target via argv, with env fallback", () => {
     }
   });
 
-  it("prefers argv[2] over ACP_CAPTURE_FILE when both are present", () => {
+  it("prefers --capture-file over ACP_CAPTURE_FILE when both are present", () => {
     const base = mkdtempSync(join(tmpdir(), "acp-dump-"));
     try {
-      const argvTarget = join(base, "argv.json");
+      const flagTarget = join(base, "flag.json");
       const envTarget = join(base, "env.json");
-      const res = run([argvTarget], { ACP_CAPTURE_FILE: envTarget }, "x");
+      const res = run(
+        base,
+        [`--capture-file=${flagTarget}`],
+        { ACP_CAPTURE_FILE: envTarget },
+        "x",
+      );
       assert.equal(res.status, 0);
-      assert.equal(readFileSync(argvTarget, "utf8"), "x");
+      assert.equal(readFileSync(flagTarget, "utf8"), "x");
       assert.equal(existsSync(envTarget), false);
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
   });
 
-  it("fails loud (exit 1, stderr) when neither argv nor env supplies a target", () => {
-    const res = run([], {});
-    assert.equal(res.status, 1);
-    assert.match(res.stderr, /no capture target/);
+  it("fails loud (exit 1, stderr) when neither the flag nor env supplies a target", () => {
+    const base = mkdtempSync(join(tmpdir(), "acp-dump-"));
+    try {
+      const res = run(base, [], {});
+      assert.equal(res.status, 1);
+      assert.match(res.stderr, /no capture target/);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });
 

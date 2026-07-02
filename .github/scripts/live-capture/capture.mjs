@@ -146,10 +146,10 @@ if (install.status !== 0) fail(`install of ${entry.package}@${version} failed`);
 
 const baseDir = mkdtempSync(join(tmpdir(), `acp-live-${agent}-`));
 const captureFile = join(baseDir, "capture.json");
-// The capture path rides on the command line, not env — see dump.mjs for why
-// (Gemini CLI sandboxes the env a hook subprocess inherits).
+// The capture path rides on the command line as a named flag, not env — see
+// dump.mjs for why (Gemini CLI sandboxes the env a hook subprocess inherits).
 const { env: cfgEnv } = writeHookConfig(agent, baseDir, {
-  dumpCommand: `node ${DUMP} ${captureFile}`,
+  dumpCommand: `node ${DUMP} --capture-file=${captureFile}`,
   matcher: entry.tool_matcher,
   provider,
 });
