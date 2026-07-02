@@ -19,14 +19,13 @@
 // direct/manual invocation only.
 
 import { writeFileSync, readFileSync } from "node:fs";
+import { readFlag } from "../lib/cli-args.mjs";
 
-const FLAG = "--capture-file=";
-const flagArg = process.argv.find((a) => a.startsWith(FLAG));
 const target =
-  (flagArg && flagArg.slice(FLAG.length)) || process.env.ACP_CAPTURE_FILE;
+  readFlag(process.argv, "capture-file") || process.env.ACP_CAPTURE_FILE;
 if (!target) {
   process.stderr.write(
-    `dump.mjs: no capture target — pass ${FLAG}<path> or set ACP_CAPTURE_FILE\n`,
+    "dump.mjs: no capture target — pass --capture-file=<path> or set ACP_CAPTURE_FILE\n",
   );
   process.exit(1);
 }
