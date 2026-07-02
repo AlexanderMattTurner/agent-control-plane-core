@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,84 @@ const fixture = (agent) =>
   );
 
 const DUMP = "node /abs/dump.mjs";
+const DUMP_BIN = join(
+  here,
+  "..",
+  ".github",
+  "scripts",
+  "live-capture",
+  "dump.mjs",
+);
+
+// dump.mjs is a real subprocess a live agent's hook dispatcher invokes — it is
+// never called by any of the unit tests below (those only assert what COMMAND
+// STRING gets generated). This is a regression test for a real first-dispatch
+// bug: Gemini CLI runs hooks with a sandboxed env, so ACP_CAPTURE_FILE never
+// reached dump.mjs even though the parent gemini process had it. The fix moved
+// the target path onto the command line (argv[2]); this drives the actual
+// binary to prove the fix and pin the fallback/failure behavior.
+describe("dump.mjs: capture target via argv, with env fallback", () => {
+  // Merge onto process.env (for PATH etc.) rather than replacing it outright;
+  // explicitly delete ACP_CAPTURE_FILE first so a real CI env can't leak one in.
+  const run = (argv, envOverrides, stdin) => {
+    const env = { ...process.env, ...envOverrides };
+    delete env.ACP_CAPTURE_FILE;
+    if (envOverrides.ACP_CAPTURE_FILE)
+      env.ACP_CAPTURE_FILE = envOverrides.ACP_CAPTURE_FILE;
+    return spawnSync("node", [DUMP_BIN, ...argv], {
+      env,
+      input: stdin ?? "",
+      encoding: "utf8",
+    });
+  };
+
+  it("writes stdin to the argv[2] target and exits 0, even with no env at all", () => {
+    const base = mkdtempSync(join(tmpdir(), "acp-dump-"));
+    try {
+      const target = join(base, "out.json");
+      const res = run([target], {}, '{"hook_event_name":"BeforeTool"}');
+      assert.equal(res.status, 0);
+      assert.equal(
+        readFileSync(target, "utf8"),
+        '{"hook_event_name":"BeforeTool"}',
+      );
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to ACP_CAPTURE_FILE when no argv is given", () => {
+    const base = mkdtempSync(join(tmpdir(), "acp-dump-"));
+    try {
+      const target = join(base, "out.json");
+      const res = run([], { ACP_CAPTURE_FILE: target }, "payload");
+      assert.equal(res.status, 0);
+      assert.equal(readFileSync(target, "utf8"), "payload");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers argv[2] over ACP_CAPTURE_FILE when both are present", () => {
+    const base = mkdtempSync(join(tmpdir(), "acp-dump-"));
+    try {
+      const argvTarget = join(base, "argv.json");
+      const envTarget = join(base, "env.json");
+      const res = run([argvTarget], { ACP_CAPTURE_FILE: envTarget }, "x");
+      assert.equal(res.status, 0);
+      assert.equal(readFileSync(argvTarget, "utf8"), "x");
+      assert.equal(existsSync(envTarget), false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("fails loud (exit 1, stderr) when neither argv nor env supplies a target", () => {
+    const res = run([], {});
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /no capture target/);
+  });
+});
 
 describe("buildHookConfig points each agent's pre-tool hook at the dumper", () => {
   it("claude → .claude/settings.json PreToolUse command hook", () => {
