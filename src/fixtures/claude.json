@@ -3,6 +3,7 @@
   "cases": [
     {
       "name": "pre_tool Bash, full meta, all verdicts",
+      "call_class": "builtin",
       "native": {
         "hook_event_name": "PreToolUse",
         "session_id": "s1",

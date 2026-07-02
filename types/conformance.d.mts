@@ -1,4 +1,15 @@
 /**
+ * Assert an adapter's {@link import("./control-plane.mjs").Adapter.COVERAGE}
+ * hook-coverage matrix is well-formed: it classifies EXACTLY the canonical
+ * {@link CALL_CLASSES} (no class missing, none unknown) and every value is a
+ * valid coverage status. This is the SSOT gate — adding a new call class to the
+ * contract fails every adapter until it declares that class, so a coverage hole
+ * can't be introduced by omission.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {any} assert node:assert/strict (injected)
+ */
+export function assertCoverageWellFormed(adapter: import("./control-plane.mjs").Adapter, assert: any): void;
+/**
  * The control-plane conformance harness.
  *
  * Any adapter — the reference claude one, codex, or a future
@@ -26,13 +37,18 @@
  *      is `enforced === false` AND `exit_code === 0` — an "I have no objection"
  *      verdict never renders as a block, on any adapter. At least one `allow`
  *      must be rendered, so this is never vacuous.
+ *   7. coverage honesty: the adapter's COVERAGE matrix is well-formed (item ③),
+ *      and a fixture case tagged with a `call_class` whose coverage does NOT
+ *      permit a veto (uncovered/unknown — an ❓ is treated as ❌) MUST parse to
+ *      `this_call_vetoable: false`. An adapter cannot claim a class is un-gated
+ *      while parsing its calls as vetoable.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, coverageClassesChecked: Set<string> }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }: {
     adapter: import("./control-plane.mjs").Adapter;
@@ -44,4 +60,5 @@ export function runAdapterConformance({ adapter, fixtures, assert }: {
     decisionsSeen: Set<string>;
     mutationSeen: boolean;
     enforcedDenySeen: boolean;
+    coverageClassesChecked: Set<string>;
 };

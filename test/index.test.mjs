@@ -13,6 +13,11 @@ describe("public API surface (index barrel)", () => {
     "EventKind",
     "Decision",
     "IntegrationMode",
+    "CallClass",
+    "CALL_CLASSES",
+    "CoverageStatus",
+    "coverageAllowsVeto",
+    "isCoverageStatus",
     "MODELED_TOOLS",
     "makeEvent",
     "normalizeVerdict",
@@ -28,6 +33,7 @@ describe("public API surface (index barrel)", () => {
     "geminiAdapter",
     "HookEvent",
     "runAdapterConformance",
+    "assertCoverageWellFormed",
   ];
 
   for (const name of expected) {
@@ -36,7 +42,7 @@ describe("public API surface (index barrel)", () => {
     });
   }
 
-  it("adapters expose the { AGENT, parse, render } shape", () => {
+  it("adapters expose the { AGENT, COVERAGE, parse, render } shape", () => {
     for (const adapter of [
       pkg.claudeAdapter,
       pkg.codexAdapter,
@@ -46,6 +52,39 @@ describe("public API surface (index barrel)", () => {
       assert.equal(typeof adapter.AGENT, "string");
       assert.equal(typeof adapter.parse, "function");
       assert.equal(typeof adapter.render, "function");
+      // Every adapter's coverage matrix is well-formed against the contract SSOT.
+      pkg.assertCoverageWellFormed(adapter, assert);
     }
+  });
+
+  // Pin each adapter's hook-coverage row (docs/hook-coverage-matrix.md). A cell
+  // may only flip on real evidence — an item-⑤ probe promoting an ❓, or a fix
+  // closing a hole — so an accidental flip is a failing test, not a silent
+  // change to what the guardrail claims it can veto.
+  it("pins each adapter's hook-coverage matrix row", () => {
+    assert.deepEqual(pkg.claudeAdapter.COVERAGE, {
+      builtin: "covered",
+      mcp: "covered",
+      subagent: "covered",
+      resumed: "covered",
+    });
+    assert.deepEqual(pkg.codexAdapter.COVERAGE, {
+      builtin: "partial",
+      mcp: "uncovered",
+      subagent: "unknown",
+      resumed: "unknown",
+    });
+    assert.deepEqual(pkg.ampAdapter.COVERAGE, {
+      builtin: "covered",
+      mcp: "covered",
+      subagent: "covered",
+      resumed: "unknown",
+    });
+    assert.deepEqual(pkg.geminiAdapter.COVERAGE, {
+      builtin: "covered",
+      mcp: "unknown",
+      subagent: "unknown",
+      resumed: "unknown",
+    });
   });
 });

@@ -3,6 +3,7 @@
   "cases": [
     {
       "name": "BeforeTool run_shell_command, full meta, all verdicts",
+      "call_class": "builtin",
       "native": {
         "hook_event_name": "BeforeTool",
         "session_id": "g1",
@@ -97,7 +98,8 @@
       }
     },
     {
-      "name": "BeforeTool bare, mcp_context + original_request_name pass through",
+      "name": "BeforeTool MCP-sourced call is non-vetoable (coverage unknown)",
+      "call_class": "mcp",
       "native": {
         "hook_event_name": "BeforeTool",
         "tool_name": "read_file",
@@ -116,7 +118,7 @@
         "input": {
           "path": "/etc/hosts"
         },
-        "this_call_vetoable": true,
+        "this_call_vetoable": false,
         "meta": {
           "agent": "gemini",
           "native_event": "BeforeTool",

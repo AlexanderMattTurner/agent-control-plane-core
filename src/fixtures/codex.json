@@ -3,6 +3,7 @@
   "cases": [
     {
       "name": "PreToolUse v0.135 enforcing, all verdicts",
+      "call_class": "builtin",
       "native": {
         "hook_event_name": "PreToolUse",
         "version": "0.135.0",
@@ -103,6 +104,69 @@
                 "updatedInput": {
                   "command": "ls"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "PreToolUse v0.135 MCP tool is non-vetoable (hook fires for Bash only)",
+      "call_class": "mcp",
+      "native": {
+        "hook_event_name": "PreToolUse",
+        "version": "0.135.0",
+        "tool_name": "mcp__github__create_issue",
+        "tool_input": {
+          "title": "hi"
+        }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "mcp__github__create_issue",
+        "input": {
+          "title": "hi"
+        },
+        "this_call_vetoable": false,
+        "meta": {
+          "agent": "codex",
+          "native_event": "PreToolUse",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {}
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse"
+              }
+            }
+          }
+        },
+        "deny": {
+          "verdict": {
+            "decision": "deny",
+            "reason": "mcp blocked"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "mcp blocked"
               }
             }
           }

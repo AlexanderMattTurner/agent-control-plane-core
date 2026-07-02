@@ -15,6 +15,10 @@ import {
   EventKind,
   Decision,
   IntegrationMode,
+  CallClass,
+  CoverageStatus,
+  classifyCallClass,
+  coverageAllowsVeto,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
@@ -31,6 +35,21 @@ import {
 
 export const AGENT = "codex";
 export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
+
+/**
+ * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). `PreToolUse`
+ * intercepts the shell (Bash) tool ONLY — other builtins and MCP tools never
+ * reach it — so builtin is PARTIAL and MCP is UNCOVERED. Subagent and resumed
+ * firing are undocumented ⇒ UNKNOWN (treated as uncovered until an item-⑤ probe
+ * proves otherwise).
+ */
+/** @type {import("../control-plane.mjs").CoverageMap} */
+export const COVERAGE = Object.freeze({
+  [CallClass.BUILTIN]: CoverageStatus.PARTIAL,
+  [CallClass.MCP]: CoverageStatus.UNCOVERED,
+  [CallClass.SUBAGENT]: CoverageStatus.UNKNOWN,
+  [CallClass.RESUMED]: CoverageStatus.UNKNOWN,
+});
 
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION = Object.freeze([0, 135]);
@@ -96,12 +115,18 @@ export function parse(native) {
   if (typeof raw.transcript_path === "string")
     meta.transcript_path = raw.transcript_path;
 
+  // Coverage floor: even on an enforcing Codex, `PreToolUse` fires for Bash only,
+  // so an MCP-sourced call is un-vetoable regardless of version (COVERAGE.mcp).
+  const tool = asStringOrNull(raw.tool_name);
+  const vetoable =
+    enforce && coverageAllowsVeto(COVERAGE[classifyCallClass(tool, raw)]);
+
   return makeEvent({
     event: kind,
-    tool: asStringOrNull(raw.tool_name),
+    tool,
     input: asObject(raw.tool_input),
     response: undefined,
-    this_call_vetoable: enforce,
+    this_call_vetoable: vetoable,
     meta,
   });
 }
@@ -146,4 +171,10 @@ export function render(verdict, event, { soleGate = false } = {}) {
 }
 
 /** @type {import("../control-plane.mjs").Adapter} */
-export const codexAdapter = { AGENT, INTEGRATION_MODE, parse, render };
+export const codexAdapter = {
+  AGENT,
+  INTEGRATION_MODE,
+  COVERAGE,
+  parse,
+  render,
+};

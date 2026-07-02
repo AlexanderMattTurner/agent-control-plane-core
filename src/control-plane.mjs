@@ -89,6 +89,99 @@ export const IntegrationMode = Object.freeze({
 });
 
 /**
+ * The CLASSES of tool call a host may or may not route through its pre-tool
+ * guardrail hook. Whether the hook fires is orthogonal to the tool's INPUT shape
+ * (which {@link MODELED_TOOLS} covers) — a host can gate its builtin tools while
+ * an MCP-sourced or subagent-spawned call of the SAME tool never reaches the
+ * hook. Each adapter declares a coverage status per class (see the adapter
+ * `COVERAGE` maps and `docs/hook-coverage-matrix.md`); the conformance harness
+ * enforces that an uncovered class is never marked `this_call_vetoable`.
+ */
+export const CallClass = Object.freeze({
+  BUILTIN: "builtin",
+  MCP: "mcp",
+  SUBAGENT: "subagent",
+  RESUMED: "resumed",
+});
+
+/** Canonical ordered list of {@link CallClass} values — the SSOT every adapter's `COVERAGE` must classify exactly. */
+export const CALL_CLASSES = Object.freeze(Object.values(CallClass));
+
+/**
+ * Whether a host's pre-tool hook fires for a {@link CallClass} — the machine
+ * form of the ✅/❌/⚠️/❓ matrix:
+ *   - COVERED (✅): the hook fires for every tool in the class.
+ *   - PARTIAL (⚠️): it fires for only SOME tools in the class (e.g. Codex gates
+ *     Bash but not other builtins) — a call in the covered subset may be vetoed.
+ *   - UNCOVERED (❌): it never fires; the call reaches the tool un-gated.
+ *   - UNKNOWN (❓): undocumented — NOT yet proven to fire by a live probe.
+ * The doctrine (`docs/hook-coverage-matrix.md`): an UNKNOWN is treated as
+ * UNCOVERED until a probe proves ✅, because a guessed ✅ is a silent fail-open.
+ */
+export const CoverageStatus = Object.freeze({
+  COVERED: "covered",
+  PARTIAL: "partial",
+  UNCOVERED: "uncovered",
+  UNKNOWN: "unknown",
+});
+
+/** @typedef {"covered"|"partial"|"uncovered"|"unknown"} CoverageStatusValue */
+/** @typedef {Record<string, CoverageStatusValue>} CoverageMap a per-{@link CallClass} coverage map (an adapter's `COVERAGE`) */
+
+/** @type {Set<string>} the valid {@link CoverageStatus} values, for membership checks. */
+const COVERAGE_STATUS_VALUES = new Set(Object.values(CoverageStatus));
+
+/**
+ * Whether a coverage status PERMITS an adapter to mark a call in that class
+ * `this_call_vetoable: true`. Only a hook confirmed to fire does: COVERED, or
+ * PARTIAL (for the tools in its covered subset). UNCOVERED and UNKNOWN both
+ * forbid it — an unknown is fail-closed to uncovered, which is the whole point
+ * of the matrix. Throws on an unrecognized status (fail loud — a typo must not
+ * quietly read as "permitted").
+ * @param {string} status a {@link CoverageStatus} value
+ * @returns {boolean}
+ */
+export function coverageAllowsVeto(status) {
+  if (!COVERAGE_STATUS_VALUES.has(status)) {
+    throw new Error(
+      `control-plane: invalid coverage status ${JSON.stringify(status)}`,
+    );
+  }
+  return status === CoverageStatus.COVERED || status === CoverageStatus.PARTIAL;
+}
+
+/**
+ * True when `status` is a recognized {@link CoverageStatus} value.
+ * @param {unknown} status
+ * @returns {boolean}
+ */
+export function isCoverageStatus(status) {
+  return COVERAGE_STATUS_VALUES.has(/** @type {string} */ (status));
+}
+
+/**
+ * Classify a tool call into a {@link CallClass} from what a single pre-tool
+ * payload reveals. Only MCP is reliably detectable here — from the tool NAME
+ * (`mcp__server__tool` / `mcp_server_tool`) or an explicit `mcp_context` object
+ * on the native payload. Subagent- and resumed-session calls carry no universal
+ * signal in a lone pre-tool event (detecting them needs the live probe of
+ * item ⑤), so they are NOT distinguished here and fall through to BUILTIN — an
+ * adapter whose host leaves those classes un-gated relies on the sandbox, not
+ * this classifier. An adapter feeds the result into `coverageAllowsVeto(this.
+ * COVERAGE[class])` so a call in an uncovered/unknown class parses non-vetoable.
+ * @param {string|null} tool tool name (null for non-tool events)
+ * @param {Record<string, unknown>} [native] the raw native payload, for `mcp_context`
+ * @returns {string} a {@link CallClass} value
+ */
+export function classifyCallClass(tool, native) {
+  if (typeof tool === "string" && /^mcp__?[^_]/.test(tool))
+    return CallClass.MCP;
+  const ctx = native ? native.mcp_context : undefined;
+  if (ctx !== null && typeof ctx === "object") return CallClass.MCP;
+  return CallClass.BUILTIN;
+}
+
+/**
  * @typedef {object} EventMeta
  * @property {string} agent producing agent id ("claude", "codex", …)
  * @property {string} native_event original native event name, preserved verbatim
@@ -158,6 +251,7 @@ export const IntegrationMode = Object.freeze({
  * @typedef {object} Adapter
  * @property {string} AGENT
  * @property {"external_hook"|"in_process"|"observe_only"} INTEGRATION_MODE
+ * @property {Record<string, "covered"|"partial"|"uncovered"|"unknown">} COVERAGE per-{@link CallClass} hook-coverage status; must classify every {@link CALL_CLASSES} entry
  * @property {(native: any) => ToolCallEvent} parse
  * @property {(verdict: Verdict, event: ToolCallEvent, options?: { soleGate?: boolean }) => NativeResponse} render
  */

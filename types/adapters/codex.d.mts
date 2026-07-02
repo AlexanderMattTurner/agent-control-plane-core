@@ -37,6 +37,15 @@ export function render(verdict: Verdict, event: ToolCallEvent, { soleGate }?: {
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
 export const AGENT: "codex";
 export const INTEGRATION_MODE: "external_hook";
+/**
+ * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). `PreToolUse`
+ * intercepts the shell (Bash) tool ONLY — other builtins and MCP tools never
+ * reach it — so builtin is PARTIAL and MCP is UNCOVERED. Subagent and resumed
+ * firing are undocumented ⇒ UNKNOWN (treated as uncovered until an item-⑤ probe
+ * proves otherwise).
+ */
+/** @type {import("../control-plane.mjs").CoverageMap} */
+export const COVERAGE: import("../control-plane.mjs").CoverageMap;
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION: readonly number[];
 /** @type {import("../control-plane.mjs").Adapter} */

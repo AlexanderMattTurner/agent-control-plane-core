@@ -6,6 +6,12 @@ import {
   EventKind,
   Decision,
   IntegrationMode,
+  CallClass,
+  CALL_CLASSES,
+  CoverageStatus,
+  coverageAllowsVeto,
+  isCoverageStatus,
+  classifyCallClass,
   MODELED_TOOLS,
   makeEvent,
   normalizeVerdict,
@@ -30,6 +36,9 @@ describe("control-plane contract is frozen and versioned", () => {
     assert.ok(Object.isFrozen(Decision));
     assert.ok(Object.isFrozen(IntegrationMode));
     assert.ok(Object.isFrozen(MODELED_TOOLS));
+    assert.ok(Object.isFrozen(CallClass));
+    assert.ok(Object.isFrozen(CALL_CLASSES));
+    assert.ok(Object.isFrozen(CoverageStatus));
   });
 
   it("exposes the exact kinds, decisions, integration modes, and modeled tools", () => {
@@ -51,6 +60,62 @@ describe("control-plane contract is frozen and versioned", () => {
       ["Bash", "Edit", "Write", "Read", "WebFetch"],
     );
   });
+
+  it("exposes the exact call classes and coverage statuses", () => {
+    assert.deepEqual(CallClass, {
+      BUILTIN: "builtin",
+      MCP: "mcp",
+      SUBAGENT: "subagent",
+      RESUMED: "resumed",
+    });
+    assert.deepEqual(
+      [...CALL_CLASSES],
+      ["builtin", "mcp", "subagent", "resumed"],
+    );
+    assert.deepEqual(CoverageStatus, {
+      COVERED: "covered",
+      PARTIAL: "partial",
+      UNCOVERED: "uncovered",
+      UNKNOWN: "unknown",
+    });
+  });
+});
+
+describe("coverage helpers encode the ❓-is-❌ doctrine", () => {
+  it("coverageAllowsVeto: only covered and partial permit a veto", () => {
+    assert.equal(coverageAllowsVeto("covered"), true);
+    assert.equal(coverageAllowsVeto("partial"), true);
+    assert.equal(coverageAllowsVeto("uncovered"), false);
+    assert.equal(coverageAllowsVeto("unknown"), false);
+  });
+
+  it("coverageAllowsVeto throws on an unrecognized status", () => {
+    assert.throws(() => coverageAllowsVeto("maybe"), /invalid coverage status/);
+  });
+
+  it("isCoverageStatus recognizes exactly the four statuses", () => {
+    for (const s of ["covered", "partial", "uncovered", "unknown"])
+      assert.equal(isCoverageStatus(s), true);
+    for (const s of ["", "MAYBE", "cover", undefined, null])
+      assert.equal(isCoverageStatus(s), false);
+  });
+});
+
+describe("classifyCallClass detects MCP, defaults undetectable to builtin", () => {
+  for (const [tool, native, expected] of [
+    ["mcp__github__create_issue", undefined, "mcp"],
+    ["mcp_fs_read_file", undefined, "mcp"],
+    ["Bash", undefined, "builtin"],
+    ["read_file", { mcp_context: { server: "fs" } }, "mcp"],
+    ["read_file", { mcp_context: null }, "builtin"],
+    [null, undefined, "builtin"],
+    ["mcp", undefined, "builtin"],
+    ["mcp_", undefined, "builtin"],
+  ]) {
+    it(`(${JSON.stringify(tool)}, ${JSON.stringify(native)}) -> ${expected}`, () => {
+      assert.equal(classifyCallClass(tool, native), expected);
+    });
+  }
 });
 
 describe("coercion primitives never throw", () => {
