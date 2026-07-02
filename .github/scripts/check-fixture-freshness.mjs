@@ -112,6 +112,11 @@ export async function checkFreshness(config, fetchLatest) {
 }
 
 // CLI entry — runs only when executed directly, not when imported by tests.
+// Node's own "is this the entry point" idiom (argv[1] is guaranteed by Node to
+// be the invoked script's path, not a user-supplied value) — the file stays
+// self-contained on purpose (see header), so this can't reuse
+// lib/cli-args.mjs's isMainModule() the way the other scripts do.
+// eslint-disable-next-line no-restricted-syntax -- Node's own entry-point idiom; see comment above.
 const invoked = process.argv[1] && realpathSync(process.argv[1]);
 if (invoked === fileURLToPath(import.meta.url)) {
   const config = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));

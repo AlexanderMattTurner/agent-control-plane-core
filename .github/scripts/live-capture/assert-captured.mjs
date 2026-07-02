@@ -5,12 +5,13 @@
 // the adapter must recognize them. It runs on whatever capture.mjs recorded, and
 // is unit-tested directly against the golden fixtures' native payloads.
 
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { EventKind } from "../../../src/control-plane.mjs";
 import { claudeAdapter } from "../../../src/adapters/claude.mjs";
 import { codexAdapter } from "../../../src/adapters/codex.mjs";
 import { ampAdapter } from "../../../src/adapters/amp.mjs";
 import { geminiAdapter } from "../../../src/adapters/gemini.mjs";
+import { isMainModule, readFlag } from "../lib/cli-args.mjs";
 
 const ADAPTERS = {
   claude: claudeAdapter,
@@ -58,12 +59,14 @@ export function assertCaptured(agent, rawPayload) {
   return event;
 }
 
-// CLI entry: `node assert-captured.mjs <agent> <capture-file>`.
-const invoked = process.argv[1] && realpathSync(process.argv[1]);
-if (invoked === realpathSync(new URL(import.meta.url).pathname)) {
-  const [, , agent, file] = process.argv;
+// CLI entry: `node assert-captured.mjs --agent=<agent> --capture-file=<path>`.
+if (isMainModule(import.meta.url)) {
+  const agent = readFlag(process.argv, "agent");
+  const file = readFlag(process.argv, "capture-file");
   if (!agent || !file) {
-    process.stderr.write("usage: assert-captured.mjs <agent> <capture-file>\n");
+    process.stderr.write(
+      "usage: assert-captured.mjs --agent=<agent> --capture-file=<path>\n",
+    );
     process.exit(2);
   }
   const event = assertCaptured(agent, readFileSync(file, "utf8"));

@@ -1,7 +1,7 @@
 // Tier-2 live-conformance orchestrator: capture and verify one agent's REAL
 // pre-tool payload. Run per agent by .github/workflows/live-conformance.yaml.
 //
-//   node capture.mjs <agent>
+//   node capture.mjs --agent=<agent>
 //
 // Flow: read the SSOT for the agent → skip cleanly if its provider secret is
 // absent → install the pinned CLI → register dump.mjs as the pre-tool hook
@@ -28,6 +28,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeHookConfig } from "./write-hook-config.mjs";
 import { assertCaptured } from "./assert-captured.mjs";
+import { readFlag } from "../lib/cli-args.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..", "..");
@@ -83,8 +84,8 @@ function captured(file) {
   return existsSync(file) && statSync(file).size > 0;
 }
 
-const agent = process.argv[2];
-if (!agent) fail("usage: capture.mjs <agent>");
+const agent = readFlag(process.argv, "agent");
+if (!agent) fail("usage: capture.mjs --agent=<agent>");
 
 const entry = readSsot().find((a) => a.agent === agent);
 if (!entry) fail(`no SSOT entry for agent ${agent}`);
