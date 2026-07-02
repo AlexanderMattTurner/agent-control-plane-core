@@ -8,19 +8,25 @@
 // it stays lint-clean and portable, and so a missing capture path fails loud
 // rather than silently writing nowhere.
 //
-// The target path is a CLI ARGUMENT (argv[2]), not an env var: the first live
-// dispatch against Gemini CLI showed "ACP_CAPTURE_FILE is not set" even though
-// the parent gemini process had it — the host sandboxes the env a hook
-// subprocess inherits, so passing state through env is not portable across
-// hosts. Baking the path into the registered command line sidesteps that. The
-// env var is kept as a fallback for direct/manual invocation only.
+// The target path rides on the command line as the named --capture-file=<path>
+// flag, not an env var: the first live dispatch against Gemini CLI showed
+// "ACP_CAPTURE_FILE is not set" even though the parent gemini process had it —
+// the host sandboxes the env a hook subprocess inherits, so passing state
+// through env is not portable across hosts. A NAMED flag (searched by prefix,
+// not a bare positional index) means an unrelated argument prepended to the
+// command line by us or by a host can never silently shift which value this
+// script reads as its target. The env var is kept as a fallback for
+// direct/manual invocation only.
 
 import { writeFileSync, readFileSync } from "node:fs";
 
-const target = process.argv[2] || process.env.ACP_CAPTURE_FILE;
+const FLAG = "--capture-file=";
+const flagArg = process.argv.find((a) => a.startsWith(FLAG));
+const target =
+  (flagArg && flagArg.slice(FLAG.length)) || process.env.ACP_CAPTURE_FILE;
 if (!target) {
   process.stderr.write(
-    "dump.mjs: no capture target — pass it as argv[2] or set ACP_CAPTURE_FILE\n",
+    `dump.mjs: no capture target — pass ${FLAG}<path> or set ACP_CAPTURE_FILE\n`,
   );
   process.exit(1);
 }
