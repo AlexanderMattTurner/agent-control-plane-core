@@ -135,11 +135,12 @@ describe("shipped SSOT is well-formed", () => {
     }
   });
 
-  it("covers exactly the three shipped adapters", () => {
+  it("covers exactly the four shipped adapters", () => {
     assert.deepEqual(config.adapters.map((a) => a.agent).sort(), [
       "amp",
       "claude",
       "codex",
+      "gemini",
     ]);
   });
 });

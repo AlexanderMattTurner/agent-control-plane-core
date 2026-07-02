@@ -42,6 +42,22 @@ export function buildHookConfig(agent, { dumpCommand, matcher }) {
       env: { CODEX_HOME: "codex-home" },
     };
   }
+  if (agent === "gemini") {
+    const settings = {
+      hooks: {
+        BeforeTool: [
+          {
+            matcher,
+            hooks: [{ type: "command", command: dumpCommand, timeout: 60000 }],
+          },
+        ],
+      },
+    };
+    return {
+      files: [{ rel: ".gemini/settings.json", content: json(settings) }],
+      env: {},
+    };
+  }
   if (agent === "amp") {
     // Best-effort, UNVERIFIED. Amp's delegate/permission path hands the tool
     // params to an external program on stdin and reads its EXIT CODE — which is

@@ -81,6 +81,26 @@ describe("integration: per-host hook transports over a real process boundary", (
     assert.equal(out.code, 0);
     assert.equal(out.json.hookSpecificOutput.permissionDecision, "deny");
   });
+
+  it("gemini BeforeTool deny → exit 2 System Block, no stdout", () => {
+    const out = runHook("gemini", {
+      hook_event_name: "BeforeTool",
+      tool_name: "run_shell_command",
+      tool_input: { command: "rm -rf /" },
+    });
+    assert.equal(out.code, 2);
+    assert.equal(out.stdout, "");
+  });
+
+  it("gemini BeforeTool allow → exit 0, abstains (no stdout)", () => {
+    const out = runHook("gemini", {
+      hook_event_name: "BeforeTool",
+      tool_name: "run_shell_command",
+      tool_input: { command: "echo hi" },
+    });
+    assert.equal(out.code, 0);
+    assert.equal(out.stdout, "");
+  });
 });
 
 // Hook-suicide: when the guardrail process itself breaks (garbage or empty stdin
@@ -106,6 +126,12 @@ describe("integration: hook-suicide fail-safe is per host", () => {
     it(`amp unparseable (${label}) → fail to ASK, exit 1, no body`, () => {
       const out = runRaw("amp", garbage);
       assert.equal(out.code, 1);
+      assert.equal(out.stdout, "");
+    });
+
+    it(`gemini unparseable (${label}) → fail OPEN, exit 0, no body`, () => {
+      const out = runRaw("gemini", garbage);
+      assert.equal(out.code, 0);
       assert.equal(out.stdout, "");
     });
   }

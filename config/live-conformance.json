@@ -27,6 +27,15 @@
       "event_name": "delegate",
       "tool_matcher": "Bash",
       "secret": "AMP_API_KEY"
+    },
+    {
+      "agent": "gemini",
+      "package": "@google/gemini-cli",
+      "versioning": "semver",
+      "captured_version": "0.49.0",
+      "event_name": "BeforeTool",
+      "tool_matcher": "run_shell_command",
+      "secret": "GEMINI_API_KEY"
     }
   ]
 }

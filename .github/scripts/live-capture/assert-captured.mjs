@@ -10,11 +10,13 @@ import { EventKind } from "../../../src/control-plane.mjs";
 import { claudeAdapter } from "../../../src/adapters/claude.mjs";
 import { codexAdapter } from "../../../src/adapters/codex.mjs";
 import { ampAdapter } from "../../../src/adapters/amp.mjs";
+import { geminiAdapter } from "../../../src/adapters/gemini.mjs";
 
 const ADAPTERS = {
   claude: claudeAdapter,
   codex: codexAdapter,
   amp: ampAdapter,
+  gemini: geminiAdapter,
 };
 
 const KNOWN_KINDS = new Set(Object.values(EventKind));

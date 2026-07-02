@@ -115,7 +115,8 @@ const verdict =
 process.stdout.write(JSON.stringify(claudeAdapter.render(verdict, event)));
 ```
 
-The core contract and both adapters are also on the default entry:
+The core contract and every adapter (`claude`, `codex`, `amp`, `gemini`) are
+also on the default entry:
 
 ```js
 import {
@@ -123,6 +124,8 @@ import {
   Decision,
   claudeAdapter,
   codexAdapter,
+  ampAdapter,
+  geminiAdapter,
   runAdapterConformance,
 } from "agent-control-plane-core";
 ```

@@ -60,6 +60,18 @@ describe("buildHookConfig points each agent's pre-tool hook at the dumper", () =
     assert.equal(body["amp.permissions"][0].tool, "Bash");
   });
 
+  it("gemini → .gemini/settings.json BeforeTool command hook", () => {
+    const cfg = buildHookConfig("gemini", {
+      dumpCommand: DUMP,
+      matcher: "run_shell_command",
+    });
+    assert.deepEqual(cfg.env, {});
+    assert.equal(cfg.files[0].rel, ".gemini/settings.json");
+    const entry = JSON.parse(cfg.files[0].content).hooks.BeforeTool[0];
+    assert.equal(entry.matcher, "run_shell_command");
+    assert.equal(entry.hooks[0].command, DUMP);
+  });
+
   it("throws on an unknown agent", () => {
     assert.throws(
       () => buildHookConfig("nope", { dumpCommand: DUMP, matcher: "x" }),
@@ -96,6 +108,13 @@ describe("assertCaptured accepts a real emission, rejects a broken one", () => {
       assert.equal(event.event, "pre_tool");
       assert.equal(event.tool, "Bash");
     }
+  });
+
+  it("parses gemini's BeforeTool payload to a pre_tool event", () => {
+    const native = fixture("gemini").cases[0].native;
+    const event = assertCaptured("gemini", JSON.stringify(native));
+    assert.equal(event.event, "pre_tool");
+    assert.equal(event.tool, "run_shell_command");
   });
 
   it("accepts a non-pre_tool payload without demanding a tool", () => {

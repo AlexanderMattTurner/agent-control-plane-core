@@ -42,6 +42,7 @@ const RUN_ARGV = {
     CANNED_PROMPT,
   ],
   amp: ["amp", "-x", CANNED_PROMPT],
+  gemini: ["gemini", "--yolo", "-p", CANNED_PROMPT],
 };
 
 /** @param {string} m */
