@@ -45,11 +45,15 @@ export function buildHookConfig(agent, { dumpCommand, matcher, provider }) {
       `[[hooks.PreToolUse.hooks]]\n` +
       `type = "command"\n` +
       `command = ${JSON.stringify(dumpCommand)}\n`;
+    // wire_api = "chat": OpenRouter/Venice speak the chat-completions API, not
+    // the Responses API codex defaults to (the first dispatch showed codex
+    // hitting /v1/responses).
     const providerTable = provider
       ? `\n[model_providers.${provider.name}]\n` +
         `name = ${JSON.stringify(provider.name)}\n` +
         `base_url = ${JSON.stringify(provider.baseUrl)}\n` +
-        `env_key = ${JSON.stringify(provider.envKey)}\n`
+        `env_key = ${JSON.stringify(provider.envKey)}\n` +
+        `wire_api = "chat"\n`
       : "";
     return {
       files: [

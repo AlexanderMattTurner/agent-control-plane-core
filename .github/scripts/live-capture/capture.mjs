@@ -16,7 +16,13 @@
 // (config generation, payload assertion) are unit-tested in test/live-capture.test.mjs.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,9 +36,8 @@ const MAX_ATTEMPTS = 5;
 const CANNED_PROMPT =
   "Run this exact shell command and nothing else: echo acp-live-capture";
 
-// Per-agent non-interactive run invocation. UNVERIFIED — the flags that force a
-// tool call without an interactive approval prompt are version-specific; confirm
-// on a live dispatch.
+// Per-agent non-interactive run invocation. Claude/amp remain UNVERIFIED (no
+// live run yet); codex/gemini were confirmed to launch on the first dispatch.
 const RUN_ARGV = {
   claude: ["claude", "-p", "--dangerously-skip-permissions", CANNED_PROMPT],
   codex: [
@@ -43,6 +48,14 @@ const RUN_ARGV = {
   ],
   amp: ["amp", "-x", CANNED_PROMPT],
   gemini: ["gemini", "--yolo", "-p", CANNED_PROMPT],
+};
+
+// Per-agent extra run env. Gemini refuses to run headless in an untrusted
+// directory (first dispatch: "Gemini CLI is not running in a trusted
+// directory... set the GEMINI_CLI_TRUST_WORKSPACE=true environment variable")
+// — without it, --yolo is downgraded and the turn aborts before any tool call.
+const EXTRA_ENV = {
+  gemini: { GEMINI_CLI_TRUST_WORKSPACE: "true" },
 };
 
 /** @param {string} m */
@@ -143,7 +156,24 @@ if (provider)
     `live-capture: codex backend = ${provider.name} (${provider.baseUrl}, model ${provider.model})\n`,
   );
 
-const runEnv = { ...process.env, ...cfgEnv, ACP_CAPTURE_FILE: captureFile };
+// Direct-OpenAI codex auth: codex ≥0.14x does NOT read OPENAI_API_KEY from the
+// env for its default provider — the first dispatch failed with 401 "Missing
+// bearer or basic authentication in header". It reads CODEX_HOME/auth.json (the
+// file `codex login --with-api-key` writes), so write that file directly.
+// Custom providers (OpenRouter/Venice) are unaffected: they auth via the
+// provider table's env_key.
+if (agent === "codex" && !provider)
+  writeFileSync(
+    join(cfgEnv.CODEX_HOME, "auth.json"),
+    JSON.stringify({ OPENAI_API_KEY: process.env.OPENAI_API_KEY }) + "\n",
+  );
+
+const runEnv = {
+  ...process.env,
+  ...cfgEnv,
+  ...(EXTRA_ENV[agent] ?? {}),
+  ACP_CAPTURE_FILE: captureFile,
+};
 const [cmd, ...args] = RUN_ARGV[agent];
 
 for (

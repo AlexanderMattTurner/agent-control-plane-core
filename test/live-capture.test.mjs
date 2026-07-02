@@ -73,6 +73,8 @@ describe("buildHookConfig points each agent's pre-tool hook at the dumper", () =
     assert.match(toml, /\[model_providers\.openrouter\]/);
     assert.match(toml, /base_url = "https:\/\/openrouter\.ai\/api\/v1"/);
     assert.match(toml, /env_key = "OPENROUTER_API_KEY"/);
+    // OpenRouter/Venice only speak chat completions, never the Responses API.
+    assert.match(toml, /wire_api = "chat"/);
   });
 
   it("codex without a provider stays a plain hook config (no model_provider)", () => {
