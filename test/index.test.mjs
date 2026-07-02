@@ -25,6 +25,7 @@ describe("public API surface (index barrel)", () => {
     "claudeAdapter",
     "codexAdapter",
     "ampAdapter",
+    "geminiAdapter",
     "HookEvent",
     "runAdapterConformance",
   ];
@@ -40,6 +41,7 @@ describe("public API surface (index barrel)", () => {
       pkg.claudeAdapter,
       pkg.codexAdapter,
       pkg.ampAdapter,
+      pkg.geminiAdapter,
     ]) {
       assert.equal(typeof adapter.AGENT, "string");
       assert.equal(typeof adapter.parse, "function");

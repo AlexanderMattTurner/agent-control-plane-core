@@ -1,0 +1,187 @@
+{
+  "agent": "gemini",
+  "cases": [
+    {
+      "name": "BeforeTool run_shell_command, full meta, all verdicts",
+      "native": {
+        "hook_event_name": "BeforeTool",
+        "session_id": "g1",
+        "cwd": "/w",
+        "transcript_path": "/t.json",
+        "timestamp": "2026-01-01T00:00:00Z",
+        "tool_name": "run_shell_command",
+        "tool_input": {
+          "command": "echo hi"
+        }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "run_shell_command",
+        "input": {
+          "command": "echo hi"
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "gemini",
+          "native_event": "BeforeTool",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {
+            "timestamp": "2026-01-01T00:00:00Z"
+          },
+          "session_id": "g1",
+          "cwd": "/w",
+          "transcript_path": "/t.json"
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        },
+        "deny": {
+          "verdict": {
+            "decision": "deny",
+            "reason": "blocked destructive command"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true
+          }
+        },
+        "ask": {
+          "verdict": {
+            "decision": "ask",
+            "reason": "confirm"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "decision": "deny",
+              "reason": "confirm"
+            }
+          }
+        },
+        "mutation": {
+          "verdict": {
+            "decision": "allow",
+            "mutated_input": {
+              "command": "echo safe"
+            },
+            "additional_context": "normalized"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "tool_input": {
+                  "command": "echo safe"
+                }
+              },
+              "systemMessage": "normalized"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "BeforeTool bare, mcp_context + original_request_name pass through",
+      "native": {
+        "hook_event_name": "BeforeTool",
+        "tool_name": "read_file",
+        "tool_input": {
+          "path": "/etc/hosts"
+        },
+        "mcp_context": {
+          "server": "fs"
+        },
+        "original_request_name": "fs__read_file"
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "read_file",
+        "input": {
+          "path": "/etc/hosts"
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "gemini",
+          "native_event": "BeforeTool",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {
+            "mcp_context": {
+              "server": "fs"
+            },
+            "original_request_name": "fs__read_file"
+          }
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        }
+      }
+    },
+    {
+      "name": "AfterTool folds tool_response into response",
+      "native": {
+        "hook_event_name": "AfterTool",
+        "tool_name": "run_shell_command",
+        "tool_input": {
+          "command": "ls"
+        },
+        "tool_response": "file1\nfile2"
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "post_tool",
+        "tool": "run_shell_command",
+        "input": {
+          "command": "ls"
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "gemini",
+          "native_event": "AfterTool",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {}
+        },
+        "response": "file1\nfile2"
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        }
+      }
+    }
+  ]
+}

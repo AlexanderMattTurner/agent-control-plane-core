@@ -23,6 +23,14 @@
       "types": "./types/adapters/codex.d.mts",
       "import": "./src/adapters/codex.mjs"
     },
+    "./amp": {
+      "types": "./types/adapters/amp.d.mts",
+      "import": "./src/adapters/amp.mjs"
+    },
+    "./gemini": {
+      "types": "./types/adapters/gemini.d.mts",
+      "import": "./src/adapters/gemini.mjs"
+    },
     "./conformance": {
       "types": "./types/conformance.d.mts",
       "import": "./src/conformance.mjs"
