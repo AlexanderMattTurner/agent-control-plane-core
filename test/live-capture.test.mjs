@@ -52,6 +52,37 @@ describe("buildHookConfig points each agent's pre-tool hook at the dumper", () =
     assert.match(cfg.files[0].content, /command = "node \/abs\/dump\.mjs"/);
   });
 
+  it("codex with a provider adds an OpenAI-compatible model_providers block", () => {
+    const cfg = buildHookConfig("codex", {
+      dumpCommand: DUMP,
+      matcher: "^Bash$",
+      provider: {
+        name: "openrouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+        envKey: "OPENROUTER_API_KEY",
+        model: "openai/gpt-4o-mini",
+      },
+    });
+    const toml = cfg.files[0].content;
+    // TOML: the top-level model_provider/model keys MUST precede any table.
+    assert.ok(
+      toml.indexOf("model_provider =") < toml.indexOf("[[hooks.PreToolUse]]"),
+    );
+    assert.match(toml, /model_provider = "openrouter"/);
+    assert.match(toml, /model = "openai\/gpt-4o-mini"/);
+    assert.match(toml, /\[model_providers\.openrouter\]/);
+    assert.match(toml, /base_url = "https:\/\/openrouter\.ai\/api\/v1"/);
+    assert.match(toml, /env_key = "OPENROUTER_API_KEY"/);
+  });
+
+  it("codex without a provider stays a plain hook config (no model_provider)", () => {
+    const cfg = buildHookConfig("codex", {
+      dumpCommand: DUMP,
+      matcher: "^Bash$",
+    });
+    assert.doesNotMatch(cfg.files[0].content, /model_provider/);
+  });
+
   it("amp → delegate permission entry (best-effort)", () => {
     const cfg = buildHookConfig("amp", { dumpCommand: DUMP, matcher: "Bash" });
     const body = JSON.parse(cfg.files[0].content);

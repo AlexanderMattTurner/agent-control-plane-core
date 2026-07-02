@@ -77,7 +77,44 @@ const entry = readSsot().find((a) => a.agent === agent);
 if (!entry) fail(`no SSOT entry for agent ${agent}`);
 if (!RUN_ARGV[agent]) fail(`no run invocation defined for agent ${agent}`);
 
-if (!process.env[entry.secret]) {
+// codex speaks the OpenAI protocol, so it can run against any OpenAI-compatible
+// backend — direct OpenAI, or OpenRouter/Venice via a model_providers block. The
+// first backend whose secret is present wins; base_urls/models are UNVERIFIED
+// defaults (override the model with $CODEX_MODEL).
+const CODEX_BACKENDS = [
+  { envKey: "OPENAI_API_KEY" },
+  {
+    envKey: "OPENROUTER_API_KEY",
+    name: "openrouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "openai/gpt-4o-mini",
+  },
+  {
+    envKey: "VENICE_INFERENCE_KEY",
+    name: "venice",
+    baseUrl: "https://api.venice.ai/api/v1",
+    model: "llama-3.3-70b",
+  },
+];
+
+/** @type {{ name: string, baseUrl: string, envKey: string, model: string }|undefined} */
+let provider;
+if (agent === "codex") {
+  const backend = CODEX_BACKENDS.find((b) => process.env[b.envKey]);
+  if (!backend) {
+    process.stdout.write(
+      `::notice::live-capture codex skipped — none of ${CODEX_BACKENDS.map((b) => b.envKey).join(", ")} set\n`,
+    );
+    process.exit(0);
+  }
+  if (backend.name)
+    provider = {
+      name: backend.name,
+      baseUrl: backend.baseUrl,
+      envKey: backend.envKey,
+      model: process.env.CODEX_MODEL || backend.model,
+    };
+} else if (!process.env[entry.secret]) {
   process.stdout.write(
     `::notice::live-capture ${agent} skipped — ${entry.secret} not set\n`,
   );
@@ -99,7 +136,12 @@ const captureFile = join(baseDir, "capture.json");
 const { env: cfgEnv } = writeHookConfig(agent, baseDir, {
   dumpCommand: `node ${DUMP}`,
   matcher: entry.tool_matcher,
+  provider,
 });
+if (provider)
+  process.stdout.write(
+    `live-capture: codex backend = ${provider.name} (${provider.baseUrl}, model ${provider.model})\n`,
+  );
 
 const runEnv = { ...process.env, ...cfgEnv, ACP_CAPTURE_FILE: captureFile };
 const [cmd, ...args] = RUN_ARGV[agent];

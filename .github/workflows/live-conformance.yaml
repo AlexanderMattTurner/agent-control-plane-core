@@ -45,4 +45,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           AMP_API_KEY: ${{ secrets.AMP_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # OpenAI-compatible backends for codex (first present wins).
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          VENICE_INFERENCE_KEY: ${{ secrets.VENICE_INFERENCE_KEY }}
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
         run: node .github/scripts/live-capture/capture.mjs "$AGENT"

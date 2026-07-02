@@ -13,10 +13,10 @@ import { dirname, join } from "node:path";
  * plus any env the run needs (e.g. `CODEX_HOME`), whose values are relative and
  * resolved to absolute by {@link writeHookConfig}.
  * @param {string} agent
- * @param {{ dumpCommand: string, matcher: string }} opts
+ * @param {{ dumpCommand: string, matcher: string, provider?: { name: string, baseUrl: string, envKey: string, model: string } }} opts
  * @returns {{ files: Array<{ rel: string, content: string }>, env: Record<string, string> }}
  */
-export function buildHookConfig(agent, { dumpCommand, matcher }) {
+export function buildHookConfig(agent, { dumpCommand, matcher, provider }) {
   if (agent === "claude") {
     const settings = {
       hooks: {
@@ -31,14 +31,33 @@ export function buildHookConfig(agent, { dumpCommand, matcher }) {
     };
   }
   if (agent === "codex") {
-    const content =
+    // A `provider` routes codex at an OpenAI-compatible endpoint (OpenRouter,
+    // Venice). TOML requires top-level keys (model_provider/model) BEFORE any
+    // table header, then the hook tables, then the [model_providers.<name>]
+    // table — so order matters here.
+    const topLevel = provider
+      ? `model_provider = ${JSON.stringify(provider.name)}\n` +
+        `model = ${JSON.stringify(provider.model)}\n\n`
+      : "";
+    const hookBlock =
       `[[hooks.PreToolUse]]\n` +
       `matcher = ${JSON.stringify(matcher)}\n\n` +
       `[[hooks.PreToolUse.hooks]]\n` +
       `type = "command"\n` +
       `command = ${JSON.stringify(dumpCommand)}\n`;
+    const providerTable = provider
+      ? `\n[model_providers.${provider.name}]\n` +
+        `name = ${JSON.stringify(provider.name)}\n` +
+        `base_url = ${JSON.stringify(provider.baseUrl)}\n` +
+        `env_key = ${JSON.stringify(provider.envKey)}\n`
+      : "";
     return {
-      files: [{ rel: "codex-home/config.toml", content }],
+      files: [
+        {
+          rel: "codex-home/config.toml",
+          content: topLevel + hookBlock + providerTable,
+        },
+      ],
       env: { CODEX_HOME: "codex-home" },
     };
   }
