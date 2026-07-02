@@ -7,8 +7,6 @@ pnpm-lock.yaml
 dist/
 build/
 out/
-# Generated .d.mts declarations (emitted by `pnpm build` / prepublishOnly)
-types/
 
 # Environment files
 .env
