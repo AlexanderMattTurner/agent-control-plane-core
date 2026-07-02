@@ -52,54 +52,43 @@ moving `latest` would flag perpetual, meaningless drift.
 fixture + adapter if the shape changed, run `pnpm test`, and bump
 `captured_version` in the SSOT to the version you verified against.
 
-## Tier 2 — real-payload capture (secret-gated, documented, not automated)
+## Tier 2 — real-payload capture (secret-gated, `workflow_dispatch`-only, shipped)
 
 This is the "install pinned CLI → canned session → assert real emission" tier.
-It is **not** shipped as an automatic workflow because it cannot be made
-deterministic or secret-free (see the hard constraint) and an unverifiable,
-flaky auto-job is worse than none. A maintainer with the provider secrets runs
-it deliberately — the recipe is below, ready to lift into a
-`workflow_dispatch`-only job per agent.
+It is now a real workflow — `.github/workflows/live-conformance.yaml`, run per
+agent by `.github/scripts/live-capture/capture.mjs` — but a **manual,
+secret-gated** one, never an automatic gate, because it cannot be made
+deterministic or secret-free (see the hard constraint) and an auto-running flaky
+job is worse than none.
 
-### Per-agent capture recipe
+**Safety properties.** `workflow_dispatch` only — it never runs on a push or PR
+and can never wedge a branch. `capture.mjs` reads each agent's secret name from
+the SSOT and **skips cleanly (exit 0 with a `::notice::`) when that secret is
+unset**, so a run in a repo without credentials no-ops rather than failing. The
+matrix is `fail-fast: false`, so one agent's failure doesn't cancel the others.
 
-For each adapter, the shape is identical; only the install, the hook config
-path, the event name, the tool matcher, and the run command differ (all in the
-SSOT):
+**What runs.** For the dispatched agent, `capture.mjs`:
 
-1. Install the pinned CLI: `npm i -g <package>@<version>`.
-2. Register a PreToolUse (or `BeforeTool`) command hook whose command dumps
-   stdin to a file, matched to the shell tool.
-3. Provide the secret (`env`) and run the CLI non-interactively with a canned
-   prompt that asks for a trivial shell command (`run echo hi`), **with retries**
-   — the model may not call the tool on the first turn.
-4. Assert the captured payload parses: `adapter.parse(JSON.parse(dumped))`
-   yields the expected `ToolCallEvent`, and `deepEqual` against the golden event
-   catches a shape change.
+1. installs the pinned CLI (`npm i -g <package>@<captured_version>`; a `rolling`
+   agent installs `@latest`);
+2. writes the capture hook config (`write-hook-config.mjs`) that registers
+   `dump.mjs` — a node command that writes the payload the agent puts on stdin to
+   `$ACP_CAPTURE_FILE` and exits 0 (allow) — matched to the agent's shell tool;
+3. runs the CLI non-interactively with a canned "run `echo …`" prompt, **retrying
+   up to 5 times** because a model turn may not call the tool first try;
+4. asserts the captured payload still parses (`assert-captured.mjs`:
+   `adapter.parse` yields a well-formed `ToolCallEvent`; an empty capture "the
+   hook never fired" and a drifted shape both fail loud).
 
-Skeleton (fill per agent from the SSOT; gate on the secret so forks/no-secret
-runs skip rather than fail):
-
-```yaml
-# .github/workflows/live-conformance.yaml — workflow_dispatch ONLY, non-required
-on: { workflow_dispatch: {} }
-permissions: { contents: read }
-jobs:
-  capture:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix: { agent: [claude, codex, amp] }
-    steps:
-      - uses: actions/checkout@<sha> # v7
-        with: { persist-credentials: false }
-      - uses: ./.github/actions/setup-base-env
-      - name: Skip when the agent's secret is absent
-        id: gate
-        env: { KEY: ${{ secrets[format('{0}', 'ANTHROPIC_API_KEY')] }} }
-        run: '[ -n "$KEY" ] && echo run=true >> "$GITHUB_OUTPUT" || echo "::notice::no secret, skipping"'
-      # install pinned CLI, register a stdin-dumping hook, run a canned
-      # `run echo hi` prompt with retries, then assert adapter.parse on the dump.
-```
+**What is and isn't verified.** Steps 2 and 4 — the config generation and the
+payload assertion — are **deterministic and unit-tested** (`test/live-capture.test.mjs`,
+the assertion driven by the golden fixtures' own native payloads) and gated on
+every PR by the normal Node tests. Steps 1 and 3 — the install and the live model
+turn — **cannot be exercised without the provider secrets and a real CLI**, so
+the install commands and the run invocations below are **research-derived and not
+verified against a live CLI**; the maintainer's first dispatch is expected to
+iterate on per-version flags (especially the flag that lets a tool call proceed
+without an interactive approval prompt, and Amp — see the low-confidence note).
 
 ### Per-agent specifics (from research; verify at pin time)
 
