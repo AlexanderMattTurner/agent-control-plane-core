@@ -4,6 +4,9 @@ node_modules/
 # Build outputs
 dist/
 build/
+# Committed tsc output — bytes must match a fresh build (node-tests gates it),
+# so no formatter may rewrite them.
+types/
 
 # Package manager
 pnpm-lock.yaml

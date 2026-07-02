@@ -52,7 +52,7 @@
     "guardrail"
   ],
   "scripts": {
-    "prepare": "git config core.hooksPath .hooks",
+    "prepare": "node scripts/prepare.mjs",
     "build": "tsc -p tsconfig.build.json",
     "prepublishOnly": "pnpm build",
     "test": "node --test test/*.test.mjs",
