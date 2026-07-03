@@ -40,8 +40,6 @@ jobs:
       - name: Run zizmor
         run: uvx zizmor==1.25.2 .github/
 
-  # Stable Required check: runs even when `zizmor` is cancelled/skipped, so a
-  # protected branch never gets stuck on a check that never reports.
   zizmor-passed: # required-check: true
     if: always()
     needs: [decide, zizmor]
