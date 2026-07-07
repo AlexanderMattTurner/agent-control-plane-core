@@ -14,6 +14,13 @@ the prose from the release's commits.
 
 ### Added
 
+- `sanitizeVerdict(verdict, sanitizeText)`: hardens an UNTRUSTED Verdict (one
+  authored by a separate monitor/judge process) before render. An invalid
+  `decision` is clamped to `"ask"` (fail-to-ask) with an observable clamp note
+  appended to `reason`; the injected `sanitizeText` runs over the
+  monitor-authored prose fields (`reason`, `additional_context`) but never over
+  the `mutated_input`/`mutated_output` data channels. Throws on a non-function
+  sanitizer or a sanitizer returning a non-string. Additive — stays schema v1.
 - `Verdict.mutated_output`: the normalized channel for a PostToolUse content
   transform (redaction/sanitize), so an output-rewriting hook can route through
   the contract. Rendered by the Claude adapter as

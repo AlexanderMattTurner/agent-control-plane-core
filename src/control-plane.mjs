@@ -355,6 +355,78 @@ export function normalizeVerdict(verdict) {
 }
 
 /**
+ * Harden an UNTRUSTED {@link Verdict} — one authored by a separate
+ * monitor/judge process (e.g. claude-guard's scrub-monitor-response) — before
+ * it is rendered. Two defenses:
+ *
+ *   1. Decision clamp (fail-to-ask): a `decision` outside allow/deny/ask
+ *      becomes `"ask"`, and the clamp is made observable by appending a
+ *      bracketed note to `reason` naming the rejected value — a malformed
+ *      monitor answer escalates to a human instead of throwing (the internal
+ *      strictness of {@link normalizeVerdict}) or silently allowing.
+ *   2. Text scrubbing: the caller-supplied `sanitizeText` runs over every
+ *      monitor-authored PROSE field present — `reason` and
+ *      `additional_context` (a non-string value in either is dropped; prose
+ *      channels carry strings). `mutated_input`/`mutated_output` are NOT
+ *      sanitized: they are data channels (replacement tool input/output the
+ *      guardrail computed, often deliberately containing the very bytes a text
+ *      scrubber would mangle), not monitor-authored prose.
+ *
+ * `sanitizeText` is injected so this module stays dependency-free. It must be
+ * a function and must return a string — a sanitizer that eats the value is a
+ * bug, so a non-string return throws. Returns a fresh normalized verdict;
+ * never mutates its input.
+ * @param {unknown} verdict the untrusted verdict object
+ * @param {(text: string) => string} sanitizeText
+ * @returns {Verdict}
+ */
+export function sanitizeVerdict(verdict, sanitizeText) {
+  if (typeof sanitizeText !== "function") {
+    throw new TypeError(
+      "control-plane: sanitizeVerdict requires a sanitizeText(string) => string function",
+    );
+  }
+  const raw = asObject(verdict);
+  /** @type {(field: string, value: string) => string} */
+  const scrub = (field, value) => {
+    const out = sanitizeText(value);
+    if (typeof out !== "string") {
+      throw new TypeError(
+        `control-plane: sanitizeText returned a non-string for ${field} — a sanitizer must return the sanitized text`,
+      );
+    }
+    return out;
+  };
+  const { decision } = raw;
+  const valid =
+    decision === Decision.ALLOW ||
+    decision === Decision.DENY ||
+    decision === Decision.ASK;
+  /** @type {Verdict} */
+  const out = {
+    decision: /** @type {Verdict["decision"]} */ (
+      valid ? decision : Decision.ASK
+    ),
+  };
+  if (raw.mutated_input !== undefined) out.mutated_input = raw.mutated_input;
+  if (raw.mutated_output !== undefined) out.mutated_output = raw.mutated_output;
+  if (typeof raw.additional_context === "string")
+    out.additional_context = scrub(
+      "additional_context",
+      raw.additional_context,
+    );
+  if (typeof raw.reason === "string") out.reason = scrub("reason", raw.reason);
+  if (!valid) {
+    // The rejected value is itself untrusted text, so it is scrubbed before
+    // being embedded in the clamp note.
+    const rejected = scrub("decision", JSON.stringify(decision) ?? "undefined");
+    const note = `[control-plane: invalid verdict decision ${rejected} clamped to "ask"]`;
+    out.reason = out.reason === undefined ? note : `${out.reason} ${note}`;
+  }
+  return normalizeVerdict(out);
+}
+
+/**
  * Return a shallow copy of `native` with the `consumed` keys removed — the
  * unmodelled remainder an adapter carries in `meta.passthrough` so an additive
  * upstream field survives instead of being silently dropped.

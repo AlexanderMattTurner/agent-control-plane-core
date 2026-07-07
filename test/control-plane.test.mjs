@@ -18,6 +18,7 @@ import {
   assertAliasTargetsModeled,
   makeEvent,
   normalizeVerdict,
+  sanitizeVerdict,
   collectPassthrough,
   nativeResponse,
   asObject,
@@ -243,6 +244,99 @@ describe("normalizeVerdict validates and copies modeled fields", () => {
       () => normalizeVerdict(/** @type {any} */ ({ decision: "maybe" })),
       /invalid verdict decision/,
     );
+  });
+});
+
+describe("sanitizeVerdict hardens an untrusted verdict before render", () => {
+  // A visible, deterministic sanitizer so tests assert exact equality on what
+  // ran through it (identity would make "was it sanitized?" unobservable).
+  const tag = (s) => `<${s}>`;
+  const identity = (s) => s;
+
+  it("passes a valid verdict through, sanitizing only the prose fields", () => {
+    assert.deepEqual(
+      sanitizeVerdict(
+        {
+          decision: "deny",
+          reason: "bad command",
+          additional_context: "ctx",
+          mutated_input: { command: "echo safe" },
+          mutated_output: "raw <output> untouched",
+        },
+        tag,
+      ),
+      {
+        decision: "deny",
+        mutated_input: { command: "echo safe" },
+        mutated_output: "raw <output> untouched",
+        additional_context: "<ctx>",
+        reason: "<bad command>",
+      },
+    );
+  });
+
+  it("clamps an invalid decision to ask, with an observable clamp note", () => {
+    assert.deepEqual(sanitizeVerdict({ decision: "maybe" }, identity), {
+      decision: "ask",
+      reason:
+        '[control-plane: invalid verdict decision "maybe" clamped to "ask"]',
+    });
+  });
+
+  it("appends the clamp note after an existing (sanitized) reason", () => {
+    assert.deepEqual(sanitizeVerdict({ decision: "block", reason: "r" }, tag), {
+      decision: "ask",
+      reason:
+        '<r> [control-plane: invalid verdict decision <"block"> clamped to "ask"]',
+    });
+  });
+
+  it("clamps a non-object / missing-decision verdict to ask", () => {
+    assert.deepEqual(sanitizeVerdict(null, identity), {
+      decision: "ask",
+      reason:
+        '[control-plane: invalid verdict decision undefined clamped to "ask"]',
+    });
+  });
+
+  it("drops a non-string prose field instead of feeding it to the sanitizer", () => {
+    assert.deepEqual(
+      sanitizeVerdict(
+        { decision: "allow", reason: 42, additional_context: { a: 1 } },
+        tag,
+      ),
+      { decision: "allow" },
+    );
+  });
+
+  it("throws a TypeError when sanitizeText is not a function", () => {
+    assert.throws(() => sanitizeVerdict({ decision: "allow" }, undefined), {
+      name: "TypeError",
+      message: /requires a sanitizeText/,
+    });
+  });
+
+  it("throws when sanitizeText returns a non-string (a sanitizer that eats the value)", () => {
+    assert.throws(
+      () => sanitizeVerdict({ decision: "deny", reason: "r" }, () => undefined),
+      { name: "TypeError", message: /returned a non-string for reason/ },
+    );
+  });
+
+  it("never mutates the input verdict", () => {
+    const input = Object.freeze({
+      decision: "maybe",
+      reason: "r",
+      mutated_input: Object.freeze({ a: 1 }),
+    });
+    const out = sanitizeVerdict(input, tag);
+    assert.notEqual(out, input);
+    assert.deepEqual(input, {
+      decision: "maybe",
+      reason: "r",
+      mutated_input: { a: 1 },
+    });
+    assert.equal(out.mutated_input, input.mutated_input);
   });
 });
 
