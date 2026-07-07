@@ -299,6 +299,15 @@ describe("sanitizeVerdict hardens an untrusted verdict before render", () => {
     });
   });
 
+  it("drops a non-object mutated_input (never blanks a tool call with {})", () => {
+    for (const bad of ["rm -rf /", [1], null, 42]) {
+      assert.deepEqual(
+        sanitizeVerdict({ decision: "allow", mutated_input: bad }, identity),
+        { decision: "allow" },
+      );
+    }
+  });
+
   it("drops a non-string prose field instead of feeding it to the sanitizer", () => {
     assert.deepEqual(
       sanitizeVerdict(

@@ -370,7 +370,9 @@ export function normalizeVerdict(verdict) {
  *      channels carry strings). `mutated_input`/`mutated_output` are NOT
  *      sanitized: they are data channels (replacement tool input/output the
  *      guardrail computed, often deliberately containing the very bytes a text
- *      scrubber would mangle), not monitor-authored prose.
+ *      scrubber would mangle), not monitor-authored prose. `mutated_input` is
+ *      shape-checked only (a non-object is dropped — see the inline note);
+ *      `mutated_output` is carried verbatim.
  *
  * `sanitizeText` is injected so this module stays dependency-free. It must be
  * a function and must return a string — a sanitizer that eats the value is a
@@ -408,7 +410,18 @@ export function sanitizeVerdict(verdict, sanitizeText) {
       valid ? decision : Decision.ASK
     ),
   };
-  if (raw.mutated_input !== undefined) out.mutated_input = raw.mutated_input;
+  // mutated_input must be a plain object (it replaces a tool's input); a
+  // malformed value is dropped rather than coerced — an empty {} substitute
+  // would silently blank the tool call. mutated_output is unconstrained by the
+  // contract, so it is carried verbatim.
+  const mutatedInput = raw.mutated_input;
+  if (
+    mutatedInput !== undefined &&
+    mutatedInput !== null &&
+    typeof mutatedInput === "object" &&
+    !Array.isArray(mutatedInput)
+  )
+    out.mutated_input = /** @type {Record<string, unknown>} */ (mutatedInput);
   if (raw.mutated_output !== undefined) out.mutated_output = raw.mutated_output;
   if (typeof raw.additional_context === "string")
     out.additional_context = scrub(
