@@ -259,11 +259,12 @@ describe("assertCaptured accepts a real emission, rejects a broken one", () => {
     }
   });
 
-  it("parses gemini's BeforeTool payload to a pre_tool event", () => {
+  it("parses gemini's BeforeTool payload to a pre_tool event (tool canonicalized to Bash)", () => {
     const native = fixture("gemini").cases[0].native;
     const event = assertCaptured("gemini", JSON.stringify(native));
     assert.equal(event.event, "pre_tool");
-    assert.equal(event.tool, "run_shell_command");
+    assert.equal(event.tool, "Bash");
+    assert.equal(event.meta.native_tool, "run_shell_command");
   });
 
   it("accepts a non-pre_tool payload without demanding a tool", () => {

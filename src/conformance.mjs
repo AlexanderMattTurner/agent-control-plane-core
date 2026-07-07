@@ -1,5 +1,7 @@
 import {
   CALL_CLASSES,
+  TOOL_ALIASES,
+  canonicalTool,
   coverageAllowsVeto,
   isCoverageStatus,
 } from "./control-plane.mjs";
@@ -34,6 +36,45 @@ export function assertCoverageWellFormed(adapter, assert) {
 }
 
 /**
+ * Assert every {@link TOOL_ALIASES} entry is WITNESSED by a golden fixture — a
+ * case whose native tool name equals the alias key and whose normalized
+ * `event.tool` equals the canonical target. This is what ties the alias SSOT to
+ * the fixtures: a new alias added to {@link TOOL_ALIASES} without a golden
+ * payload that exercises it fails here, so an alias "a new judge keys on" can't
+ * ship unproven. Also cross-checks each witnessed pair against
+ * {@link canonicalTool} so a fixture that preserved `native_tool` but forgot to
+ * normalize `event.tool` is caught.
+ * @param {any[]} fixturesList the golden fixtures for every shipped adapter
+ * @param {any} assert node:assert/strict (injected)
+ */
+export function assertToolAliasesCovered(fixturesList, assert) {
+  /** @type {Map<string, Set<string>>} native tool name → canonical names seen in fixtures */
+  const witnessed = new Map();
+  for (const fixtures of fixturesList) {
+    for (const testCase of fixtures.cases) {
+      const nativeTool = testCase.event?.meta?.native_tool;
+      if (typeof nativeTool !== "string") continue;
+      const canon = testCase.event.tool;
+      assert.equal(
+        canon,
+        canonicalTool(nativeTool),
+        `fixture '${testCase.name}' (${fixtures.agent}): native_tool ${JSON.stringify(nativeTool)} normalized to ${JSON.stringify(canon)}, but canonicalTool() gives ${JSON.stringify(canonicalTool(nativeTool))}`,
+      );
+      let canons = witnessed.get(nativeTool);
+      if (canons === undefined) witnessed.set(nativeTool, (canons = new Set()));
+      canons.add(canon);
+    }
+  }
+  for (const [nativeName, canonical] of Object.entries(TOOL_ALIASES)) {
+    const seen = witnessed.get(nativeName);
+    assert.ok(
+      seen && seen.has(canonical),
+      `tool alias ${JSON.stringify(nativeName)} -> ${JSON.stringify(canonical)} is not witnessed by any conformance fixture — add a golden case whose native tool is ${JSON.stringify(nativeName)}`,
+    );
+  }
+}
+
+/**
  * The control-plane conformance harness.
  *
  * Any adapter — the reference claude one, codex, or a future
@@ -51,9 +92,9 @@ export function assertCoverageWellFormed(adapter, assert) {
  *      ask, AND a mutated_input, so a suite can't pass while silently skipping a
  *      decision the contract requires every adapter to express.
  *   4. enforcement honesty: an enforceable deny (`rendered.enforced === true`)
- *      MUST carry a real block signal — a non-zero `exit_code` or a `throw_` —
- *      not just a JSON body the agent is free to ignore. At least one enforced
- *      deny must appear, so the honesty check is never vacuous.
+ *      MUST carry a real block signal — a non-zero `exit_code` — not just a JSON
+ *      body the agent is free to ignore. At least one enforced deny must appear,
+ *      so the honesty check is never vacuous.
  *   5. non-vetoable honesty: when the parsed event's `this_call_vetoable` is
  *      false, EVERY render for that case must be `enforced === false` — a
  *      guardrail that cannot veto this call must never render as if it did.
@@ -124,7 +165,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
       );
       if (rendered.enforced) {
         assert.ok(
-          rendered.exit_code !== 0 || rendered.throw_ !== undefined,
+          rendered.exit_code !== 0,
           `enforced deny carries no block signal: ${testCase.name} / ${scenario}`,
         );
         enforcedDenySeen = true;

@@ -23,6 +23,7 @@
         "meta": {
           "agent": "amp",
           "native_event": "delegate",
+          "native_tool": "Bash",
           "integration_mode": "external_hook",
           "primary_gate_present": true,
           "passthrough": {},
@@ -98,6 +99,7 @@
         "meta": {
           "agent": "amp",
           "native_event": "delegate",
+          "native_tool": "Read",
           "integration_mode": "external_hook",
           "primary_gate_present": true,
           "passthrough": {

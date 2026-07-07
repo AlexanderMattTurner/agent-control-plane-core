@@ -1,9 +1,19 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   runAdapterConformance,
   assertCoverageWellFormed,
+  assertToolAliasesCovered,
 } from "../src/conformance.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const loadFixture = (agent) =>
+  JSON.parse(
+    readFileSync(join(here, "..", "src", "fixtures", `${agent}.json`), "utf8"),
+  );
 
 // A framework-neutral echo adapter, independent of the real adapters, so these
 // self-tests pin the HARNESS mechanics (does it throw on each way an adapter can
@@ -263,5 +273,56 @@ describe("conformance harness self-tests (coverage matrix, item ③)", () => {
         run(adapter, coverageFixture({ call_class: "mcp", vetoable: true })),
       );
     }
+  });
+});
+
+describe("assertToolAliasesCovered ties the alias SSOT to fixtures", () => {
+  const allFixtures = ["claude", "codex", "amp", "gemini"].map(loadFixture);
+
+  it("passes: the shipped fixtures witness every alias (run_shell_command→Bash)", () => {
+    assert.doesNotThrow(() => assertToolAliasesCovered(allFixtures, assert));
+  });
+
+  it("throws when no fixture witnesses an alias (drop gemini's run_shell_command)", () => {
+    // Only gemini's fixtures carry run_shell_command → Bash; without them the
+    // alias in TOOL_ALIASES is unproven and the check must fail.
+    const withoutGemini = allFixtures.filter((f) => f.agent !== "gemini");
+    assert.throws(
+      () => assertToolAliasesCovered(withoutGemini, assert),
+      /tool alias "run_shell_command" -> "Bash" is not witnessed/,
+    );
+  });
+
+  it("throws when a fixture preserves native_tool but mis-normalizes event.tool", () => {
+    const bad = {
+      agent: "x",
+      cases: [
+        {
+          name: "mis-normalized",
+          event: {
+            tool: "NotBash",
+            meta: { native_tool: "run_shell_command" },
+          },
+        },
+      ],
+    };
+    assert.throws(
+      () => assertToolAliasesCovered([bad], assert),
+      /canonicalTool\(\) gives "Bash"/,
+    );
+  });
+
+  it("ignores cases without a native_tool (non-tool events)", () => {
+    const promptOnly = {
+      agent: "x",
+      cases: [{ name: "prompt", event: { tool: null, meta: {} } }],
+    };
+    // No aliases witnessed → the run_shell_command alias is unproven → throws,
+    // but the point is the native_tool-less case is simply skipped (no crash on
+    // a missing meta.native_tool), which the throw path here exercises.
+    assert.throws(
+      () => assertToolAliasesCovered([promptOnly], assert),
+      /is not witnessed/,
+    );
   });
 });

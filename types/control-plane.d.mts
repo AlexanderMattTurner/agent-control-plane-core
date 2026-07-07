@@ -1,4 +1,21 @@
 /**
+ * Load-bearing use of MODELED_TOOLS: assert every alias target is a modeled
+ * tool, so the alias SSOT can never normalize a native name onto a canon the
+ * contract doesn't model. Throws (fail loud) on the first bad target — a typo'd
+ * target is a bug, not a silent passthrough. Called at import against
+ * {@link TOOL_ALIASES}; exported so a test can drive both branches.
+ * @param {Record<string, string>} aliases
+ */
+export function assertAliasTargetsModeled(aliases: Record<string, string>): void;
+/**
+ * Canonicalize a native tool name to its {@link MODELED_TOOLS} equivalent, or
+ * return it UNCHANGED when it is not a known alias — an unknown tool is never
+ * silently reclassified. `null` (a non-tool event) passes through as `null`.
+ * @param {string|null} tool native tool name
+ * @returns {string|null} the canonical name, or the native name verbatim
+ */
+export function canonicalTool(tool: string | null): string | null;
+/**
  * Whether a coverage status PERMITS an adapter to mark a call in that class
  * `this_call_vetoable: true`. Only a hook confirmed to fire does: COVERED, or
  * PARTIAL (for the tools in its covered subset). UNCOVERED and UNKNOWN both
@@ -34,6 +51,7 @@ export function classifyCallClass(tool: string | null, native?: Record<string, u
  * @typedef {object} EventMeta
  * @property {string} agent producing agent id ("claude", "codex", …)
  * @property {string} native_event original native event name, preserved verbatim
+ * @property {string} [native_tool] original native tool name, preserved verbatim when `event.tool` was canonicalized (present iff the event carries a tool)
  * @property {"external_hook"|"in_process"|"observe_only"} integration_mode how the guardrail attaches
  * @property {boolean} primary_gate_present the agent's own native gate already ran (⇒ the monitor is a SECOND opinion; the LLM call can be skipped when the native gate already blocked)
  * @property {string} [session_id]
@@ -51,29 +69,13 @@ export function classifyCallClass(tool: string | null, native?: Record<string, u
  * @property {number} exit_code process exit code carrying the decision (0 = proceed)
  * @property {boolean} enforced whether THIS render actually blocks (false ⇒ advisory only)
  * @property {unknown} [stdout] native JSON body to write to stdout, when the transport uses one
- * @property {{ message: string }} [throw_] a thrown-error block signal (plugin transports, e.g. opencode)
- * @property {ConfigFallback} [fallback] an out-of-band enforcement the adapter ALSO requires (external pin / config deny-wildcards)
- */
-/**
- * An enforcement the adapter cannot express in-band and so hands to the sandbox
- * to apply out-of-band — because the in-agent hook has a documented hole:
- *   - `external_pin`: the agent can re-enable/override its own hook, so the
- *     sandbox must pin it from OUTSIDE (read-only config mount / PATH-shadow).
- *   - `config_deny`: an in-agent throw doesn't reach every path (e.g. opencode
- *     MCP tools / subagents), so a config-level deny-by-name wildcard is ALSO
- *     required. `uncovered` names paths still not covered (a logged, known gap).
- * @typedef {object} ConfigFallback
- * @property {"external_pin"|"config_deny"} kind
- * @property {string} reason
- * @property {string[]} [deny_globs] tool-NAME globs to deny at config level (config_deny)
- * @property {string[]} [uncovered] paths this fallback still cannot reach (known gap)
  */
 /**
  * A normalized, agent-agnostic view of one agent event.
  * @typedef {object} ToolCallEvent
  * @property {number} schema_version stamped {@link SCHEMA_VERSION}
  * @property {"pre_tool"|"post_tool"|"prompt_submit"|"session_start"|"unknown"} event
- * @property {string|null} tool tool name (null for prompt/session events)
+ * @property {string|null} tool CANONICAL tool name — a native alias (e.g. Gemini's `run_shell_command`) is normalized to its {@link MODELED_TOOLS} canon (`Bash`); the raw native name is preserved on `meta.native_tool`. An unknown tool passes through verbatim. null for prompt/session events.
  * @property {Record<string, unknown>} input passthrough tool input; a submitted prompt is folded into `input.prompt`
  * @property {unknown} [response] tool output, post_tool only (string or structured), verbatim
  * @property {boolean} this_call_vetoable false ⇒ the guardrail cannot veto THIS call; a monitor must auto-degrade deny to notify, and any render of it stays advisory (never `enforced`)
@@ -83,7 +85,8 @@ export function classifyCallClass(tool: string | null, native?: Record<string, u
  * A normalized guardrail decision.
  * @typedef {object} Verdict
  * @property {"allow"|"deny"|"ask"} decision
- * @property {Record<string, unknown>} [mutated_input] replacement tool input
+ * @property {Record<string, unknown>} [mutated_input] replacement tool input (pre_tool)
+ * @property {unknown} [mutated_output] replacement tool output (post_tool) — the normalized channel for a PostToolUse content transform (redaction/sanitize); a string or the tool's structured output, verbatim. An adapter renders it into whatever native output-mutation channel the host has, or drops it when the host has none (the same per-adapter fidelity gap `reason` has on Amp).
  * @property {string} [additional_context] extra context to splice into the agent's stream
  * @property {string} [reason] human-readable rationale (shown on deny/ask)
  */
@@ -153,20 +156,16 @@ export function asStringOrNull(value: unknown): string | null;
  */
 export function asString(value: unknown, fallback: string): string;
 /**
- * Assemble a {@link NativeResponse}, omitting absent optional channels so a
- * pure exit-code transport carries no `stdout` key and vice versa.
- * @param {{ transport: string, exit_code: number, enforced: boolean, stdout?: unknown, throw_?: {message:string}, fallback?: ConfigFallback }} parts
+ * Assemble a {@link NativeResponse}, omitting an absent `stdout` so a pure
+ * exit-code transport carries no `stdout` key.
+ * @param {{ transport: string, exit_code: number, enforced: boolean, stdout?: unknown }} parts
  * @returns {NativeResponse}
  */
-export function nativeResponse({ transport, exit_code, enforced, stdout, throw_, fallback, }: {
+export function nativeResponse({ transport, exit_code, enforced, stdout }: {
     transport: string;
     exit_code: number;
     enforced: boolean;
     stdout?: unknown;
-    throw_?: {
-        message: string;
-    };
-    fallback?: ConfigFallback;
 }): NativeResponse;
 /**
  * The vendor-neutral control-plane contract.
@@ -196,12 +195,13 @@ export function nativeResponse({ transport, exit_code, enforced, stdout, throw_,
  * VERSIONING — this module IS the frozen contract (its own SSOT, no parallel
  * schema file to drift). Adapters and guardrail consumers are built against it
  * in parallel, so its shapes are stable: {@link EventKind}, {@link Decision},
- * and {@link MODELED_TOOLS} are frozen, and {@link SCHEMA_VERSION} /
- * {@link CONTROL_PLANE_SCHEMA} are pinned (control-plane.test.mjs asserts the
- * exact values, so any shape change is a deliberate, reviewed version bump).
- * ADDING to the contract (a new optional field, a new modeled tool) is
- * backward-compatible and stays at v1; RENAMING or REMOVING a field, or
- * changing a decision/event vocabulary, is breaking and bumps the version.
+ * {@link MODELED_TOOLS}, and {@link TOOL_ALIASES} are frozen, and
+ * {@link SCHEMA_VERSION} / {@link CONTROL_PLANE_SCHEMA} are pinned
+ * (control-plane.test.mjs asserts the exact values, so any shape change is a
+ * deliberate, reviewed version bump). ADDING to the contract (a new optional
+ * field, a new modeled tool, a new tool alias) is backward-compatible and stays
+ * at v1; RENAMING or REMOVING a field, or changing a decision/event vocabulary,
+ * is breaking and bumps the version.
  */
 /** Wire identifier for this schema version; bump on a breaking shape change. */
 export const CONTROL_PLANE_SCHEMA: "control-plane/v1";
@@ -230,6 +230,23 @@ export const Decision: Readonly<{
  * unmodelled — its input object is preserved verbatim and no field is required.
  */
 export const MODELED_TOOLS: readonly string[];
+/**
+ * Native-tool-name → canonical {@link MODELED_TOOLS} name. The SSOT that lets a
+ * judge key on `event.tool` without a per-agent lookup: an agent whose native
+ * name for the shell tool is `run_shell_command` (Gemini) is normalized to the
+ * same `Bash` a Claude/Codex/Amp payload already carries, with the raw native
+ * name preserved on `meta.native_tool`. Only globally-unambiguous native
+ * BUILTIN names belong here — a name that also occurs as an MCP tool (e.g. a
+ * `read_file` MCP server) must NOT be aliased, or the normalization would
+ * reclassify an unrelated tool. An unknown tool is never in the map, so it
+ * passes through verbatim (see {@link canonicalTool}). Every target is a
+ * {@link MODELED_TOOLS} member (enforced at load below), and every entry is
+ * witnessed by a conformance fixture (see `assertToolAliasesCovered`), so an
+ * alias cannot be added without a golden payload that exercises it.
+ */
+export const TOOL_ALIASES: Readonly<{
+    run_shell_command: "Bash";
+}>;
 /**
  * How a guardrail ATTACHES to an agent — the transport, kept separate from the
  * normalized decision so the judge/Verdict core stays transport-agnostic:
@@ -289,6 +306,10 @@ export type EventMeta = {
      */
     native_event: string;
     /**
+     * original native tool name, preserved verbatim when `event.tool` was canonicalized (present iff the event carries a tool)
+     */
+    native_tool?: string | undefined;
+    /**
      * how the guardrail attaches
      */
     integration_mode: "external_hook" | "in_process" | "observe_only";
@@ -324,37 +345,6 @@ export type NativeResponse = {
      * native JSON body to write to stdout, when the transport uses one
      */
     stdout?: unknown;
-    /**
-     * a thrown-error block signal (plugin transports, e.g. opencode)
-     */
-    throw_?: {
-        message: string;
-    } | undefined;
-    /**
-     * an out-of-band enforcement the adapter ALSO requires (external pin / config deny-wildcards)
-     */
-    fallback?: ConfigFallback | undefined;
-};
-/**
- * An enforcement the adapter cannot express in-band and so hands to the sandbox
- * to apply out-of-band — because the in-agent hook has a documented hole:
- *   - `external_pin`: the agent can re-enable/override its own hook, so the
- *     sandbox must pin it from OUTSIDE (read-only config mount / PATH-shadow).
- *   - `config_deny`: an in-agent throw doesn't reach every path (e.g. opencode
- *     MCP tools / subagents), so a config-level deny-by-name wildcard is ALSO
- *     required. `uncovered` names paths still not covered (a logged, known gap).
- */
-export type ConfigFallback = {
-    kind: "external_pin" | "config_deny";
-    reason: string;
-    /**
-     * tool-NAME globs to deny at config level (config_deny)
-     */
-    deny_globs?: string[] | undefined;
-    /**
-     * paths this fallback still cannot reach (known gap)
-     */
-    uncovered?: string[] | undefined;
 };
 /**
  * A normalized, agent-agnostic view of one agent event.
@@ -366,7 +356,7 @@ export type ToolCallEvent = {
     schema_version: number;
     event: "pre_tool" | "post_tool" | "prompt_submit" | "session_start" | "unknown";
     /**
-     * tool name (null for prompt/session events)
+     * CANONICAL tool name — a native alias (e.g. Gemini's `run_shell_command`) is normalized to its {@link MODELED_TOOLS} canon (`Bash`); the raw native name is preserved on `meta.native_tool`. An unknown tool passes through verbatim. null for prompt/session events.
      */
     tool: string | null;
     /**
@@ -389,9 +379,13 @@ export type ToolCallEvent = {
 export type Verdict = {
     decision: "allow" | "deny" | "ask";
     /**
-     * replacement tool input
+     * replacement tool input (pre_tool)
      */
     mutated_input?: Record<string, unknown> | undefined;
+    /**
+     * replacement tool output (post_tool) — the normalized channel for a PostToolUse content transform (redaction/sanitize); a string or the tool's structured output, verbatim. An adapter renders it into whatever native output-mutation channel the host has, or drops it when the host has none (the same per-adapter fidelity gap `reason` has on Amp).
+     */
+    mutated_output?: unknown;
     /**
      * extra context to splice into the agent's stream
      */

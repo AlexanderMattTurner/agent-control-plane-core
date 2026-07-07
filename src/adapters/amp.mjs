@@ -19,6 +19,7 @@ import {
   CoverageStatus,
   classifyCallClass,
   coverageAllowsVeto,
+  canonicalTool,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
@@ -71,14 +72,16 @@ export function parse(native) {
   };
   if (typeof raw.session_id === "string") meta.session_id = raw.session_id;
   if (typeof raw.cwd === "string") meta.cwd = raw.cwd;
-  const tool = asStringOrNull(raw.tool);
+  const nativeTool = asStringOrNull(raw.tool);
+  if (nativeTool !== null) meta.native_tool = nativeTool;
   return makeEvent({
     event: EventKind.PRE_TOOL,
-    tool,
+    tool: canonicalTool(nativeTool),
     input: asObject(raw.input),
     response: undefined,
+    // Classify on the NATIVE name (MCP detection keys on `mcp__…`).
     this_call_vetoable: coverageAllowsVeto(
-      COVERAGE[classifyCallClass(tool, raw)],
+      COVERAGE[classifyCallClass(nativeTool, raw)],
     ),
     meta,
   });

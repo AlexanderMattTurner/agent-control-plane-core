@@ -13,6 +13,9 @@ import {
   isCoverageStatus,
   classifyCallClass,
   MODELED_TOOLS,
+  TOOL_ALIASES,
+  canonicalTool,
+  assertAliasTargetsModeled,
   makeEvent,
   normalizeVerdict,
   collectPassthrough,
@@ -36,6 +39,7 @@ describe("control-plane contract is frozen and versioned", () => {
     assert.ok(Object.isFrozen(Decision));
     assert.ok(Object.isFrozen(IntegrationMode));
     assert.ok(Object.isFrozen(MODELED_TOOLS));
+    assert.ok(Object.isFrozen(TOOL_ALIASES));
     assert.ok(Object.isFrozen(CallClass));
     assert.ok(Object.isFrozen(CALL_CLASSES));
     assert.ok(Object.isFrozen(CoverageStatus));
@@ -59,6 +63,7 @@ describe("control-plane contract is frozen and versioned", () => {
       [...MODELED_TOOLS],
       ["Bash", "Edit", "Write", "Read", "WebFetch"],
     );
+    assert.deepEqual(TOOL_ALIASES, { run_shell_command: "Bash" });
   });
 
   it("exposes the exact call classes and coverage statuses", () => {
@@ -78,6 +83,41 @@ describe("control-plane contract is frozen and versioned", () => {
       UNCOVERED: "uncovered",
       UNKNOWN: "unknown",
     });
+  });
+});
+
+describe("tool identity: canonicalTool normalizes aliases, passes through the rest", () => {
+  it("maps a known native alias to its canonical modeled tool", () => {
+    assert.equal(canonicalTool("run_shell_command"), "Bash");
+  });
+
+  it("passes an unknown / already-canonical tool through verbatim", () => {
+    assert.equal(canonicalTool("Bash"), "Bash");
+    assert.equal(
+      canonicalTool("mcp__github__create_issue"),
+      "mcp__github__create_issue",
+    );
+    assert.equal(canonicalTool("some_novel_tool"), "some_novel_tool");
+  });
+
+  it("passes null (a non-tool event) through as null", () => {
+    assert.equal(canonicalTool(null), null);
+  });
+
+  it("every alias target is a modeled tool", () => {
+    for (const target of Object.values(TOOL_ALIASES))
+      assert.ok(
+        MODELED_TOOLS.includes(target),
+        `alias target ${target} not modeled`,
+      );
+  });
+
+  it("assertAliasTargetsModeled accepts modeled targets, throws on a non-modeled one", () => {
+    assert.doesNotThrow(() => assertAliasTargetsModeled({ foo: "Bash" }));
+    assert.throws(
+      () => assertAliasTargetsModeled({ foo: "NotAModeledTool" }),
+      /tool alias target .* is not a modeled tool/,
+    );
   });
 });
 
@@ -181,12 +221,14 @@ describe("normalizeVerdict validates and copies modeled fields", () => {
       normalizeVerdict({
         decision: "deny",
         mutated_input: { a: 1 },
+        mutated_output: "sanitized",
         additional_context: "c",
         reason: "r",
       }),
       {
         decision: "deny",
         mutated_input: { a: 1 },
+        mutated_output: "sanitized",
         additional_context: "c",
         reason: "r",
       },
@@ -224,23 +266,19 @@ describe("nativeResponse assembles transport channels", () => {
     );
   });
 
-  it("carries stdout, throw_, and fallback when present", () => {
+  it("carries stdout when present", () => {
     assert.deepEqual(
       nativeResponse({
         transport: "in_process",
         exit_code: 2,
         enforced: true,
         stdout: { a: 1 },
-        throw_: { message: "blocked" },
-        fallback: { kind: "config_deny", reason: "mcp", deny_globs: ["*"] },
       }),
       {
         transport: "in_process",
         exit_code: 2,
         enforced: true,
         stdout: { a: 1 },
-        throw_: { message: "blocked" },
-        fallback: { kind: "config_deny", reason: "mcp", deny_globs: ["*"] },
       },
     );
   });

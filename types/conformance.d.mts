@@ -10,6 +10,19 @@
  */
 export function assertCoverageWellFormed(adapter: import("./control-plane.mjs").Adapter, assert: any): void;
 /**
+ * Assert every {@link TOOL_ALIASES} entry is WITNESSED by a golden fixture — a
+ * case whose native tool name equals the alias key and whose normalized
+ * `event.tool` equals the canonical target. This is what ties the alias SSOT to
+ * the fixtures: a new alias added to {@link TOOL_ALIASES} without a golden
+ * payload that exercises it fails here, so an alias "a new judge keys on" can't
+ * ship unproven. Also cross-checks each witnessed pair against
+ * {@link canonicalTool} so a fixture that preserved `native_tool` but forgot to
+ * normalize `event.tool` is caught.
+ * @param {any[]} fixturesList the golden fixtures for every shipped adapter
+ * @param {any} assert node:assert/strict (injected)
+ */
+export function assertToolAliasesCovered(fixturesList: any[], assert: any): void;
+/**
  * The control-plane conformance harness.
  *
  * Any adapter — the reference claude one, codex, or a future
@@ -27,9 +40,9 @@ export function assertCoverageWellFormed(adapter: import("./control-plane.mjs").
  *      ask, AND a mutated_input, so a suite can't pass while silently skipping a
  *      decision the contract requires every adapter to express.
  *   4. enforcement honesty: an enforceable deny (`rendered.enforced === true`)
- *      MUST carry a real block signal — a non-zero `exit_code` or a `throw_` —
- *      not just a JSON body the agent is free to ignore. At least one enforced
- *      deny must appear, so the honesty check is never vacuous.
+ *      MUST carry a real block signal — a non-zero `exit_code` — not just a JSON
+ *      body the agent is free to ignore. At least one enforced deny must appear,
+ *      so the honesty check is never vacuous.
  *   5. non-vetoable honesty: when the parsed event's `this_call_vetoable` is
  *      false, EVERY render for that case must be `enforced === false` — a
  *      guardrail that cannot veto this call must never render as if it did.
