@@ -84,8 +84,12 @@ const MODELED_TOOL_SET = new Set(MODELED_TOOLS);
  * name preserved on `meta.native_tool`. Only globally-unambiguous native
  * BUILTIN names belong here — a name that also occurs as an MCP tool (e.g. a
  * `read_file` MCP server) must NOT be aliased, or the normalization would
- * reclassify an unrelated tool. An unknown tool is never in the map, so it
- * passes through verbatim (see {@link canonicalTool}). Every target is a
+ * reclassify an unrelated tool. An adapter whose host makes such a name
+ * unambiguous at parse time (Gemini's `mcp_{server}_{tool}` FQN discipline)
+ * may carry its own ADAPTER-SCOPED alias map instead (see the gemini adapter's
+ * `GEMINI_TOOL_ALIASES`), applied only to calls classified BUILTIN. An unknown
+ * tool is never in the map, so it passes through verbatim (see
+ * {@link canonicalTool}). Every target is a
  * {@link MODELED_TOOLS} member (enforced at load below), and every entry is
  * witnessed by a conformance fixture (see `assertToolAliasesCovered`), so an
  * alias cannot be added without a golden payload that exercises it.
@@ -99,7 +103,8 @@ export const TOOL_ALIASES = Object.freeze({
  * tool, so the alias SSOT can never normalize a native name onto a canon the
  * contract doesn't model. Throws (fail loud) on the first bad target — a typo'd
  * target is a bug, not a silent passthrough. Called at import against
- * {@link TOOL_ALIASES}; exported so a test can drive both branches.
+ * {@link TOOL_ALIASES}, and by adapters against their adapter-scoped alias
+ * maps; exported so a test can drive both branches.
  * @param {Record<string, string>} aliases
  */
 export function assertAliasTargetsModeled(aliases) {

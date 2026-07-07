@@ -10,18 +10,24 @@
  */
 export function assertCoverageWellFormed(adapter: import("./control-plane.mjs").Adapter, assert: any): void;
 /**
- * Assert every {@link TOOL_ALIASES} entry is WITNESSED by a golden fixture — a
- * case whose native tool name equals the alias key and whose normalized
- * `event.tool` equals the canonical target. This is what ties the alias SSOT to
- * the fixtures: a new alias added to {@link TOOL_ALIASES} without a golden
- * payload that exercises it fails here, so an alias "a new judge keys on" can't
- * ship unproven. Also cross-checks each witnessed pair against
- * {@link canonicalTool} so a fixture that preserved `native_tool` but forgot to
- * normalize `event.tool` is caught.
+ * Assert every tool alias — the global {@link TOOL_ALIASES} entries AND each
+ * adapter-scoped alias map — is WITNESSED by a golden fixture: a case whose
+ * native tool name equals the alias key and whose normalized `event.tool`
+ * equals the canonical target. This is what ties the alias SSOTs to the
+ * fixtures: an alias added without a golden payload that exercises it fails
+ * here, so an alias "a new judge keys on" can't ship unproven. A global alias
+ * may be witnessed by any agent's fixtures; an adapter-scoped alias must be
+ * witnessed by THAT agent's fixtures (another agent's payload proves nothing
+ * about the scoping adapter's parse). Also cross-checks each witnessed pair:
+ * `event.tool` must be either the global {@link canonicalTool} result or the
+ * owning adapter's scoped target, so a fixture that preserved `native_tool` but
+ * mis-normalized `event.tool` is caught — including a scoped alias applied by
+ * the wrong agent's fixtures.
  * @param {any[]} fixturesList the golden fixtures for every shipped adapter
  * @param {any} assert node:assert/strict (injected)
+ * @param {Record<string, Record<string, string>>} [adapterAliases] agent id → that adapter's scoped alias map (e.g. `{ gemini: GEMINI_TOOL_ALIASES }`)
  */
-export function assertToolAliasesCovered(fixturesList: any[], assert: any): void;
+export function assertToolAliasesCovered(fixturesList: any[], assert: any, adapterAliases?: Record<string, Record<string, string>>): void;
 /**
  * The control-plane conformance harness.
  *

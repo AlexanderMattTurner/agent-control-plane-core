@@ -273,6 +273,168 @@
           }
         }
       }
+    },
+    {
+      "name": "BeforeTool builtin read_file canonicalizes to Read",
+      "call_class": "builtin",
+      "native": {
+        "hook_event_name": "BeforeTool",
+        "tool_name": "read_file",
+        "tool_input": {
+          "absolute_path": "/w/notes.txt"
+        }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "Read",
+        "input": {
+          "absolute_path": "/w/notes.txt"
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "gemini",
+          "native_event": "BeforeTool",
+          "native_tool": "read_file",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {}
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        }
+      }
+    },
+    {
+      "name": "BeforeTool builtin write_file canonicalizes to Write",
+      "call_class": "builtin",
+      "native": {
+        "hook_event_name": "BeforeTool",
+        "tool_name": "write_file",
+        "tool_input": {
+          "file_path": "/w/out.txt",
+          "content": "hi"
+        }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "Write",
+        "input": {
+          "file_path": "/w/out.txt",
+          "content": "hi"
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "gemini",
+          "native_event": "BeforeTool",
+          "native_tool": "write_file",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {}
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        }
+      }
+    },
+    {
+      "name": "BeforeTool builtin web_fetch canonicalizes to WebFetch",
+      "call_class": "builtin",
+      "native": {
+        "hook_event_name": "BeforeTool",
+        "tool_name": "web_fetch",
+        "tool_input": {
+          "prompt": "summarize https://example.com"
+        }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "WebFetch",
+        "input": {
+          "prompt": "summarize https://example.com"
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "gemini",
+          "native_event": "BeforeTool",
+          "native_tool": "web_fetch",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {}
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        }
+      }
+    },
+    {
+      "name": "BeforeTool MCP FQN read_file is never aliased (mcp_ prefix)",
+      "call_class": "mcp",
+      "native": {
+        "hook_event_name": "BeforeTool",
+        "tool_name": "mcp_fs_read_file",
+        "tool_input": {
+          "path": "/etc/hosts"
+        }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "mcp_fs_read_file",
+        "input": {
+          "path": "/etc/hosts"
+        },
+        "this_call_vetoable": false,
+        "meta": {
+          "agent": "gemini",
+          "native_event": "BeforeTool",
+          "native_tool": "mcp_fs_read_file",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {}
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        }
+      }
     }
   ]
 }

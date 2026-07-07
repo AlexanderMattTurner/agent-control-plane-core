@@ -28,6 +28,15 @@ the prose from the release's commits.
   native ask tier), `additional_context` →
   `hookSpecificOutput.additionalContext`, allow abstains. Additive — stays
   schema v1.
+- Gemini adapter: adapter-scoped builtin tool aliases (`GEMINI_TOOL_ALIASES`,
+  exported): a call classified BUILTIN canonicalizes `read_file` → `Read`,
+  `write_file` → `Write`, `web_fetch` → `WebFetch` (Gemini CLI registers every
+  MCP tool under an `mcp_{server}_{tool}` fully qualified name, so a bare
+  builtin name in a hook payload is unambiguous). The native input fields still
+  pass through verbatim, with the raw name on `meta.native_tool`; an MCP-
+  classified call is never aliased. `assertToolAliasesCovered` now takes an
+  optional per-adapter alias map and requires each scoped alias to be witnessed
+  by that agent's own fixtures. Additive — stays schema v1.
 - `Verdict.mutated_output`: the normalized channel for a PostToolUse content
   transform (redaction/sanitize), so an output-rewriting hook can route through
   the contract. Rendered by the Claude adapter as

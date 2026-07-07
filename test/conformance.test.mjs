@@ -8,6 +8,7 @@ import {
   assertCoverageWellFormed,
   assertToolAliasesCovered,
 } from "../src/conformance.mjs";
+import { GEMINI_TOOL_ALIASES } from "../src/adapters/gemini.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const loadFixture = (agent) =>
@@ -276,20 +277,114 @@ describe("conformance harness self-tests (coverage matrix, item ③)", () => {
   });
 });
 
-describe("assertToolAliasesCovered ties the alias SSOT to fixtures", () => {
+describe("assertToolAliasesCovered ties the alias SSOTs to fixtures", () => {
   const allFixtures = ["claude", "codex", "amp", "gemini"].map(loadFixture);
+  const shippedScoped = { gemini: GEMINI_TOOL_ALIASES };
 
-  it("passes: the shipped fixtures witness every alias (run_shell_command→Bash)", () => {
-    assert.doesNotThrow(() => assertToolAliasesCovered(allFixtures, assert));
+  it("passes: the shipped fixtures witness every global and adapter-scoped alias", () => {
+    assert.doesNotThrow(() =>
+      assertToolAliasesCovered(allFixtures, assert, shippedScoped),
+    );
   });
 
-  it("throws when no fixture witnesses an alias (drop gemini's run_shell_command)", () => {
+  it("throws when no fixture witnesses a global alias (drop gemini's run_shell_command)", () => {
     // Only gemini's fixtures carry run_shell_command → Bash; without them the
     // alias in TOOL_ALIASES is unproven and the check must fail.
     const withoutGemini = allFixtures.filter((f) => f.agent !== "gemini");
     assert.throws(
       () => assertToolAliasesCovered(withoutGemini, assert),
       /tool alias "run_shell_command" -> "Bash" is not witnessed/,
+    );
+  });
+
+  it("throws when an adapter-scoped alias has no fixture witness", () => {
+    assert.throws(
+      () =>
+        assertToolAliasesCovered(allFixtures, assert, {
+          gemini: { ...GEMINI_TOOL_ALIASES, save_memory: "Write" },
+        }),
+      /adapter-scoped tool alias "save_memory" -> "Write" \(gemini\) is not witnessed by a 'gemini' conformance fixture/,
+    );
+  });
+
+  it("scoped witnesses are agent-scoped: another agent's fixture proves nothing", () => {
+    const geminiWithoutReadFile = allFixtures.map((f) =>
+      f.agent === "gemini"
+        ? {
+            ...f,
+            cases: f.cases.filter(
+              (c) => c.event?.meta?.native_tool !== "read_file",
+            ),
+          }
+        : f,
+    );
+    // A claude case legitimately passing read_file through verbatim does NOT
+    // witness the gemini-scoped read_file → Read alias.
+    const passthroughWitness = {
+      agent: "claude",
+      cases: [
+        {
+          name: "claude read_file passthrough",
+          event: { tool: "read_file", meta: { native_tool: "read_file" } },
+        },
+      ],
+    };
+    assert.throws(
+      () =>
+        assertToolAliasesCovered(
+          [...geminiWithoutReadFile, passthroughWitness],
+          assert,
+          shippedScoped,
+        ),
+      /adapter-scoped tool alias "read_file" -> "Read" \(gemini\) is not witnessed/,
+    );
+    // And a claude case that APPLIED the gemini-only alias is rejected outright:
+    // the scoped map is not a valid canonicalization for another agent.
+    const misScoped = {
+      agent: "claude",
+      cases: [
+        {
+          name: "claude applies gemini alias",
+          event: { tool: "Read", meta: { native_tool: "read_file" } },
+        },
+      ],
+    };
+    assert.throws(
+      () => assertToolAliasesCovered([misScoped], assert, shippedScoped),
+      /only \["read_file"\] are valid canonicalizations/,
+    );
+  });
+
+  it("a matching witness under ANOTHER adapter's identical scoped alias does not count", () => {
+    // 'other' legitimately witnesses read_file → Read under its OWN scoped
+    // alias; gemini's copy of the alias must still demand a gemini witness.
+    const geminiWithoutReadFile = allFixtures.map((f) =>
+      f.agent === "gemini"
+        ? {
+            ...f,
+            cases: f.cases.filter(
+              (c) => c.event?.meta?.native_tool !== "read_file",
+            ),
+          }
+        : f,
+    );
+    const otherWitness = {
+      agent: "other",
+      cases: [
+        {
+          name: "other read_file",
+          event: { tool: "Read", meta: { native_tool: "read_file" } },
+        },
+      ],
+    };
+    assert.throws(
+      () =>
+        assertToolAliasesCovered(
+          [...geminiWithoutReadFile, otherWitness],
+          assert,
+          { gemini: GEMINI_TOOL_ALIASES, other: { read_file: "Read" } },
+        ),
+      /adapter-scoped tool alias "read_file" -> "Read" \(gemini\) is not witnessed/,
     );
   });
 
@@ -308,7 +403,7 @@ describe("assertToolAliasesCovered ties the alias SSOT to fixtures", () => {
     };
     assert.throws(
       () => assertToolAliasesCovered([bad], assert),
-      /canonicalTool\(\) gives "Bash"/,
+      /only \["Bash"\] are valid canonicalizations/,
     );
   });
 

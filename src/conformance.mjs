@@ -36,41 +36,69 @@ export function assertCoverageWellFormed(adapter, assert) {
 }
 
 /**
- * Assert every {@link TOOL_ALIASES} entry is WITNESSED by a golden fixture — a
- * case whose native tool name equals the alias key and whose normalized
- * `event.tool` equals the canonical target. This is what ties the alias SSOT to
- * the fixtures: a new alias added to {@link TOOL_ALIASES} without a golden
- * payload that exercises it fails here, so an alias "a new judge keys on" can't
- * ship unproven. Also cross-checks each witnessed pair against
- * {@link canonicalTool} so a fixture that preserved `native_tool` but forgot to
- * normalize `event.tool` is caught.
+ * Assert every tool alias — the global {@link TOOL_ALIASES} entries AND each
+ * adapter-scoped alias map — is WITNESSED by a golden fixture: a case whose
+ * native tool name equals the alias key and whose normalized `event.tool`
+ * equals the canonical target. This is what ties the alias SSOTs to the
+ * fixtures: an alias added without a golden payload that exercises it fails
+ * here, so an alias "a new judge keys on" can't ship unproven. A global alias
+ * may be witnessed by any agent's fixtures; an adapter-scoped alias must be
+ * witnessed by THAT agent's fixtures (another agent's payload proves nothing
+ * about the scoping adapter's parse). Also cross-checks each witnessed pair:
+ * `event.tool` must be either the global {@link canonicalTool} result or the
+ * owning adapter's scoped target, so a fixture that preserved `native_tool` but
+ * mis-normalized `event.tool` is caught — including a scoped alias applied by
+ * the wrong agent's fixtures.
  * @param {any[]} fixturesList the golden fixtures for every shipped adapter
  * @param {any} assert node:assert/strict (injected)
+ * @param {Record<string, Record<string, string>>} [adapterAliases] agent id → that adapter's scoped alias map (e.g. `{ gemini: GEMINI_TOOL_ALIASES }`)
  */
-export function assertToolAliasesCovered(fixturesList, assert) {
-  /** @type {Map<string, Set<string>>} native tool name → canonical names seen in fixtures */
-  const witnessed = new Map();
+export function assertToolAliasesCovered(
+  fixturesList,
+  assert,
+  adapterAliases = {},
+) {
+  /** @type {Map<string, Map<string, Set<string>>>} agent → native tool name → canonical names seen */
+  const witnessedByAgent = new Map();
   for (const fixtures of fixturesList) {
+    let witnessed = witnessedByAgent.get(fixtures.agent);
+    if (witnessed === undefined)
+      witnessedByAgent.set(fixtures.agent, (witnessed = new Map()));
+    const scopedMap = adapterAliases[fixtures.agent] ?? {};
     for (const testCase of fixtures.cases) {
       const nativeTool = testCase.event?.meta?.native_tool;
       if (typeof nativeTool !== "string") continue;
       const canon = testCase.event.tool;
-      assert.equal(
-        canon,
-        canonicalTool(nativeTool),
-        `fixture '${testCase.name}' (${fixtures.agent}): native_tool ${JSON.stringify(nativeTool)} normalized to ${JSON.stringify(canon)}, but canonicalTool() gives ${JSON.stringify(canonicalTool(nativeTool))}`,
+      const allowed = new Set([canonicalTool(nativeTool)]);
+      if (scopedMap[nativeTool] !== undefined)
+        allowed.add(scopedMap[nativeTool]);
+      assert.ok(
+        allowed.has(canon),
+        `fixture '${testCase.name}' (${fixtures.agent}): native_tool ${JSON.stringify(nativeTool)} normalized to ${JSON.stringify(canon)}, but only ${JSON.stringify([...allowed])} are valid canonicalizations for this agent`,
       );
       let canons = witnessed.get(nativeTool);
       if (canons === undefined) witnessed.set(nativeTool, (canons = new Set()));
       canons.add(canon);
     }
   }
+  /** @type {(nativeName: string, canonical: string) => boolean} */
+  const witnessedAnywhere = (nativeName, canonical) =>
+    [...witnessedByAgent.values()].some((w) =>
+      w.get(nativeName)?.has(canonical),
+    );
   for (const [nativeName, canonical] of Object.entries(TOOL_ALIASES)) {
-    const seen = witnessed.get(nativeName);
     assert.ok(
-      seen && seen.has(canonical),
+      witnessedAnywhere(nativeName, canonical),
       `tool alias ${JSON.stringify(nativeName)} -> ${JSON.stringify(canonical)} is not witnessed by any conformance fixture — add a golden case whose native tool is ${JSON.stringify(nativeName)}`,
     );
+  }
+  for (const [agent, scopedMap] of Object.entries(adapterAliases)) {
+    for (const [nativeName, canonical] of Object.entries(scopedMap)) {
+      assert.ok(
+        witnessedByAgent.get(agent)?.get(nativeName)?.has(canonical),
+        `adapter-scoped tool alias ${JSON.stringify(nativeName)} -> ${JSON.stringify(canonical)} (${agent}) is not witnessed by a '${agent}' conformance fixture — add a golden ${agent} case whose native tool is ${JSON.stringify(nativeName)}`,
+      );
+    }
   }
 }
 

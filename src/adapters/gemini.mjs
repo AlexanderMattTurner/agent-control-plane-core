@@ -28,6 +28,7 @@ import {
   classifyCallClass,
   coverageAllowsVeto,
   canonicalTool,
+  assertAliasTargetsModeled,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
@@ -109,6 +110,45 @@ function geminiMeta(nativeEvent, raw) {
 }
 
 /**
+ * Adapter-scoped native-builtin → canonical tool aliases, applied ONLY when a
+ * call classifies as BUILTIN. These names are too generic for the global
+ * {@link TOOL_ALIASES} (an MCP server could export a `read_file`), but Gemini
+ * CLI removes the ambiguity at parse time: every MCP tool is unconditionally
+ * registered — and surfaced in hook payloads — under its fully qualified
+ * `mcp_{server}_{tool}` name (gemini-cli docs/tools/mcp-server.md), so a bare
+ * builtin name in `tool_name` can only be the builtin. The builtin's native
+ * input fields still pass through verbatim (e.g. read_file's `absolute_path`,
+ * not Read's `file_path`) — `meta.native_tool` tells a consumer which field
+ * dialect to expect. Targets are pinned to {@link MODELED_TOOLS} at import, and
+ * every entry must be witnessed by a gemini conformance fixture
+ * (`assertToolAliasesCovered`).
+ * @type {Readonly<Record<string, string>>}
+ */
+export const GEMINI_TOOL_ALIASES = Object.freeze({
+  read_file: "Read",
+  write_file: "Write",
+  web_fetch: "WebFetch",
+});
+
+assertAliasTargetsModeled(GEMINI_TOOL_ALIASES);
+
+/**
+ * Canonicalize a Gemini native tool name: adapter-scoped builtin aliases first
+ * (BUILTIN calls only — an MCP- or context-flagged call is never reclassified),
+ * then the global {@link canonicalTool} map, else verbatim.
+ * @param {string|null} nativeTool
+ * @param {string} callClass a {@link CallClass} value
+ * @returns {string|null}
+ */
+function geminiCanonicalTool(nativeTool, callClass) {
+  if (nativeTool !== null && callClass === CallClass.BUILTIN) {
+    const scoped = GEMINI_TOOL_ALIASES[nativeTool];
+    if (scoped !== undefined) return scoped;
+  }
+  return canonicalTool(nativeTool);
+}
+
+/**
  * @param {string} kind
  * @param {Record<string, unknown>} raw
  * @returns {Record<string, unknown>}
@@ -145,15 +185,16 @@ export function parse(native) {
   const nativeTool = gating ? asStringOrNull(raw.tool_name) : null;
   const meta = geminiMeta(nativeEvent, raw);
   if (nativeTool !== null) meta.native_tool = nativeTool;
+  // Classify on the NATIVE name (MCP detection keys on the `mcp_…` FQN prefix
+  // every Gemini MCP tool carries); the class gates both the veto flag and the
+  // builtin-only adapter-scoped aliases.
+  const callClass = classifyCallClass(nativeTool, raw);
   return makeEvent({
     event: kind,
-    tool: canonicalTool(nativeTool),
+    tool: geminiCanonicalTool(nativeTool, callClass),
     input: geminiInput(kind, raw),
     response,
-    // Classify on the NATIVE name (MCP detection keys on `mcp__…`).
-    this_call_vetoable: coverageAllowsVeto(
-      COVERAGE[classifyCallClass(nativeTool, raw)],
-    ),
+    this_call_vetoable: coverageAllowsVeto(COVERAGE[callClass]),
     meta,
   });
 }

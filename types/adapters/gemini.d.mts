@@ -49,6 +49,22 @@ export const HookEvent: Readonly<{
     AFTER_TOOL: "AfterTool";
     BEFORE_AGENT: "BeforeAgent";
 }>;
+/**
+ * Adapter-scoped native-builtin → canonical tool aliases, applied ONLY when a
+ * call classifies as BUILTIN. These names are too generic for the global
+ * {@link TOOL_ALIASES} (an MCP server could export a `read_file`), but Gemini
+ * CLI removes the ambiguity at parse time: every MCP tool is unconditionally
+ * registered — and surfaced in hook payloads — under its fully qualified
+ * `mcp_{server}_{tool}` name (gemini-cli docs/tools/mcp-server.md), so a bare
+ * builtin name in `tool_name` can only be the builtin. The builtin's native
+ * input fields still pass through verbatim (e.g. read_file's `absolute_path`,
+ * not Read's `file_path`) — `meta.native_tool` tells a consumer which field
+ * dialect to expect. Targets are pinned to {@link MODELED_TOOLS} at import, and
+ * every entry must be witnessed by a gemini conformance fixture
+ * (`assertToolAliasesCovered`).
+ * @type {Readonly<Record<string, string>>}
+ */
+export const GEMINI_TOOL_ALIASES: Readonly<Record<string, string>>;
 /** @type {import("../control-plane.mjs").Adapter} */
 export const geminiAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;

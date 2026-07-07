@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { geminiAdapter } from "../src/adapters/gemini.mjs";
+import { geminiAdapter, GEMINI_TOOL_ALIASES } from "../src/adapters/gemini.mjs";
 import { runAdapterConformance } from "../src/conformance.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -84,6 +84,53 @@ describe("gemini render: BeforeTool decision channel", () => {
       hookSpecificOutput: { tool_input: { command: "echo safe" } },
       systemMessage: "note",
     });
+  });
+});
+
+describe("gemini adapter-scoped builtin tool aliases", () => {
+  it("pins the scoped alias map exactly (frozen)", () => {
+    assert.ok(Object.isFrozen(GEMINI_TOOL_ALIASES));
+    assert.deepEqual(GEMINI_TOOL_ALIASES, {
+      read_file: "Read",
+      write_file: "Write",
+      web_fetch: "WebFetch",
+    });
+  });
+
+  // One case per alias member: the map is the SSOT, so adding an entry without
+  // a matching parse expectation fails here.
+  for (const [nativeName, canonical] of Object.entries(GEMINI_TOOL_ALIASES)) {
+    it(`builtin ${nativeName} canonicalizes to ${canonical}, preserving native_tool`, () => {
+      const event = geminiAdapter.parse({
+        hook_event_name: "BeforeTool",
+        tool_name: nativeName,
+        tool_input: { x: 1 },
+      });
+      assert.equal(event.tool, canonical);
+      assert.equal(event.meta.native_tool, nativeName);
+      assert.equal(event.this_call_vetoable, true);
+    });
+  }
+
+  it("an MCP FQN is never aliased (mcp_ prefix wins)", () => {
+    const event = geminiAdapter.parse({
+      hook_event_name: "BeforeTool",
+      tool_name: "mcp_fs_read_file",
+      tool_input: { path: "/x" },
+    });
+    assert.equal(event.tool, "mcp_fs_read_file");
+    assert.equal(event.this_call_vetoable, false);
+  });
+
+  it("an mcp_context-flagged bare read_file is never aliased", () => {
+    const event = geminiAdapter.parse({
+      hook_event_name: "BeforeTool",
+      tool_name: "read_file",
+      tool_input: { path: "/x" },
+      mcp_context: { server: "fs" },
+    });
+    assert.equal(event.tool, "read_file");
+    assert.equal(event.this_call_vetoable, false);
   });
 });
 
