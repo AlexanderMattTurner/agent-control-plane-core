@@ -3,7 +3,8 @@
  * tool, so the alias SSOT can never normalize a native name onto a canon the
  * contract doesn't model. Throws (fail loud) on the first bad target — a typo'd
  * target is a bug, not a silent passthrough. Called at import against
- * {@link TOOL_ALIASES}; exported so a test can drive both branches.
+ * {@link TOOL_ALIASES}, and by adapters against their adapter-scoped alias
+ * maps; exported so a test can drive both branches.
  * @param {Record<string, string>} aliases
  */
 export function assertAliasTargetsModeled(aliases: Record<string, string>): void;
@@ -128,6 +129,35 @@ export function makeEvent({ event, tool, input, response, this_call_vetoable, me
  */
 export function normalizeVerdict(verdict: Verdict): Verdict;
 /**
+ * Harden an UNTRUSTED {@link Verdict} — one authored by a separate
+ * monitor/judge process (e.g. claude-guard's scrub-monitor-response) — before
+ * it is rendered. Two defenses:
+ *
+ *   1. Decision clamp (fail-to-ask): a `decision` outside allow/deny/ask
+ *      becomes `"ask"`, and the clamp is made observable by appending a
+ *      bracketed note to `reason` naming the rejected value — a malformed
+ *      monitor answer escalates to a human instead of throwing (the internal
+ *      strictness of {@link normalizeVerdict}) or silently allowing.
+ *   2. Text scrubbing: the caller-supplied `sanitizeText` runs over every
+ *      monitor-authored PROSE field present — `reason` and
+ *      `additional_context` (a non-string value in either is dropped; prose
+ *      channels carry strings). `mutated_input`/`mutated_output` are NOT
+ *      sanitized: they are data channels (replacement tool input/output the
+ *      guardrail computed, often deliberately containing the very bytes a text
+ *      scrubber would mangle), not monitor-authored prose. `mutated_input` is
+ *      shape-checked only (a non-object is dropped — see the inline note);
+ *      `mutated_output` is carried verbatim.
+ *
+ * `sanitizeText` is injected so this module stays dependency-free. It must be
+ * a function and must return a string — a sanitizer that eats the value is a
+ * bug, so a non-string return throws. Returns a fresh normalized verdict;
+ * never mutates its input.
+ * @param {unknown} verdict the untrusted verdict object
+ * @param {(text: string) => string} sanitizeText
+ * @returns {Verdict}
+ */
+export function sanitizeVerdict(verdict: unknown, sanitizeText: (text: string) => string): Verdict;
+/**
  * Return a shallow copy of `native` with the `consumed` keys removed — the
  * unmodelled remainder an adapter carries in `meta.passthrough` so an additive
  * upstream field survives instead of being silently dropped.
@@ -238,8 +268,12 @@ export const MODELED_TOOLS: readonly string[];
  * name preserved on `meta.native_tool`. Only globally-unambiguous native
  * BUILTIN names belong here — a name that also occurs as an MCP tool (e.g. a
  * `read_file` MCP server) must NOT be aliased, or the normalization would
- * reclassify an unrelated tool. An unknown tool is never in the map, so it
- * passes through verbatim (see {@link canonicalTool}). Every target is a
+ * reclassify an unrelated tool. An adapter whose host makes such a name
+ * unambiguous at parse time (Gemini's `mcp_{server}_{tool}` FQN discipline)
+ * may carry its own ADAPTER-SCOPED alias map instead (see the gemini adapter's
+ * `GEMINI_TOOL_ALIASES`), applied only to calls classified BUILTIN. An unknown
+ * tool is never in the map, so it passes through verbatim (see
+ * {@link canonicalTool}). Every target is a
  * {@link MODELED_TOOLS} member (enforced at load below), and every entry is
  * witnessed by a conformance fixture (see `assertToolAliasesCovered`), so an
  * alias cannot be added without a golden payload that exercises it.

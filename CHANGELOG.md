@@ -14,6 +14,29 @@ the prose from the release's commits.
 
 ### Added
 
+- `sanitizeVerdict(verdict, sanitizeText)`: hardens an UNTRUSTED Verdict (one
+  authored by a separate monitor/judge process) before render. An invalid
+  `decision` is clamped to `"ask"` (fail-to-ask) with an observable clamp note
+  appended to `reason`; the injected `sanitizeText` runs over the
+  monitor-authored prose fields (`reason`, `additional_context`) but never over
+  the `mutated_input`/`mutated_output` data channels. Throws on a non-function
+  sanitizer or a sanitizer returning a non-string. Additive — stays schema v1.
+- Gemini adapter: `BeforeAgent` (Gemini CLI v0.26.0+) now maps to
+  `prompt_submit`, folding the submitted text into `input.prompt`. Renders
+  honestly against BeforeAgent's documented channels: enforced deny → exit 2
+  (aborts the turn), ask → the exit-0 `decision: "deny"` body (Gemini has no
+  native ask tier), `additional_context` →
+  `hookSpecificOutput.additionalContext`, allow abstains. Additive — stays
+  schema v1.
+- Gemini adapter: adapter-scoped builtin tool aliases (`GEMINI_TOOL_ALIASES`,
+  exported): a call classified BUILTIN canonicalizes `read_file` → `Read`,
+  `write_file` → `Write`, `web_fetch` → `WebFetch` (Gemini CLI registers every
+  MCP tool under an `mcp_{server}_{tool}` fully qualified name, so a bare
+  builtin name in a hook payload is unambiguous). The native input fields still
+  pass through verbatim, with the raw name on `meta.native_tool`; an MCP-
+  classified call is never aliased. `assertToolAliasesCovered` now takes an
+  optional per-adapter alias map and requires each scoped alias to be witnessed
+  by that agent's own fixtures. Additive — stays schema v1.
 - `Verdict.mutated_output`: the normalized channel for a PostToolUse content
   transform (redaction/sanitize), so an output-rewriting hook can route through
   the contract. Rendered by the Claude adapter as
