@@ -26,6 +26,7 @@
         "meta": {
           "agent": "claude",
           "native_event": "PreToolUse",
+          "native_tool": "Bash",
           "integration_mode": "external_hook",
           "primary_gate_present": true,
           "passthrough": {},
@@ -135,6 +136,7 @@
         "meta": {
           "agent": "claude",
           "native_event": "PreToolUse",
+          "native_tool": "Read",
           "integration_mode": "external_hook",
           "primary_gate_present": true,
           "passthrough": {
@@ -184,6 +186,7 @@
         "meta": {
           "agent": "claude",
           "native_event": "PostToolUse",
+          "native_tool": "Bash",
           "integration_mode": "external_hook",
           "primary_gate_present": true,
           "passthrough": {}
@@ -202,6 +205,25 @@
             "stdout": {
               "hookSpecificOutput": {
                 "hookEventName": "PostToolUse",
+                "additionalContext": "redacted 1 secret"
+              }
+            }
+          }
+        },
+        "output_mutation": {
+          "verdict": {
+            "decision": "allow",
+            "mutated_output": "file1\n[REDACTED: secret]",
+            "additional_context": "redacted 1 secret"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "updatedToolOutput": "file1\n[REDACTED: secret]",
                 "additionalContext": "redacted 1 secret"
               }
             }

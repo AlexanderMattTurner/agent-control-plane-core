@@ -27,6 +27,7 @@ import {
   CoverageStatus,
   classifyCallClass,
   coverageAllowsVeto,
+  canonicalTool,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
@@ -122,16 +123,19 @@ export function parse(native) {
     EventKind.UNKNOWN;
   const gating = kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL;
   const response = kind === EventKind.POST_TOOL ? raw.tool_response : undefined;
-  const tool = gating ? asStringOrNull(raw.tool_name) : null;
+  const nativeTool = gating ? asStringOrNull(raw.tool_name) : null;
+  const meta = geminiMeta(nativeEvent, raw);
+  if (nativeTool !== null) meta.native_tool = nativeTool;
   return makeEvent({
     event: kind,
-    tool,
+    tool: canonicalTool(nativeTool),
     input: gating ? asObject(raw.tool_input) : {},
     response,
+    // Classify on the NATIVE name (MCP detection keys on `mcp__…`).
     this_call_vetoable: coverageAllowsVeto(
-      COVERAGE[classifyCallClass(tool, raw)],
+      COVERAGE[classifyCallClass(nativeTool, raw)],
     ),
-    meta: geminiMeta(nativeEvent, raw),
+    meta,
   });
 }
 

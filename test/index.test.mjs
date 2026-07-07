@@ -19,6 +19,9 @@ describe("public API surface (index barrel)", () => {
     "coverageAllowsVeto",
     "isCoverageStatus",
     "MODELED_TOOLS",
+    "TOOL_ALIASES",
+    "canonicalTool",
+    "assertAliasTargetsModeled",
     "makeEvent",
     "normalizeVerdict",
     "collectPassthrough",
@@ -34,6 +37,7 @@ describe("public API surface (index barrel)", () => {
     "HookEvent",
     "runAdapterConformance",
     "assertCoverageWellFormed",
+    "assertToolAliasesCovered",
   ];
 
   for (const name of expected) {

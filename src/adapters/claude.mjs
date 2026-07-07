@@ -20,6 +20,7 @@ import {
   CoverageStatus,
   classifyCallClass,
   coverageAllowsVeto,
+  canonicalTool,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
@@ -148,16 +149,20 @@ export function parse(native) {
     /** @type {Record<string, string>} */ (NATIVE_TO_KIND)[nativeEvent] ??
     EventKind.UNKNOWN;
   const response = kind === EventKind.POST_TOOL ? raw.tool_response : undefined;
-  const tool = claudeTool(kind, raw);
+  const nativeTool = claudeTool(kind, raw);
+  const meta = claudeMeta(nativeEvent, raw);
+  if (nativeTool !== null) meta.native_tool = nativeTool;
   return makeEvent({
     event: kind,
-    tool,
+    tool: canonicalTool(nativeTool),
     input: claudeInput(kind, raw),
     response,
+    // Classify on the NATIVE name — MCP detection keys on `mcp__…`, which a
+    // canonical builtin name would never carry.
     this_call_vetoable: coverageAllowsVeto(
-      COVERAGE[classifyCallClass(tool, raw)],
+      COVERAGE[classifyCallClass(nativeTool, raw)],
     ),
-    meta: claudeMeta(nativeEvent, raw),
+    meta,
   });
 }
 
@@ -234,6 +239,11 @@ function gatingBody(hookEventName, vd, soleGate) {
 function nonGatingBody(hookEventName, vd) {
   /** @type {Record<string, unknown>} */
   const hookSpecificOutput = { hookEventName };
+  // A PostToolUse content transform: `updatedToolOutput` replaces what the model
+  // sees (the tool already ran, so this governs only the model's view). The
+  // native channel for the whole redaction/sanitize pipeline.
+  if (vd.mutated_output !== undefined)
+    hookSpecificOutput.updatedToolOutput = vd.mutated_output;
   if (vd.additional_context !== undefined)
     hookSpecificOutput.additionalContext = vd.additional_context;
   /** @type {Record<string, unknown>} */

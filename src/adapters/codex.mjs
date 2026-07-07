@@ -19,6 +19,7 @@ import {
   CoverageStatus,
   classifyCallClass,
   coverageAllowsVeto,
+  canonicalTool,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
@@ -117,13 +118,15 @@ export function parse(native) {
 
   // Coverage floor: even on an enforcing Codex, `PreToolUse` fires for Bash only,
   // so an MCP-sourced call is un-vetoable regardless of version (COVERAGE.mcp).
-  const tool = asStringOrNull(raw.tool_name);
+  // Classify on the NATIVE name (MCP detection keys on `mcp__…`).
+  const nativeTool = asStringOrNull(raw.tool_name);
+  if (nativeTool !== null) meta.native_tool = nativeTool;
   const vetoable =
-    enforce && coverageAllowsVeto(COVERAGE[classifyCallClass(tool, raw)]);
+    enforce && coverageAllowsVeto(COVERAGE[classifyCallClass(nativeTool, raw)]);
 
   return makeEvent({
     event: kind,
-    tool,
+    tool: canonicalTool(nativeTool),
     input: asObject(raw.tool_input),
     response: undefined,
     this_call_vetoable: vetoable,

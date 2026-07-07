@@ -18,6 +18,15 @@ for a host to plug a custom decision-maker into at all — that's an upstream
 Goose limitation, not something a schema change here can fix. See §OpenHands
 and §Goose for the detail and §Consolidated verdict for the exact ask.
 
+> **Contract note (post-write):** the `NativeResponse.throw_` and
+> `NativeResponse.fallback` channels, and the `ConfigFallback` typedef, were
+> **removed** from the live contract as speculative surface no shipped adapter
+> emitted. The analysis below still names them as the shapes opencode's throw
+> transport and an MCP config-deny fallback WILL need — they are re-added
+> additively (still schema v1) at the moment those adapters land with fixtures,
+> exactly as the additive doctrine allows. Read the `throw_`/`fallback` mentions
+> below as "the channel that adapter reintroduces," not "a channel present today."
+
 ---
 
 ## OpenHands

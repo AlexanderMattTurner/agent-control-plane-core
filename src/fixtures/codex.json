@@ -27,6 +27,7 @@
         "meta": {
           "agent": "codex",
           "native_event": "PreToolUse",
+          "native_tool": "Bash",
           "integration_mode": "external_hook",
           "primary_gate_present": true,
           "passthrough": {},
@@ -132,6 +133,7 @@
         "meta": {
           "agent": "codex",
           "native_event": "PreToolUse",
+          "native_tool": "mcp__github__create_issue",
           "integration_mode": "external_hook",
           "primary_gate_present": true,
           "passthrough": {}
@@ -194,6 +196,7 @@
         "meta": {
           "agent": "codex",
           "native_event": "PermissionRequest",
+          "native_tool": "Bash",
           "integration_mode": "external_hook",
           "primary_gate_present": true,
           "passthrough": {}
@@ -241,6 +244,7 @@
         "meta": {
           "agent": "codex",
           "native_event": "PreToolUse",
+          "native_tool": "Bash",
           "integration_mode": "observe_only",
           "primary_gate_present": true,
           "passthrough": {}

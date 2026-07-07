@@ -17,4 +17,5 @@ export { geminiAdapter } from "./adapters/gemini.mjs";
 export {
   runAdapterConformance,
   assertCoverageWellFormed,
+  assertToolAliasesCovered,
 } from "./conformance.mjs";

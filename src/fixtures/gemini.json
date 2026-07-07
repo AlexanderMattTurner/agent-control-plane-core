@@ -18,7 +18,7 @@
       "event": {
         "schema_version": 1,
         "event": "pre_tool",
-        "tool": "run_shell_command",
+        "tool": "Bash",
         "input": {
           "command": "echo hi"
         },
@@ -26,6 +26,7 @@
         "meta": {
           "agent": "gemini",
           "native_event": "BeforeTool",
+          "native_tool": "run_shell_command",
           "integration_mode": "external_hook",
           "primary_gate_present": true,
           "passthrough": {
@@ -122,6 +123,7 @@
         "meta": {
           "agent": "gemini",
           "native_event": "BeforeTool",
+          "native_tool": "read_file",
           "integration_mode": "external_hook",
           "primary_gate_present": true,
           "passthrough": {
@@ -158,7 +160,7 @@
       "event": {
         "schema_version": 1,
         "event": "post_tool",
-        "tool": "run_shell_command",
+        "tool": "Bash",
         "input": {
           "command": "ls"
         },
@@ -166,6 +168,7 @@
         "meta": {
           "agent": "gemini",
           "native_event": "AfterTool",
+          "native_tool": "run_shell_command",
           "integration_mode": "external_hook",
           "primary_gate_present": true,
           "passthrough": {}
