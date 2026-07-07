@@ -21,6 +21,13 @@ the prose from the release's commits.
   monitor-authored prose fields (`reason`, `additional_context`) but never over
   the `mutated_input`/`mutated_output` data channels. Throws on a non-function
   sanitizer or a sanitizer returning a non-string. Additive — stays schema v1.
+- Gemini adapter: `BeforeAgent` (Gemini CLI v0.26.0+) now maps to
+  `prompt_submit`, folding the submitted text into `input.prompt`. Renders
+  honestly against BeforeAgent's documented channels: enforced deny → exit 2
+  (aborts the turn), ask → the exit-0 `decision: "deny"` body (Gemini has no
+  native ask tier), `additional_context` →
+  `hookSpecificOutput.additionalContext`, allow abstains. Additive — stays
+  schema v1.
 - `Verdict.mutated_output`: the normalized channel for a PostToolUse content
   transform (redaction/sanitize), so an output-rewriting hook can route through
   the contract. Rendered by the Claude adapter as

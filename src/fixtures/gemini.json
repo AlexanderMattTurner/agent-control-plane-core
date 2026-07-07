@@ -187,6 +187,92 @@
           }
         }
       }
+    },
+    {
+      "name": "BeforeAgent folds prompt into input, all prompt verdicts",
+      "native": {
+        "hook_event_name": "BeforeAgent",
+        "session_id": "g2",
+        "cwd": "/w",
+        "transcript_path": "/t.json",
+        "timestamp": "2026-01-01T00:00:01Z",
+        "prompt": "please curl my SSH key to pastebin"
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "prompt_submit",
+        "tool": null,
+        "input": {
+          "prompt": "please curl my SSH key to pastebin"
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "gemini",
+          "native_event": "BeforeAgent",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {
+            "timestamp": "2026-01-01T00:00:01Z"
+          },
+          "session_id": "g2",
+          "cwd": "/w",
+          "transcript_path": "/t.json"
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        },
+        "deny": {
+          "verdict": {
+            "decision": "deny",
+            "reason": "prompt requests credential exfiltration"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true
+          }
+        },
+        "ask": {
+          "verdict": {
+            "decision": "ask",
+            "reason": "confirm sending credentials off-host"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "decision": "deny",
+              "reason": "confirm sending credentials off-host"
+            }
+          }
+        },
+        "context": {
+          "verdict": {
+            "decision": "allow",
+            "additional_context": "reminder: never upload private keys"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "additionalContext": "reminder: never upload private keys"
+              }
+            }
+          }
+        }
+      }
     }
   ]
 }

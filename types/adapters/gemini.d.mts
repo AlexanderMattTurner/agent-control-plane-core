@@ -5,16 +5,20 @@
  * tools via exit 2. But MCP firing is only medium-confidence (COVERAGE.mcp is
  * UNKNOWN), so an MCP-sourced call — flagged by `mcp_context` or an `mcp_`-named
  * tool — parses non-vetoable until an item-⑤ probe confirms the hook fires.
+ * `BeforeAgent` (fires after the user submits a prompt, before planning) maps to
+ * `prompt_submit`: no tool, the submitted text folded into `input.prompt`.
  * @param {any} native
  * @returns {ToolCallEvent}
  */
 export function parse(native: any): ToolCallEvent;
 /**
  * Render into Gemini CLI's native external-hook transport. An enforceable deny
- * renders as exit 2 (the System Block); everything else exits 0 with a JSON
- * decision body (or none, when `allow` abstains). `soleGate` (default false) is
- * the same dangerous opt-in as the other adapters: it makes an `allow` emit the
- * real `decision: "allow"` instead of abstaining.
+ * renders as exit 2 (the System Block on BeforeTool; documented on BeforeAgent
+ * as "same as decision: deny" — it aborts the turn); everything else exits 0
+ * with a JSON decision body (or none, when `allow` abstains). `soleGate`
+ * (default false) is the same dangerous opt-in as the other adapters: it makes
+ * an `allow` emit the real `decision: "allow"` instead of abstaining (tool
+ * events only — BeforeAgent documents no allow behavior to opt into).
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
  * @param {{ soleGate?: boolean }} [options]
@@ -43,6 +47,7 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
 export const HookEvent: Readonly<{
     BEFORE_TOOL: "BeforeTool";
     AFTER_TOOL: "AfterTool";
+    BEFORE_AGENT: "BeforeAgent";
 }>;
 /** @type {import("../control-plane.mjs").Adapter} */
 export const geminiAdapter: import("../control-plane.mjs").Adapter;

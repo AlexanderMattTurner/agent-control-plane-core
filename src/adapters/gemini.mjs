@@ -33,6 +33,7 @@ import {
   nativeResponse,
   collectPassthrough,
   asObject,
+  asString,
   asStringOrNull,
 } from "../control-plane.mjs";
 
@@ -64,11 +65,13 @@ export const COVERAGE = Object.freeze({
 export const HookEvent = Object.freeze({
   BEFORE_TOOL: "BeforeTool",
   AFTER_TOOL: "AfterTool",
+  BEFORE_AGENT: "BeforeAgent",
 });
 
 const NATIVE_TO_KIND = Object.freeze({
   [HookEvent.BEFORE_TOOL]: EventKind.PRE_TOOL,
   [HookEvent.AFTER_TOOL]: EventKind.POST_TOOL,
+  [HookEvent.BEFORE_AGENT]: EventKind.PROMPT_SUBMIT,
 });
 
 // Only the fields the adapter maps are consumed; everything else (timestamp,
@@ -81,6 +84,7 @@ const CONSUMED = new Set([
   "tool_name",
   "tool_input",
   "tool_response",
+  "prompt",
 ]);
 
 /**
@@ -105,12 +109,27 @@ function geminiMeta(nativeEvent, raw) {
 }
 
 /**
+ * @param {string} kind
+ * @param {Record<string, unknown>} raw
+ * @returns {Record<string, unknown>}
+ */
+function geminiInput(kind, raw) {
+  if (kind === EventKind.PROMPT_SUBMIT)
+    return { prompt: asString(raw.prompt, "") };
+  if (kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL)
+    return asObject(raw.tool_input);
+  return {};
+}
+
+/**
  * Parse a raw Gemini CLI hook payload into a normalized {@link ToolCallEvent}.
  * Never throws on an unmodelled event type or tool-input field. A payload comes
  * from a hooks-capable Gemini (v0.26.0+) whose `BeforeTool` can pre-empt builtin
  * tools via exit 2. But MCP firing is only medium-confidence (COVERAGE.mcp is
  * UNKNOWN), so an MCP-sourced call — flagged by `mcp_context` or an `mcp_`-named
  * tool — parses non-vetoable until an item-⑤ probe confirms the hook fires.
+ * `BeforeAgent` (fires after the user submits a prompt, before planning) maps to
+ * `prompt_submit`: no tool, the submitted text folded into `input.prompt`.
  * @param {any} native
  * @returns {ToolCallEvent}
  */
@@ -129,7 +148,7 @@ export function parse(native) {
   return makeEvent({
     event: kind,
     tool: canonicalTool(nativeTool),
-    input: gating ? asObject(raw.tool_input) : {},
+    input: geminiInput(kind, raw),
     response,
     // Classify on the NATIVE name (MCP detection keys on `mcp__…`).
     this_call_vetoable: coverageAllowsVeto(
@@ -141,10 +160,12 @@ export function parse(native) {
 
 /**
  * Render into Gemini CLI's native external-hook transport. An enforceable deny
- * renders as exit 2 (the System Block); everything else exits 0 with a JSON
- * decision body (or none, when `allow` abstains). `soleGate` (default false) is
- * the same dangerous opt-in as the other adapters: it makes an `allow` emit the
- * real `decision: "allow"` instead of abstaining.
+ * renders as exit 2 (the System Block on BeforeTool; documented on BeforeAgent
+ * as "same as decision: deny" — it aborts the turn); everything else exits 0
+ * with a JSON decision body (or none, when `allow` abstains). `soleGate`
+ * (default false) is the same dangerous opt-in as the other adapters: it makes
+ * an `allow` emit the real `decision: "allow"` instead of abstaining (tool
+ * events only — BeforeAgent documents no allow behavior to opt into).
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
  * @param {{ soleGate?: boolean }} [options]
@@ -163,7 +184,10 @@ export function render(verdict, event, { soleGate = false } = {}) {
       enforced: true,
     });
 
-  const body = decisionBody(vd, soleGate);
+  const body =
+    event.event === EventKind.PROMPT_SUBMIT
+      ? promptSubmitBody(vd)
+      : decisionBody(vd, soleGate);
   return nativeResponse({
     transport: INTEGRATION_MODE,
     exit_code: 0,
@@ -197,6 +221,31 @@ function decisionBody(vd, soleGate) {
     out.hookSpecificOutput = { tool_input: vd.mutated_input };
   if (vd.additional_context !== undefined)
     out.systemMessage = vd.additional_context;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Build the exit-0 stdout body for a `prompt_submit` (BeforeAgent) render.
+ * BeforeAgent's documented channels differ from BeforeTool's: `decision:
+ * "deny"` blocks the turn and discards the prompt, and context injection is
+ * `hookSpecificOutput.additionalContext` (appended to the prompt for this turn
+ * only) — there is no `tool_input` to mutate and no documented allow decision,
+ * so `allow` always abstains and `mutated_input` has no home here. `deny`/`ask`
+ * both surface `decision: "deny"` with the reason, mirroring how BeforeTool
+ * renders ask (Gemini has no native ask tier). Returns undefined when there is
+ * nothing to emit.
+ * @param {Verdict} vd
+ * @returns {Record<string, unknown>|undefined}
+ */
+function promptSubmitBody(vd) {
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  if (vd.decision === Decision.DENY || vd.decision === Decision.ASK) {
+    out.decision = "deny";
+    if (vd.reason !== undefined) out.reason = vd.reason;
+  }
+  if (vd.additional_context !== undefined)
+    out.hookSpecificOutput = { additionalContext: vd.additional_context };
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
