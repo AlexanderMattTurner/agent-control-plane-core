@@ -6,7 +6,8 @@
  * reference adapters, and the conformance harness every adapter must pass.
  * Individual adapters are also reachable at the subpath exports
  * `agent-control-plane-core/claude`, `/codex`, `/amp`, `/gemini`, and the
- * harness at `/conformance`.
+ * harness at `/conformance`. The agent-id → adapter registry (the SSOT a
+ * host/dispatcher selects from) is at `/registry`.
  */
 
 export * from "./control-plane.mjs";
@@ -14,6 +15,12 @@ export { claudeAdapter, HookEvent } from "./adapters/claude.mjs";
 export { codexAdapter } from "./adapters/codex.mjs";
 export { ampAdapter } from "./adapters/amp.mjs";
 export { geminiAdapter, GEMINI_TOOL_ALIASES } from "./adapters/gemini.mjs";
+export {
+  ADAPTERS,
+  AGENT_IDS,
+  adapterFor,
+  assertRegistryConsistent,
+} from "./registry.mjs";
 export {
   runAdapterConformance,
   assertCoverageWellFormed,
