@@ -35,6 +35,12 @@ describe("public API surface (index barrel)", () => {
     "ampAdapter",
     "geminiAdapter",
     "HookEvent",
+    // registry
+    "ADAPTERS",
+    "AGENT_IDS",
+    "adapterFor",
+    "assertRegistryConsistent",
+    // conformance
     "runAdapterConformance",
     "assertCoverageWellFormed",
     "assertToolAliasesCovered",
