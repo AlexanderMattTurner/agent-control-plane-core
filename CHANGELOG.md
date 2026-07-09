@@ -12,6 +12,12 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.2.1] - 2026-07-09
+
+### Security
+
+- Hardened CI workflows against PR-author code execution and prompt injection attacks.
+
 ## [0.2.0] - 2026-07-09
 
 ### Added
