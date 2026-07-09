@@ -12,6 +12,8 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.2.0] - 2026-07-09
+
 ### Added
 
 - `sanitizeVerdict(verdict, sanitizeText)`: hardens an UNTRUSTED Verdict (one
@@ -48,6 +50,15 @@ the prose from the release's commits.
   members and whose every entry must be witnessed by a conformance fixture
   (`assertToolAliasesCovered`). An unknown tool is never reclassified — it passes
   through verbatim. Additive — stays schema v1.
+- Agent-id → adapter registry SSOT: a canonical mapping of agent identifiers to
+  their adapter implementations for consistent registry lookups.
+
+### Fixed
+
+- `sanitizeVerdict` now correctly forwards a non-object `mutated_input` instead
+  of dropping it.
+- npm provenance validation now succeeds on publish with added repository
+  metadata in package.json.
 
 ### Removed
 
