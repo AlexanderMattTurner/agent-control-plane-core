@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.11"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       - name: Restore pre-commit cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -30,9 +32,10 @@ jobs:
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: pre-commit-${{ runner.os }}-
       - name: Run pre-commit
-        run: |
-          pip install pre-commit
-          pre-commit run --all-files --show-diff-on-failure
+        # Pinned version installed via uv (repo CI guidance: uv over pip for
+        # Python tool installs). setup-python provides the 3.11 interpreter the
+        # `language: python` hooks build their environments against.
+        run: uvx pre-commit==4.2.0 run --all-files --show-diff-on-failure
 
   # Stable Required check: runs even when `pre-commit` is cancelled/skipped, so
   # a protected branch never gets stuck on a check that never reports.

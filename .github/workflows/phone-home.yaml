@@ -26,6 +26,11 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          # Pin to the trusted base branch, not the default merge ref. On
+          # `pull_request: closed` the merge ref carries the merged PR's code, so
+          # a malicious PR could otherwise run modified phone-home-*.js with the
+          # org PAT (TEMPLATE_SYNC_TOKEN). base.ref is the maintainer-owned branch.
+          ref: ${{ github.event.pull_request.base.ref }}
           sparse-checkout: .github/scripts
           persist-credentials: false
 
