@@ -12,6 +12,10 @@ the prose from the release's commits.
 
 ## Unreleased
 
+### Security
+
+- Codex adapter: an enforced `deny` now always renders a non-empty `permissionDecisionReason`. Codex's `PreToolUse` output parser drops a deny that carries no (or an empty) reason and **runs the tool** (fail-open); the adapter now substitutes a default reason so a reasonless enforced deny still blocks. Claude honours a bare deny; Codex does not — this closes the gap at the adapter boundary rather than relying on every judge to supply a reason.
+
 ## [0.2.1] - 2026-07-09
 
 ### Security
