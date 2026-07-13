@@ -58,6 +58,10 @@ export const MIN_ENFORCING_VERSION = Object.freeze([0, 135]);
 // Both native events gate a tool call; PermissionRequest is the ask-tier veto.
 const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest"]);
 
+// Codex drops an enforced deny that carries no (or an empty) reason and runs the
+// tool, so a reasonless enforced deny still renders a non-empty one.
+const DEFAULT_DENY_REASON = "blocked by monitor";
+
 const CONSUMED = new Set([
   "hook_event_name",
   "session_id",
@@ -163,6 +167,13 @@ export function render(verdict, event, { soleGate = false } = {}) {
     body.permissionDecision = vd.decision;
     if (vd.reason !== undefined) body.permissionDecisionReason = vd.reason;
   }
+  // Codex FAILS OPEN on an enforced deny whose permissionDecisionReason is missing
+  // or empty: its PreToolUse output parser drops the block (block_reason = None)
+  // and runs the tool. Unlike Claude, which honours a bare deny, Codex needs a
+  // non-empty reason for the block to bite — so guarantee one on every enforced
+  // deny, whatever the judge supplied.
+  if (enforced && !body.permissionDecisionReason)
+    body.permissionDecisionReason = DEFAULT_DENY_REASON;
   if (vd.mutated_input !== undefined) body.updatedInput = vd.mutated_input;
 
   return nativeResponse({

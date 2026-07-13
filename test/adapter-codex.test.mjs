@@ -91,6 +91,57 @@ describe("codex adapter: allow = abstain by default, soleGate opt-in", () => {
   });
 });
 
+describe("codex adapter: enforced deny always carries a non-empty reason (Codex fails open otherwise)", () => {
+  const event = codexAdapter.parse({
+    hook_event_name: "PreToolUse",
+    version: "0.135.0",
+    tool_name: "Bash",
+    tool_input: { command: "rm -rf /" },
+  });
+
+  it("supplies a default reason when an enforced deny has none", () => {
+    const out = codexAdapter.render({ decision: "deny" }, event);
+    assert.equal(out.enforced, true);
+    assert.equal(out.exit_code, 2);
+    const reason = out.stdout.hookSpecificOutput.permissionDecisionReason;
+    assert.equal(typeof reason, "string");
+    assert.ok(reason.length > 0);
+  });
+
+  it("replaces an empty-string reason on an enforced deny", () => {
+    const out = codexAdapter.render({ decision: "deny", reason: "" }, event);
+    assert.ok(
+      out.stdout.hookSpecificOutput.permissionDecisionReason.length > 0,
+    );
+  });
+
+  it("preserves a real reason on an enforced deny", () => {
+    const out = codexAdapter.render(
+      { decision: "deny", reason: "destructive delete" },
+      event,
+    );
+    assert.equal(
+      out.stdout.hookSpecificOutput.permissionDecisionReason,
+      "destructive delete",
+    );
+  });
+
+  it("does not inject a reason on a non-enforced (advisory) deny", () => {
+    const preEnforcing = codexAdapter.parse({
+      hook_event_name: "PreToolUse",
+      version: "0.134.9",
+      tool_name: "Bash",
+      tool_input: { command: "rm -rf /" },
+    });
+    const out = codexAdapter.render({ decision: "deny" }, preEnforcing);
+    assert.equal(out.enforced, false);
+    assert.equal(out.exit_code, 0);
+    assert.ok(
+      !("permissionDecisionReason" in out.stdout.hookSpecificOutput),
+    );
+  });
+});
+
 describe("canEnforce version gate (≥ v0.135)", () => {
   // Driven per boundary so the major/minor/invalid branches are each pinned.
   for (const [version, expected] of [
