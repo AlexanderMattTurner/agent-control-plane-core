@@ -12,6 +12,13 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.2.5] - 2026-07-19
+
+### Changed
+
+- ci: run template sync daily instead of weekly (#32)
+- ci: notify on Sync from Template workflow failures (#31)
+
 ## [0.2.3] - 2026-07-13
 
 ### Security
