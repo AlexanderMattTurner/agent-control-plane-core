@@ -69,6 +69,10 @@ repos:
       - id: check-tier1
       - id: check-tier2
       - id: check-extras
+      # The one pack member outside the aggregates (language: script, so the
+      # Python tier runner can't host it): reject absolute-target symlinks.
+      - id: check-symlinks
+        name: "extra: reject tracked symlinks with absolute targets"
 
   - repo: local
     hooks:
