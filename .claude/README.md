@@ -59,13 +59,12 @@ Edit `hooks/session-setup.sh` to add more tools:
 # Via uv
 uv_install_if_missing mycommand mypackage
 
-# Via webi (https://webinstall.dev) — pin versions for supply-chain safety
-webi_install_if_missing mytool mytool@1
+# Via `go install` at a pinned version — the Go checksum database verifies the
+# module before building (no curl artifact, no exemption needed)
+go_install_pinned mytool "example.com/mod/cmd/mytool@v1.2.3"
 
-# Via apt (requires root)
-if is_root; then
-  apt-get install -y mytool
-fi
+# Via apt's signed repositories (requires root on a Debian-family image)
+apt_install_if_missing mytool
 ```
 
 ### Adding Skills
