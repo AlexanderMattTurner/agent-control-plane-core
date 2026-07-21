@@ -12,6 +12,13 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.2.11] - 2026-07-21
+
+### Changed
+
+- ci: use TEMPLATE_SYNC_TOKEN_ORG as the primary template-sync token
+- docs: release 0.2.10 [skip ci]
+
 ## [0.2.10] - 2026-07-21
 
 ### Changed
