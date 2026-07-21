@@ -12,6 +12,21 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.2.6] - 2026-07-21
+
+### Changed
+
+- test: make session-setup GH_REPO test hermetic against ambient git rewrite
+- chore(deps): relock uv.lock after package rename
+- docs: add parallel-session overlap convention to CLAUDE.md
+- ci(pre-commit): enable ci-truth-serum check-symlinks
+- fix(hooks): warn loudly when lint-staged is missing in pre-commit
+- ci: add daily release-canary workflow
+- test: guard test-dir layout and fail CI loudly on missing toolchain
+- chore(meta): fix template-leftover project name and stale adapter list
+- fix(ci): push the release tag before the CHANGELOG docs push
+- fix(hooks): emit stderr diagnostic when the hook pipeline fails safe
+
 ## [0.2.5] - 2026-07-19
 
 ### Changed
