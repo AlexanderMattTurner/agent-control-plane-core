@@ -38,7 +38,10 @@ describe("isNewer compares major, then minor, then patch", () => {
     ["1.2.3", "1.2.3", false],
     ["1.2.2", "1.2.3", false],
     ["1.0.0", "2.0.0", false],
-    ["1.2.3-rc.1", "1.2.3", false],
+    ["1.2.3-rc.1", "1.2.3", false], // prerelease coerces to 1.2.3, not newer
+    ["1.2.4-rc.1", "1.2.3", true], // prerelease of a higher release is newer
+    ["1.2.4+build.9", "1.2.3", true], // build metadata ignored
+    ["garbage", "1.2.3", false], // uncoercible latest → 0.0.0, not newer
   ]) {
     it(`isNewer(${latest}, ${captured}) === ${expected}`, () => {
       assert.equal(isNewer(latest, captured), expected);

@@ -11,6 +11,8 @@
  * the adapter must not pretend to enforce on an old Codex.
  */
 
+import semver from "semver";
+
 import {
   EventKind,
   Decision,
@@ -55,6 +57,9 @@ export const COVERAGE = Object.freeze({
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION = Object.freeze([0, 135]);
 
+/** {@link MIN_ENFORCING_VERSION} as the semver string the gate compares against. */
+const MIN_ENFORCING_SEMVER = `${MIN_ENFORCING_VERSION[0]}.${MIN_ENFORCING_VERSION[1]}.0`;
+
 // Both native events gate a tool call; PermissionRequest is the ask-tier veto.
 const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest"]);
 
@@ -75,18 +80,16 @@ const CONSUMED = new Set([
 
 /**
  * True when `version` ("0.135.0") is at or above {@link MIN_ENFORCING_VERSION}.
- * A missing/garbage version is treated as too old (fail closed to advisory).
+ * `semver.coerce` normalizes a patch/prerelease/build-tagged version to its
+ * release core; anything it can't coerce to a valid version (missing, empty,
+ * garbage) yields `null` and is treated as too old — fail closed to advisory.
  * @param {unknown} version
  * @returns {boolean}
  */
 export function canEnforce(version) {
-  const parts = asString(version, "").split(".");
-  const major = Number(parts[0]);
-  const minor = Number(parts[1]);
-  if (!Number.isInteger(major) || !Number.isInteger(minor)) return false;
-  if (major !== MIN_ENFORCING_VERSION[0])
-    return major > MIN_ENFORCING_VERSION[0];
-  return minor >= MIN_ENFORCING_VERSION[1];
+  const coerced = semver.coerce(asString(version, ""));
+  if (coerced === null) return false;
+  return semver.gte(coerced, MIN_ENFORCING_SEMVER);
 }
 
 /**

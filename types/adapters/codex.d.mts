@@ -1,6 +1,8 @@
 /**
  * True when `version` ("0.135.0") is at or above {@link MIN_ENFORCING_VERSION}.
- * A missing/garbage version is treated as too old (fail closed to advisory).
+ * `semver.coerce` normalizes a patch/prerelease/build-tagged version to its
+ * release core; anything it can't coerce to a valid version (missing, empty,
+ * garbage) yields `null` and is treated as too old — fail closed to advisory.
  * @param {unknown} version
  * @returns {boolean}
  */

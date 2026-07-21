@@ -20,43 +20,38 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import semver from "semver";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CONFIG_PATH = join(REPO_ROOT, "config", "live-conformance.json");
 
 /**
  * Parse a semver string to `[major, minor, patch]`, dropping any prerelease or
- * build metadata (`1.2.3-beta.1+sha` → `[1,2,3]`). A missing or non-numeric
- * component coerces to 0 so a malformed version never throws — this feeds a
- * best-effort advisory check, not a gate that should crash on odd input.
+ * build metadata (`1.2.3-beta.1+sha` → `[1,2,3]`) via `semver.coerce`. Anything
+ * `coerce` can't resolve to a valid version (missing, empty, garbage) yields
+ * `[0, 0, 0]` so a malformed version never throws — this feeds a best-effort
+ * advisory check, not a gate that should crash on odd input.
  * @param {unknown} v
  * @returns {[number, number, number]}
  */
 export function parseVersion(v) {
-  const core = String(v).split("+")[0].split("-")[0];
-  const parts = core.split(".").map((n) => Number.parseInt(n, 10));
-  return [
-    Number.isInteger(parts[0]) ? parts[0] : 0,
-    Number.isInteger(parts[1]) ? parts[1] : 0,
-    Number.isInteger(parts[2]) ? parts[2] : 0,
-  ];
+  const c = semver.coerce(String(v));
+  return c === null ? [0, 0, 0] : [c.major, c.minor, c.patch];
 }
 
 /**
- * True when `latest` is a strictly higher release than `captured` (major, then
- * minor, then patch). Prerelease tags are ignored, so `1.2.3-rc.1` is NOT newer
- * than `1.2.3`.
+ * True when `latest` is a strictly higher release than `captured`. Both sides
+ * are coerced to their release core first, so prerelease tags are ignored
+ * (`1.2.3-rc.1` is NOT newer than `1.2.3`) and an uncoercible version compares
+ * as `0.0.0`.
  * @param {string} latest
  * @param {string} captured
  * @returns {boolean}
  */
 export function isNewer(latest, captured) {
-  const a = parseVersion(latest);
-  const b = parseVersion(captured);
-  for (let i = 0; i < 3; i++) {
-    if (a[i] !== b[i]) return a[i] > b[i];
-  }
-  return false;
+  const a = parseVersion(latest).join(".");
+  const b = parseVersion(captured).join(".");
+  return semver.gt(a, b);
 }
 
 /**
