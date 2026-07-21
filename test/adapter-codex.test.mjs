@@ -136,22 +136,33 @@ describe("codex adapter: enforced deny always carries a non-empty reason (Codex 
     const out = codexAdapter.render({ decision: "deny" }, preEnforcing);
     assert.equal(out.enforced, false);
     assert.equal(out.exit_code, 0);
-    assert.ok(
-      !("permissionDecisionReason" in out.stdout.hookSpecificOutput),
-    );
+    assert.ok(!("permissionDecisionReason" in out.stdout.hookSpecificOutput));
   });
 });
 
 describe("canEnforce version gate (≥ v0.135)", () => {
-  // Driven per boundary so the major/minor/invalid branches are each pinned.
+  // Driven per boundary so just-below / exactly-at / above / prerelease /
+  // garbage each pin a distinct branch. Fail-closed: anything semver.coerce
+  // can't resolve to a version stays advisory (false).
   for (const [version, expected] of [
-    ["0.135.0", true],
+    ["0.135.0", true], // exactly at threshold
+    ["0.135.1", true], // patch above
+    ["0.136.0", true], // minor above
     ["0.200.1", true],
-    ["1.0.0", true],
-    ["0.134.9", false],
-    ["", false],
-    ["abc", false],
-    ["0", false],
+    ["1.0.0", true], // major above
+    ["0.134.9", false], // just below
+    ["0.134.999", false], // just below, high patch
+    ["0.0.0", false],
+    ["0.135.0-rc.1", true], // prerelease of the threshold coerces to 0.135.0
+    ["0.135.0-beta+sha", true], // prerelease + build metadata
+    ["0.134.0-rc.9", false], // prerelease below the threshold
+    ["v0.135.0", true], // leading-v tolerated by coerce
+    ["", false], // missing → fail closed
+    ["abc", false], // garbage → fail closed
+    ["0", false], // partial coerces to 0.0.0 → fail closed
+    [undefined, false], // non-string → fail closed
+    [null, false],
+    [135, false], // non-string number → fail closed
   ]) {
     it(`${JSON.stringify(version)} -> ${expected}`, () => {
       assert.equal(canEnforce(version), expected);
