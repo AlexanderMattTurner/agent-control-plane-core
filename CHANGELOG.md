@@ -12,6 +12,13 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.2.7] - 2026-07-21
+
+### Changed
+
+- fix(security): replace unverified webi curl|sh bootstrap with pinned, verified installs (#34)
+- docs: release 0.2.6 [skip ci]
+
 ## [0.2.6] - 2026-07-21
 
 ### Changed
