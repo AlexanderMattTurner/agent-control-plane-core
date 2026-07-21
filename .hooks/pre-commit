@@ -19,6 +19,11 @@ if [[ -d "$git_root/.venv/bin" ]]; then
 fi
 
 if [[ ! -f "$git_root/node_modules/.bin/lint-staged" ]]; then
+  # Still exit 0 (non-Node projects and fresh clones must be able to commit),
+  # but never silently: a missing install otherwise disables all lint/format
+  # enforcement with zero signal.
+  echo "pre-commit: WARNING — lint-staged not installed; lint/format checks SKIPPED for this commit." >&2
+  echo "pre-commit:           run 'pnpm install' to enable them." >&2
   exit 0
 fi
 

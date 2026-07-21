@@ -6,6 +6,12 @@
 - Save all explanation for the END: a short overview of what changed and how it fits, plus anything I need to run/use it. Proportional to the change.
 - Be direct. Flag real risks once; skip caveats I didn’t ask for. Don’t claim it works unless you ran it or read the code.
 
+## Parallel Sessions
+
+- **Check open PR commits first when addressing a bug that's red on main — a fix may already be underway.** Before starting work, list open PRs and check for overlap with the planned area.
+- If an open PR already covers the same failure, push to that branch instead of opening a sibling PR.
+- Name the claimed area in the first line of the PR description so other sessions can spot the overlap cheaply.
+
 ## Commands
 
 ```bash
@@ -48,7 +54,7 @@ Use the `/pr-creation` skill. For contributions to others’ repos, before writi
 
 Before declaring any non-trivial coding task done, **iteratively critique and fix your own work until you reach a fixed point.** Read what you actually wrote (not what you intended to write) as if it came from a developer you cannot stand—assume it is wrong until proven otherwise.
 
-Each pass, hunt for: bugs, broken or missed edge cases, weakened/skipped/deleted tests, swallowed errors, dead code, unjustified abstractions, premature returns, broken invariants, sloppy naming, fragile assumptions, hidden coupling, scope creep beyond the request, comments that explain _what_ instead of *why*, anything that smells off. State each issue bluntly in one line, then fix it. Then re-review the fix—fixes introduce their own bugs.
+Each pass, hunt for: bugs, broken or missed edge cases, weakened/skipped/deleted tests, swallowed errors, dead code, unjustified abstractions, premature returns, broken invariants, sloppy naming, fragile assumptions, hidden coupling, scope creep beyond the request, comments that explain _what_ instead of _why_, anything that smells off. State each issue bluntly in one line, then fix it. Then re-review the fix—fixes introduce their own bugs.
 
 Stop only when a full pass turns up **nothing** worth changing. Cap at ~5 passes; if you’re still finding real issues at pass 5, say so and ask the user rather than silently giving up. Skip the loop for trivial edits (typo fixes, single-line config tweaks, pure questions)—say so explicitly when you skip.
 

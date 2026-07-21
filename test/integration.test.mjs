@@ -18,6 +18,7 @@ function runRaw(host, input) {
   return {
     code: res.status,
     stdout: res.stdout,
+    stderr: res.stderr,
     json: res.stdout ? JSON.parse(res.stdout) : null,
   };
 }
@@ -107,32 +108,39 @@ describe("integration: per-host hook transports over a real process boundary", (
 // it can't parse), each host entry must degrade the way THAT host expects — NOT
 // a single shared default. claude/codex fail OPEN (exit 0, proceed); amp fails to
 // ASK (exit 1). The exit codes deliberately differ, so a regression that made
-// them uniform is caught here.
+// them uniform is caught here. Every suicide also owes a stderr diagnostic:
+// fail-open with zero trace is how an adapter regression silently disables
+// enforcement.
 describe("integration: hook-suicide fail-safe is per host", () => {
+  const DIAGNOSTIC = /\[acp\] hook pipeline error: /;
   for (const garbage of ["not json at all {{{", "", "   "]) {
     const label = JSON.stringify(garbage);
-    it(`claude unparseable (${label}) → fail OPEN, exit 0, no body`, () => {
+    it(`claude unparseable (${label}) → fail OPEN, exit 0, no body, stderr diagnostic`, () => {
       const out = runRaw("claude", garbage);
       assert.equal(out.code, 0);
       assert.equal(out.stdout, "");
+      assert.match(out.stderr, DIAGNOSTIC);
     });
 
-    it(`codex unparseable (${label}) → fail OPEN, exit 0, no body`, () => {
+    it(`codex unparseable (${label}) → fail OPEN, exit 0, no body, stderr diagnostic`, () => {
       const out = runRaw("codex", garbage);
       assert.equal(out.code, 0);
       assert.equal(out.stdout, "");
+      assert.match(out.stderr, DIAGNOSTIC);
     });
 
-    it(`amp unparseable (${label}) → fail to ASK, exit 1, no body`, () => {
+    it(`amp unparseable (${label}) → fail to ASK, exit 1, no body, stderr diagnostic`, () => {
       const out = runRaw("amp", garbage);
       assert.equal(out.code, 1);
       assert.equal(out.stdout, "");
+      assert.match(out.stderr, DIAGNOSTIC);
     });
 
-    it(`gemini unparseable (${label}) → fail OPEN, exit 0, no body`, () => {
+    it(`gemini unparseable (${label}) → fail OPEN, exit 0, no body, stderr diagnostic`, () => {
       const out = runRaw("gemini", garbage);
       assert.equal(out.code, 0);
       assert.equal(out.stdout, "");
+      assert.match(out.stderr, DIAGNOSTIC);
     });
   }
 });

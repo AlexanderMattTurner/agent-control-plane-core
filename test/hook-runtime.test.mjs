@@ -62,6 +62,27 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     assert.equal(renderHookResponse(claudeAdapter, "", FAIL), FAIL);
   });
 
+  it("writes a greppable diagnostic to stderr on failure, verdict unchanged", () => {
+    // The fail direction is deliberate and must stay; the diagnostic is what
+    // keeps a silent enforcement-disable regression discoverable.
+    const written = [];
+    const realWrite = process.stderr.write;
+    process.stderr.write = (chunk) => {
+      written.push(String(chunk));
+      return true;
+    };
+    let out;
+    try {
+      out = renderHookResponse(claudeAdapter, "not json {{{", FAIL);
+    } finally {
+      process.stderr.write = realWrite;
+    }
+    assert.equal(out, FAIL);
+    assert.equal(written.length, 1);
+    assert.match(written[0], /^\[acp\] hook pipeline error: /);
+    assert.match(written[0], /SyntaxError/);
+  });
+
   it("carries the adapter's transport through (amp = pure exit code)", () => {
     const ampFail = {
       transport: "external_hook",

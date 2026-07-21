@@ -1,13 +1,19 @@
 """Tests for .github/scripts/script-configured.sh."""
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(shutil.which("jq") is None, reason="jq not available")
+# Skip only OUTSIDE CI: these are the sole tests of the CI guard script, so a
+# CI runner missing jq must FAIL loudly, not silently drop the coverage.
+pytestmark = pytest.mark.skipif(
+    shutil.which("jq") is None and not os.environ.get("CI"),
+    reason="jq not available (local run)",
+)
 
 
 def write_package_json(repo: Path, scripts: dict[str, str]) -> None:
