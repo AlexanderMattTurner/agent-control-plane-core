@@ -23,6 +23,7 @@ on: # zizmor: ignore[dangerous-triggers]
     workflows:
       - Auto version bump and publish
       - Sync from Template
+      - Release canary
 
 concurrency:
   # Keyed per triggering workflow so notifications never queue behind each other;
