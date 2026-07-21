@@ -12,6 +12,14 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.2.8] - 2026-07-21
+
+### Changed
+
+- style: apply prettier to promote-changelog.mjs
+- refactor: use semver package for version parsing
+- docs: release 0.2.7 [skip ci]
+
 ## [0.2.7] - 2026-07-21
 
 ### Changed
