@@ -13,8 +13,11 @@ from pathlib import Path
 
 import pytest
 
+# Skip only OUTSIDE CI: these are the sole tests of the release helper, so a
+# CI runner missing node must FAIL loudly, not silently drop the coverage.
 pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None, reason="node not available"
+    shutil.which("node") is None and not os.environ.get("CI"),
+    reason="node not available (local run)",
 )
 
 REPO_ROOT = Path(
