@@ -42,6 +42,14 @@ export function demoJudge(event) {
  * (claude/codex fail OPEN = exit 0; amp fails to ASK = exit 1) instead of a
  * single shared default. This is the deliberate, necessary recovery the whole
  * per-host split exists for, not a blanket swallow.
+ *
+ * Before returning the fail-safe, the error is written to STDERR (never stdout,
+ * which belongs to the host transport) so a regression that silently disables
+ * enforcement leaves a greppable trace. Every host tolerates hook stderr:
+ * claude/codex surface it only in verbose/debug on a 0 exit, amp forwards the
+ * helper's stderr, and gemini reads stderr as a reason only on exit 2 — none of
+ * these fail-safe exits is a 2 for a stdout-carrying transport, and amp's ask
+ * (exit 1) shows the diagnostic alongside the prompt, which is the point.
  * @param {import("../src/control-plane.mjs").Adapter} adapter
  * @param {string} rawInput
  * @param {import("../src/control-plane.mjs").NativeResponse} onFailure
@@ -51,7 +59,9 @@ export function renderHookResponse(adapter, rawInput, onFailure) {
   try {
     const event = adapter.parse(JSON.parse(rawInput));
     return adapter.render(demoJudge(event), event);
-  } catch {
+  } catch (err) {
+    const detail = err instanceof Error ? (err.stack ?? err.message) : `${err}`;
+    process.stderr.write(`[acp] hook pipeline error: ${detail}\n`);
     return onFailure;
   }
 }
