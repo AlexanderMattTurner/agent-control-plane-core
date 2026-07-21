@@ -12,6 +12,13 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.2.9] - 2026-07-21
+
+### Changed
+
+- ci: re-exec template-sync from immutable copy and add self-overwrite regression test
+- docs: release 0.2.8 [skip ci]
+
 ## [0.2.8] - 2026-07-21
 
 ### Changed
