@@ -36,7 +36,26 @@ def run_session_setup(
     scrub: tuple[str, ...] = (),
 ) -> tuple[Path, subprocess.CompletedProcess]:
     """Invoke session-setup.sh in the sandbox; return (env_file, result)."""
-    env = {k: v for k, v in os.environ.items() if k not in scrub}
+    # Strip inherited GIT_CONFIG_* so an ambient `url.<proxy>.insteadOf` rewrite
+    # in the host's system/global gitconfig can't rewrite the sandbox remote's
+    # URL out from under the extraction regex (a github-https remote would come
+    # back as the proxy `/git/owner/repo` form and wrongly export GH_REPO). CI
+    # has no such rewrite; this keeps the test hermetic on hosts that do.
+    git_config_keys = {
+        k
+        for k in os.environ
+        if k.startswith(("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))
+    }
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in scrub and k not in git_config_keys
+    }
+    # System config off entirely; global points at a writable EMPTY file in the
+    # sandbox (not /dev/null — session-setup.sh may write global git config, and
+    # a /dev/null target errors on write).
+    empty_gitconfig = sandbox / ".gitconfig"
+    empty_gitconfig.touch()
     env_file = sandbox / "claude.env"
     env_file.touch()
     env.update(
@@ -44,6 +63,8 @@ def run_session_setup(
             "CLAUDE_PROJECT_DIR": str(sandbox),
             "CLAUDE_ENV_FILE": str(env_file),
             "GH_TOKEN": "fake",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "GIT_CONFIG_GLOBAL": str(empty_gitconfig),
         }
     )
     if extra_env:
