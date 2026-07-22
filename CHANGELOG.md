@@ -12,6 +12,18 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.2.12] - 2026-07-22
+
+### Changed
+
+- style: satisfy ruff-format blank-line rule in test_template_sync
+- test(freshness): cover the drift→exit-code gate (extract reportFreshness)
+- fix(gemini): carry the enforced-deny reason on NativeResponse.stderr
+- docs(control-plane): reconcile the removed external_pin channel
+- fix(hook-runtime): flush deny body before exit; trace non-object payloads
+- fix(control-plane): eliminate untrusted-key map lookups and validate events
+- docs: release 0.2.11 [skip ci]
+
 ## [0.2.11] - 2026-07-21
 
 ### Changed
