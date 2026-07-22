@@ -56,7 +56,8 @@
           "native": {
             "transport": "external_hook",
             "exit_code": 2,
-            "enforced": true
+            "enforced": true,
+            "stderr": "blocked destructive command"
           }
         },
         "ask": {
@@ -238,7 +239,8 @@
           "native": {
             "transport": "external_hook",
             "exit_code": 2,
-            "enforced": true
+            "enforced": true,
+            "stderr": "prompt requests credential exfiltration"
           }
         },
         "ask": {

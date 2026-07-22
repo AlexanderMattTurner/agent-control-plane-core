@@ -43,6 +43,7 @@ describe("gemini render: BeforeTool decision channel", () => {
     assert.equal(out.exit_code, 2);
     assert.equal(out.enforced, true);
     assert.equal(out.stdout, undefined);
+    assert.equal(out.stderr, "r"); // reason carried to fd 2, never dropped
   });
 
   it("allow abstains by default (exit 0, no decision body)", () => {
@@ -161,12 +162,13 @@ describe("gemini BeforeAgent maps to prompt_submit", () => {
     assert.deepEqual(badPrompt.input, { prompt: "" });
   });
 
-  it("enforced deny aborts the turn: exit 2, no stdout", () => {
+  it("enforced deny aborts the turn: exit 2, no stdout, reason on stderr", () => {
     const out = geminiAdapter.render({ decision: "deny", reason: "r" }, event);
     assert.deepEqual(out, {
       transport: "external_hook",
       exit_code: 2,
       enforced: true,
+      stderr: "r",
     });
   });
 

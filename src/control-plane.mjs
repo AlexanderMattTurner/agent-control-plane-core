@@ -54,10 +54,10 @@ export const EventKind = Object.freeze({
   UNKNOWN: "unknown",
 });
 
-/** The normalized verdict decisions a guardrail can return. */
 /** @type {Set<string>} the valid {@link EventKind} values, for membership checks. */
 const EVENT_KIND_VALUES = new Set(Object.values(EventKind));
 
+/** The normalized verdict decisions a guardrail can return. */
 export const Decision = Object.freeze({
   ALLOW: "allow",
   DENY: "deny",
@@ -289,6 +289,7 @@ export function classifyCallClass(tool, native) {
  * @property {number} exit_code process exit code carrying the decision (0 = proceed)
  * @property {boolean} enforced whether THIS render actually blocks (false ⇒ advisory only)
  * @property {unknown} [stdout] native JSON body to write to stdout, when the transport uses one
+ * @property {string} [stderr] text the host reads from STDERR — the block reason on a transport (e.g. Gemini CLI's exit-2 System Block) that takes its rationale from stderr rather than the stdout body. The caller writes it to fd 2 before exiting.
  */
 
 /**
@@ -557,10 +558,16 @@ export function asString(value, fallback) {
 /**
  * Assemble a {@link NativeResponse}, omitting an absent `stdout` so a pure
  * exit-code transport carries no `stdout` key.
- * @param {{ transport: string, exit_code: number, enforced: boolean, stdout?: unknown }} parts
+ * @param {{ transport: string, exit_code: number, enforced: boolean, stdout?: unknown, stderr?: string }} parts
  * @returns {NativeResponse}
  */
-export function nativeResponse({ transport, exit_code, enforced, stdout }) {
+export function nativeResponse({
+  transport,
+  exit_code,
+  enforced,
+  stdout,
+  stderr,
+}) {
   /** @type {NativeResponse} */
   const out = {
     transport: /** @type {NativeResponse["transport"]} */ (transport),
@@ -568,5 +575,6 @@ export function nativeResponse({ transport, exit_code, enforced, stdout }) {
     enforced,
   };
   if (stdout !== undefined) out.stdout = stdout;
+  if (stderr !== undefined) out.stderr = stderr;
   return out;
 }

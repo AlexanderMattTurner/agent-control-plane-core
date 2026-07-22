@@ -83,7 +83,7 @@ describe("integration: per-host hook transports over a real process boundary", (
     assert.equal(out.json.hookSpecificOutput.permissionDecision, "deny");
   });
 
-  it("gemini BeforeTool deny → exit 2 System Block, no stdout", () => {
+  it("gemini BeforeTool deny → exit 2 System Block, reason on stderr, no stdout", () => {
     const out = runHook("gemini", {
       hook_event_name: "BeforeTool",
       tool_name: "run_shell_command",
@@ -91,6 +91,9 @@ describe("integration: per-host hook transports over a real process boundary", (
     });
     assert.equal(out.code, 2);
     assert.equal(out.stdout, "");
+    // The block reason reaches fd 2 end-to-end (Gemini reads its System Block
+    // rationale from stderr) — never a block with no explanation.
+    assert.match(out.stderr, /rm -rf blocked/);
   });
 
   it("gemini BeforeTool allow → exit 0, abstains (no stdout)", () => {

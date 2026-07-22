@@ -12,11 +12,10 @@
  * parsed as JSON (the path for allow / advisory / mutation); exit 2 → a "System
  * Block" that pre-empts the call, with the reason taken from STDERR (stdout is
  * ignored). So an ENFORCED deny renders as exit 2 (the only real block signal),
- * and its `reason` has no home in this stdout-only NativeResponse — it is
- * dropped here (a real hook wrapper also writes it to stderr), the same fidelity
- * gap Amp's exit-code transport has. Gemini has no native "ask" tier, so `ask`
- * maps to an exit-0 advisory `decision: "deny"` the model sees but that does not
- * hard-block.
+ * with its `reason` carried on `NativeResponse.stderr` (which `emit` writes to fd
+ * 2) so the System Block is never shown with no rationale. Gemini has no native
+ * "ask" tier, so `ask` maps to an exit-0 advisory `decision: "deny"` the model
+ * sees but that does not hard-block.
  *
  * PIN GAP (sandbox, not adapter — carried here because this is the module that
  * knows the host is pin-dependent): Gemini CLI's system settings file wins over
@@ -229,13 +228,16 @@ export function render(verdict, event, { soleGate = false } = {}) {
   const vd = normalizeVerdict(verdict);
   const enforced = vd.decision === Decision.DENY && event.this_call_vetoable;
 
-  // Enforced deny is a System Block: exit 2, reason carried on stderr (no home
-  // in this stdout-only response), so no stdout body.
+  // Enforced deny is a System Block: exit 2, reason carried on STDERR (Gemini
+  // reads its block rationale from stderr, not the ignored stdout body). Carry it
+  // on NativeResponse.stderr so `emit` writes it to fd 2 — a genuine block is
+  // never surfaced to the user/model with no explanation.
   if (enforced)
     return nativeResponse({
       transport: INTEGRATION_MODE,
       exit_code: 2,
       enforced: true,
+      ...(vd.reason !== undefined ? { stderr: vd.reason } : {}),
     });
 
   const body =

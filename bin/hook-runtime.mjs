@@ -92,5 +92,10 @@ export function emit(response) {
   // synchronous write closes that silent deny→allow window.
   if (response.stdout !== undefined)
     writeSync(1, JSON.stringify(response.stdout));
+  // A host that reads the block reason from STDERR (Gemini's exit-2 System Block)
+  // gets it here — written synchronously to fd 2 before exit, for the same
+  // flush-before-exit reason as stdout above, so an enforced deny is never shown
+  // with no rationale.
+  if (response.stderr !== undefined) writeSync(2, response.stderr);
   process.exit(response.exit_code);
 }
