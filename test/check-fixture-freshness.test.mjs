@@ -7,11 +7,62 @@ import {
   parseVersion,
   isNewer,
   checkFreshness,
+  reportFreshness,
 } from "../.github/scripts/check-fixture-freshness.mjs";
 
 // The fixture-freshness check is the deterministic, secret-free tier of
 // live-conformance. These tests pin its version math and drift logic with a
 // stubbed registry (no network), and assert the shipped SSOT stays well-formed.
+
+describe("reportFreshness gate: drift decides the exit code (the CI break)", () => {
+  const capture = () => {
+    const lines = [];
+    return { write: (s) => lines.push(s), lines };
+  };
+  const row = (over) => ({
+    agent: "claude",
+    package: "@anthropic-ai/claude-code",
+    captured: "2.1.198",
+    latest: "2.1.198",
+    drifted: false,
+    rolling: false,
+    ...over,
+  });
+
+  it("returns 0 and writes no drift banner when nothing drifted", () => {
+    const out = capture();
+    const err = capture();
+    assert.equal(
+      reportFreshness([row(), row({ agent: "codex" })], out, err),
+      0,
+    );
+    assert.equal(err.lines.length, 0);
+    assert.ok(out.lines.every((l) => l.startsWith("[ok]")));
+  });
+
+  it("returns 1 and writes the re-capture banner when ANY adapter drifted", () => {
+    const out = capture();
+    const err = capture();
+    assert.equal(
+      reportFreshness(
+        [row(), row({ agent: "codex", drifted: true, latest: "0.140.0" })],
+        out,
+        err,
+      ),
+      1,
+    );
+    assert.match(err.lines.join(""), /Re-capture its fixtures/);
+    assert.ok(out.lines.some((l) => l.startsWith("[DRIFT]")));
+  });
+
+  it("treats a rolling release as fresh (never drifts the gate)", () => {
+    const out = capture();
+    const err = capture();
+    assert.equal(reportFreshness([row({ rolling: true })], out, err), 0);
+    assert.equal(err.lines.length, 0);
+    assert.ok(out.lines[0].startsWith("[rolling]"));
+  });
+});
 
 describe("parseVersion drops prerelease/build and coerces junk to 0", () => {
   for (const [input, expected] of [
