@@ -57,6 +57,22 @@ describe("adapter registry", () => {
     }
   });
 
+  it("adapterFor throws on a prototype-member id — never resolves an inherited function", () => {
+    // Class-kill guard: a bare `ADAPTERS[id]` index would resolve `constructor`
+    // to the Object function (!== undefined), bypassing the fail-loud guard and
+    // handing back a non-adapter. Every prototype key an id could name must throw.
+    for (const proto of [
+      "constructor",
+      "toString",
+      "valueOf",
+      "hasOwnProperty",
+      "__proto__",
+      "isPrototypeOf",
+    ]) {
+      assert.throws(() => adapterFor(proto), /no adapter for agent id/, proto);
+    }
+  });
+
   it("assertRegistryConsistent throws when a key disagrees with its adapter's AGENT", () => {
     // Non-vacuity: a mismatched map must be rejected, so a real drift can't ship.
     assert.throws(

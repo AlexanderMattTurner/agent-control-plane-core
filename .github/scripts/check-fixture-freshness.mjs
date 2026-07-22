@@ -106,6 +106,41 @@ export async function checkFreshness(config, fetchLatest) {
   return results;
 }
 
+/**
+ * Report freshness results and decide the process exit code: 1 when ANY adapter
+ * drifted (a newer CLI shipped), else 0. The write/exit boundary is separated
+ * from `checkFreshness`'s version math so the GATE — the thing that actually
+ * breaks CI and forces a re-capture — is unit-testable without a subprocess or
+ * the network. Writers are injected so a test can capture the stdout log and the
+ * stderr drift banner.
+ * @param {{ agent: string, package: string, captured: string, latest: string, drifted: boolean, rolling: boolean }[]} results
+ * @param {{ write: (s: string) => void }} [out]
+ * @param {{ write: (s: string) => void }} [err]
+ * @returns {number} process exit code (0 fresh, 1 drifted)
+ */
+export function reportFreshness(
+  results,
+  out = process.stdout,
+  err = process.stderr,
+) {
+  let drift = false;
+  for (const r of results) {
+    const tag = r.rolling ? "rolling" : r.drifted ? "DRIFT" : "ok";
+    const latest = r.rolling ? "n/a (rolling release)" : r.latest;
+    out.write(
+      `[${tag}] ${r.agent} (${r.package}): known-good ${r.captured}, latest ${latest}\n`,
+    );
+    if (r.drifted) drift = true;
+  }
+  if (drift) {
+    err.write(
+      "\nA newer CLI has shipped for a drifted adapter. Re-capture its fixtures against the latest version and re-run adapter conformance. See docs/live-conformance.md.\n",
+    );
+    return 1;
+  }
+  return 0;
+}
+
 // CLI entry — runs only when executed directly, not when imported by tests.
 // Node's own "is this the entry point" idiom (argv[1] is guaranteed by Node to
 // be the invoked script's path, not a user-supplied value) — the file stays
@@ -116,19 +151,5 @@ const invoked = process.argv[1] && realpathSync(process.argv[1]);
 if (invoked === fileURLToPath(import.meta.url)) {
   const config = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
   const results = await checkFreshness(config, npmLatest);
-  let drift = false;
-  for (const r of results) {
-    const tag = r.rolling ? "rolling" : r.drifted ? "DRIFT" : "ok";
-    const latest = r.rolling ? "n/a (rolling release)" : r.latest;
-    process.stdout.write(
-      `[${tag}] ${r.agent} (${r.package}): known-good ${r.captured}, latest ${latest}\n`,
-    );
-    if (r.drifted) drift = true;
-  }
-  if (drift) {
-    process.stderr.write(
-      "\nA newer CLI has shipped for a drifted adapter. Re-capture its fixtures against the latest version and re-run adapter conformance. See docs/live-conformance.md.\n",
-    );
-    process.exit(1);
-  }
+  process.exit(reportFreshness(results));
 }

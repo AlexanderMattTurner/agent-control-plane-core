@@ -12,11 +12,20 @@
  * parsed as JSON (the path for allow / advisory / mutation); exit 2 → a "System
  * Block" that pre-empts the call, with the reason taken from STDERR (stdout is
  * ignored). So an ENFORCED deny renders as exit 2 (the only real block signal),
- * and its `reason` has no home in this stdout-only NativeResponse — it is
- * dropped here (a real hook wrapper also writes it to stderr), the same fidelity
- * gap Amp's exit-code transport has. Gemini has no native "ask" tier, so `ask`
- * maps to an exit-0 advisory `decision: "deny"` the model sees but that does not
- * hard-block.
+ * with its `reason` carried on `NativeResponse.stderr` (which `emit` writes to fd
+ * 2) so the System Block is never shown with no rationale. Gemini has no native
+ * "ask" tier, so `ask` maps to an exit-0 advisory `decision: "deny"` the model
+ * sees but that does not hard-block.
+ *
+ * PIN GAP (sandbox, not adapter — carried here because this is the module that
+ * knows the host is pin-dependent): Gemini CLI's system settings file wins over
+ * other settings FILES, but environment variables and CLI argv still override it,
+ * and `GEMINI_CLI_SYSTEM_SETTINGS_PATH` redirects WHERE the system file is read
+ * from (geminicli.com/docs/reference/configuration). So mounting the pinned
+ * system settings file read-only is NOT sufficient on Gemini CLI: an agent that
+ * controls its own env or launch argv routes around it. The launcher must ALSO
+ * fix `GEMINI_CLI_SYSTEM_SETTINGS_PATH` and the per-invocation env/argv the agent
+ * can't rewrite. See docs/monitor-invariants.md §Invariant 1.
  */
 
 import {
@@ -28,6 +37,7 @@ import {
   classifyCallClass,
   coverageAllowsVeto,
   canonicalTool,
+  lookup,
   assertAliasTargetsModeled,
   makeEvent,
   normalizeVerdict,
@@ -142,7 +152,7 @@ assertAliasTargetsModeled(GEMINI_TOOL_ALIASES);
  */
 function geminiCanonicalTool(nativeTool, callClass) {
   if (nativeTool !== null && callClass === CallClass.BUILTIN) {
-    const scoped = GEMINI_TOOL_ALIASES[nativeTool];
+    const scoped = lookup(GEMINI_TOOL_ALIASES, nativeTool);
     if (scoped !== undefined) return scoped;
   }
   return canonicalTool(nativeTool);
@@ -178,8 +188,10 @@ export function parse(native) {
   const nativeEvent =
     typeof raw.hook_event_name === "string" ? raw.hook_event_name : "";
   const kind =
-    /** @type {Record<string, string>} */ (NATIVE_TO_KIND)[nativeEvent] ??
-    EventKind.UNKNOWN;
+    lookup(
+      /** @type {Record<string, string>} */ (NATIVE_TO_KIND),
+      nativeEvent,
+    ) ?? EventKind.UNKNOWN;
   const gating = kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL;
   const response = kind === EventKind.POST_TOOL ? raw.tool_response : undefined;
   const nativeTool = gating ? asStringOrNull(raw.tool_name) : null;
@@ -216,13 +228,16 @@ export function render(verdict, event, { soleGate = false } = {}) {
   const vd = normalizeVerdict(verdict);
   const enforced = vd.decision === Decision.DENY && event.this_call_vetoable;
 
-  // Enforced deny is a System Block: exit 2, reason carried on stderr (no home
-  // in this stdout-only response), so no stdout body.
+  // Enforced deny is a System Block: exit 2, reason carried on STDERR (Gemini
+  // reads its block rationale from stderr, not the ignored stdout body). Carry it
+  // on NativeResponse.stderr so `emit` writes it to fd 2 — a genuine block is
+  // never surfaced to the user/model with no explanation.
   if (enforced)
     return nativeResponse({
       transport: INTEGRATION_MODE,
       exit_code: 2,
       enforced: true,
+      ...(vd.reason !== undefined ? { stderr: vd.reason } : {}),
     });
 
   const body =

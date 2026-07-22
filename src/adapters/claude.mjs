@@ -21,6 +21,7 @@ import {
   classifyCallClass,
   coverageAllowsVeto,
   canonicalTool,
+  lookup,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
@@ -146,8 +147,10 @@ export function parse(native) {
   const raw = asObject(native);
   const nativeEvent = asString(raw.hook_event_name, "");
   const kind =
-    /** @type {Record<string, string>} */ (NATIVE_TO_KIND)[nativeEvent] ??
-    EventKind.UNKNOWN;
+    lookup(
+      /** @type {Record<string, string>} */ (NATIVE_TO_KIND),
+      nativeEvent,
+    ) ?? EventKind.UNKNOWN;
   const response = kind === EventKind.POST_TOOL ? raw.tool_response : undefined;
   const nativeTool = claudeTool(kind, raw);
   const meta = claudeMeta(nativeEvent, raw);

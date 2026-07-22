@@ -8,6 +8,7 @@
  * binary impersonate every host and so had to pick a single shared failure
  * behavior; sharing pure plumbing across distinct entries is not that.
  */
+import { writeSync } from "node:fs";
 import { Decision } from "../src/control-plane.mjs";
 
 /** Read all of stdin to a string. */
@@ -57,7 +58,17 @@ export function demoJudge(event) {
  */
 export function renderHookResponse(adapter, rawInput, onFailure) {
   try {
-    const event = adapter.parse(JSON.parse(rawInput));
+    const native = JSON.parse(rawInput);
+    // A non-object top-level payload (null, array, number, string) is malformed:
+    // the adapters' `asObject` would silently coerce it to `{}` and judge it as a
+    // benign no-op tool call — a rubber-stamp with no trace. Throw so it takes the
+    // host's declared failure posture AND leaves a greppable stderr diagnostic,
+    // instead of a silent coerce-to-empty.
+    if (native === null || typeof native !== "object" || Array.isArray(native))
+      throw new TypeError(
+        `hook payload must be a JSON object, got ${native === null ? "null" : Array.isArray(native) ? "array" : typeof native}`,
+      );
+    const event = adapter.parse(native);
     return adapter.render(demoJudge(event), event);
   } catch (err) {
     const detail = err instanceof Error ? (err.stack ?? err.message) : `${err}`;
@@ -73,7 +84,18 @@ export function renderHookResponse(adapter, rawInput, onFailure) {
  * @returns {never}
  */
 export function emit(response) {
+  // `writeSync` (not `process.stdout.write`) so the body is flushed to fd 1
+  // BEFORE `process.exit`. On a pipe — which stdout is when the host captures the
+  // hook — `process.stdout.write` is asynchronous and `process.exit` does not
+  // drain it, so an enforced-deny body (Claude/Codex `hookSpecificOutput`) could
+  // be truncated; the host then reads a block-less exit and runs the tool. A
+  // synchronous write closes that silent deny→allow window.
   if (response.stdout !== undefined)
-    process.stdout.write(JSON.stringify(response.stdout));
+    writeSync(1, JSON.stringify(response.stdout));
+  // A host that reads the block reason from STDERR (Gemini's exit-2 System Block)
+  // gets it here — written synchronously to fd 2 before exit, for the same
+  // flush-before-exit reason as stdout above, so an enforced deny is never shown
+  // with no rationale.
+  if (response.stderr !== undefined) writeSync(2, response.stderr);
   process.exit(response.exit_code);
 }
