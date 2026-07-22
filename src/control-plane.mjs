@@ -55,6 +55,9 @@ export const EventKind = Object.freeze({
 });
 
 /** The normalized verdict decisions a guardrail can return. */
+/** @type {Set<string>} the valid {@link EventKind} values, for membership checks. */
+const EVENT_KIND_VALUES = new Set(Object.values(EventKind));
+
 export const Decision = Object.freeze({
   ALLOW: "allow",
   DENY: "deny",
@@ -127,7 +130,27 @@ assertAliasTargetsModeled(TOOL_ALIASES);
  */
 export function canonicalTool(tool) {
   if (typeof tool !== "string") return tool;
-  return /** @type {Record<string, string>} */ (TOOL_ALIASES)[tool] ?? tool;
+  return (
+    lookup(/** @type {Record<string, string>} */ (TOOL_ALIASES), tool) ?? tool
+  );
+}
+
+/**
+ * Own-property lookup on an object used as a string-keyed map. Returns the value
+ * ONLY when `key` is an OWN property; an inherited `Object.prototype` member
+ * (`constructor`, `toString`, `valueOf`, `__proto__`, `hasOwnProperty`, …) that
+ * an untrusted key could name resolves to `undefined`, never the prototype
+ * function. EVERY map keyed by an untrusted native string — a tool name, an
+ * agent id, a native event name — MUST resolve through this: a bare `map[key]`
+ * index lets a payload named after a prototype member resolve a JS function
+ * instead of falling through to the default, silently reclassifying the call.
+ * @template T
+ * @param {Record<string, T>} map
+ * @param {string} key
+ * @returns {T|undefined}
+ */
+export function lookup(map, key) {
+  return Object.hasOwn(map, key) ? map[key] : undefined;
 }
 
 /**
@@ -235,7 +258,11 @@ export function classifyCallClass(tool, native) {
   if (typeof tool === "string" && /^mcp__?[^_]/.test(tool))
     return CallClass.MCP;
   const ctx = native ? native.mcp_context : undefined;
-  if (ctx !== null && typeof ctx === "object") return CallClass.MCP;
+  // A plain object mcp_context is the MCP marker; an array is NOT (typeof [] is
+  // "object", so a bare typeof test over-classifies an array-valued field as MCP
+  // and silently downgrades a legitimate veto).
+  if (ctx !== null && typeof ctx === "object" && !Array.isArray(ctx))
+    return CallClass.MCP;
   return CallClass.BUILTIN;
 }
 
@@ -314,6 +341,20 @@ export function makeEvent({
   this_call_vetoable,
   meta,
 }) {
+  // Fail loud on an internally-malformed event: an adapter that hands makeEvent a
+  // typo'd event kind ("pre-tool") or a non-boolean vetoable flag would otherwise
+  // ship an event that downstream `switch(event)` and the `=== false` veto-honesty
+  // guard silently mis-handle (a non-boolean `this_call_vetoable` reads as
+  // vetoable — a fail-open seam). These are produced in-process, so a bad value is
+  // a bug, not untrusted input to tolerate.
+  if (!EVENT_KIND_VALUES.has(event))
+    throw new Error(
+      `control-plane: makeEvent got an unmodeled event kind ${JSON.stringify(event)} (use EventKind.UNKNOWN for an unmapped native event)`,
+    );
+  if (typeof this_call_vetoable !== "boolean")
+    throw new TypeError(
+      `control-plane: makeEvent this_call_vetoable must be a boolean, got ${typeof this_call_vetoable}`,
+    );
   /** @type {ToolCallEvent} */
   const evt = {
     schema_version: SCHEMA_VERSION,
@@ -357,6 +398,23 @@ export function normalizeVerdict(verdict) {
     out.additional_context = verdict.additional_context;
   if (verdict.reason !== undefined) out.reason = verdict.reason;
   return out;
+}
+
+/**
+ * Render an untrusted, rejected `decision` value for the clamp note. Prefers the
+ * JSON form (so a string reads back quoted, matching the note's contract) but
+ * falls back to `String(...)` for a value JSON cannot serialize — a BigInt would
+ * otherwise make `JSON.stringify` THROW, defeating the whole fail-to-ask purpose
+ * of the clamp on exactly the malformed input it exists to neutralize.
+ * @param {unknown} decision
+ * @returns {string}
+ */
+function stringifyRejected(decision) {
+  try {
+    return JSON.stringify(decision) ?? String(decision);
+  } catch {
+    return String(decision);
+  }
 }
 
 /**
@@ -437,7 +495,7 @@ export function sanitizeVerdict(verdict, sanitizeText) {
   if (!valid) {
     // The rejected value is itself untrusted text, so it is scrubbed before
     // being embedded in the clamp note.
-    const rejected = scrub("decision", JSON.stringify(decision) ?? "undefined");
+    const rejected = scrub("decision", stringifyRejected(decision));
     const note = `[control-plane: invalid verdict decision ${rejected} clamped to "ask"]`;
     out.reason = out.reason === undefined ? note : `${out.reason} ${note}`;
   }

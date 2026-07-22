@@ -14,6 +14,7 @@
  * is no second spelling to reconcile.
  */
 
+import { lookup } from "./control-plane.mjs";
 import { claudeAdapter } from "./adapters/claude.mjs";
 import { codexAdapter } from "./adapters/codex.mjs";
 import { ampAdapter } from "./adapters/amp.mjs";
@@ -71,7 +72,7 @@ assertRegistryConsistent(ADAPTERS);
  * @returns {Adapter}
  */
 export function adapterFor(id) {
-  const adapter = ADAPTERS[id];
+  const adapter = lookup(ADAPTERS, id);
   if (adapter === undefined)
     throw new Error(
       `registry: no adapter for agent id ${JSON.stringify(id)} (known: ${AGENT_IDS.join(", ")})`,

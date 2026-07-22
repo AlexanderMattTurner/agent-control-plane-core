@@ -15,6 +15,7 @@ import {
   MODELED_TOOLS,
   TOOL_ALIASES,
   canonicalTool,
+  lookup,
   assertAliasTargetsModeled,
   makeEvent,
   normalizeVerdict,
@@ -105,6 +106,25 @@ describe("tool identity: canonicalTool normalizes aliases, passes through the re
     assert.equal(canonicalTool(null), null);
   });
 
+  // Class-kill guard: an untrusted tool name that collides with an
+  // Object.prototype member must pass through verbatim, never resolve to the
+  // inherited function. Parametrized over every prototype key an attacker could
+  // name; a regression to a bare `TOOL_ALIASES[tool]` index turns each into a
+  // function and fails here.
+  for (const proto of [
+    "constructor",
+    "toString",
+    "valueOf",
+    "hasOwnProperty",
+    "__proto__",
+    "isPrototypeOf",
+  ]) {
+    it(`passes the prototype-member name ${JSON.stringify(proto)} through verbatim`, () => {
+      assert.equal(canonicalTool(proto), proto);
+      assert.equal(typeof canonicalTool(proto), "string");
+    });
+  }
+
   it("every alias target is a modeled tool", () => {
     for (const target of Object.values(TOOL_ALIASES))
       assert.ok(
@@ -118,6 +138,84 @@ describe("tool identity: canonicalTool normalizes aliases, passes through the re
     assert.throws(
       () => assertAliasTargetsModeled({ foo: "NotAModeledTool" }),
       /tool alias target .* is not a modeled tool/,
+    );
+  });
+});
+
+describe("lookup: own-property map access ignores prototype keys", () => {
+  it("returns an own value", () => {
+    assert.equal(lookup({ Bash: "ok" }, "Bash"), "ok");
+  });
+
+  it("returns undefined for every inherited prototype member", () => {
+    for (const proto of [
+      "constructor",
+      "toString",
+      "valueOf",
+      "hasOwnProperty",
+      "__proto__",
+      "isPrototypeOf",
+    ])
+      assert.equal(lookup({ Bash: "ok" }, proto), undefined, proto);
+  });
+
+  it("returns an own value even when it shadows a prototype name", () => {
+    assert.equal(lookup({ toString: "shadowed" }, "toString"), "shadowed");
+  });
+});
+
+describe("makeEvent fails loud on an internally-malformed event", () => {
+  const goodMeta = {
+    agent: "claude",
+    native_event: "PreToolUse",
+    integration_mode: "external_hook",
+    primary_gate_present: true,
+    passthrough: {},
+  };
+  const base = {
+    tool: "Bash",
+    input: {},
+    this_call_vetoable: true,
+    meta: goodMeta,
+  };
+
+  it("accepts every modeled event kind, including UNKNOWN", () => {
+    for (const kind of Object.values(EventKind))
+      assert.doesNotThrow(() => makeEvent({ ...base, event: kind }));
+  });
+
+  it("throws on an unmodeled event kind", () => {
+    assert.throws(
+      () => makeEvent({ ...base, event: "pre-tool" }),
+      /unmodeled event kind/,
+    );
+  });
+
+  it("throws on a non-boolean this_call_vetoable (a fail-open seam)", () => {
+    assert.throws(
+      () =>
+        makeEvent({
+          ...base,
+          event: EventKind.PRE_TOOL,
+          this_call_vetoable: undefined,
+        }),
+      /this_call_vetoable must be a boolean/,
+    );
+  });
+});
+
+describe("classifyCallClass distinguishes an object mcp_context from an array", () => {
+  it("a plain-object mcp_context marks MCP", () => {
+    assert.equal(
+      classifyCallClass("Bash", { mcp_context: { server: "x" } }),
+      CallClass.MCP,
+    );
+  });
+
+  it("an array-valued mcp_context is NOT MCP (no over-classify)", () => {
+    assert.equal(
+      classifyCallClass("Bash", { mcp_context: [] }),
+      CallClass.BUILTIN,
     );
   });
 });
@@ -297,6 +395,12 @@ describe("sanitizeVerdict hardens an untrusted verdict before render", () => {
       reason:
         '[control-plane: invalid verdict decision undefined clamped to "ask"]',
     });
+  });
+
+  it("clamps a BigInt decision to ask instead of throwing (JSON.stringify would throw)", () => {
+    const out = sanitizeVerdict({ decision: 10n }, identity);
+    assert.equal(out.decision, "ask");
+    assert.match(out.reason, /clamped to "ask"/);
   });
 
   it("drops a non-object mutated_input (never blanks a tool call with {})", () => {
