@@ -79,15 +79,18 @@ adapter:**
 **How it connects to the schema.** The event stamps `integration_mode` and
 `primary_gate_present`; neither says the gate is _tamper-proof_ — a fully
 agent-writable hook still parses to `integration_mode: "external_hook",
-primary_gate_present: true`. The schema's channel for this is the
-`ConfigFallback` with `kind: "external_pin"` (`src/control-plane.mjs`): its own
-doc comment says "the agent can re-enable/override its own hook, so the sandbox
-must pin it from OUTSIDE (read-only config mount / PATH-shadow)." So the adapter
-that knows its host is pin-dependent emits a `fallback: { kind: "external_pin",
-… }` on its `NativeResponse`, and the **sandbox** is the party that must honor it
-by mounting the managed-config path read-only. The `external_pin` channel is the
-schema admitting, in-band, that the in-agent registration is not
-self-protecting; this invariant is the operational half of that admission.
+primary_gate_present: true`. There is deliberately **no in-band tamper-state
+channel today**: the `NativeResponse.fallback` / `ConfigFallback` (`kind:
+"external_pin"`) surface was **removed** from the live contract as speculative —
+no shipped adapter emitted it (see `docs/schema-fit.md` §Contract note). It is
+re-added additively (still schema v1) at the moment an adapter that needs it — an
+opencode throw-transport or an MCP config-deny — lands with a fixture. Until
+then, the pin obligation lives **wholly with the sandbox**: an `external_hook`
+adapter emits nothing that says "pin me," so the sandbox must treat EVERY
+`external_hook` integration as pin-dependent and mount the managed-config path
+read-only unconditionally, rather than waiting for an in-band marker that no
+adapter currently sends. The "Should the schema carry an explicit tamper-state
+field?" open question below tracks re-introducing that channel.
 
 ---
 
