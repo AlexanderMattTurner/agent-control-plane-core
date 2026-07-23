@@ -55,12 +55,22 @@ describe("dump.mjs: capture target via --capture-file flag, with env fallback", 
     delete env.ACP_CAPTURE_FILE;
     if (envOverrides.ACP_CAPTURE_FILE)
       env.ACP_CAPTURE_FILE = envOverrides.ACP_CAPTURE_FILE;
-    return spawnSync("node", [DUMP_BIN, ...argv], {
+    const res = spawnSync("node", [DUMP_BIN, ...argv], {
       cwd: base,
       env,
       input: stdin ?? "",
       encoding: "utf8",
     });
+    // A missing/renamed dump.mjs makes spawnSync set `error` and leave status
+    // null; assert the spawn itself ran so "the bin is gone" fails loudly here
+    // rather than as a misleading status/stderr assertion downstream.
+    assert.equal(
+      res.error,
+      undefined,
+      `spawning ${DUMP_BIN} failed: ${res.error && res.error.message}`,
+    );
+    assert.notEqual(res.status, null, `${DUMP_BIN} produced no exit status`);
+    return res;
   };
 
   it("writes stdin to the --capture-file target and exits 0, even with no env at all", () => {
@@ -250,12 +260,19 @@ describe("writeHookConfig lands files on disk and resolves env to absolute", () 
 });
 
 describe("assertCaptured accepts a real emission, rejects a broken one", () => {
-  it("parses each agent's golden native payload to a well-formed event", () => {
+  it("returns the full golden event through the live-capture gate, not just the shape", () => {
+    // This drives assertCaptured — the live-capture acceptance gate, which
+    // conformance never calls — so it is additive despite round-tripping the same
+    // fixtures. Strengthened past the old event/tool spot-checks: deep-equal the
+    // returned event against the fixture's DECLARED event, proving the gate
+    // returns the parse result faithfully (dropping/altering a field here would
+    // pass a shape check but fail this) while its tool/input validation accepts.
     for (const agent of ["claude", "codex", "amp"]) {
-      const native = fixture(agent).cases[0].native;
-      const event = assertCaptured(agent, JSON.stringify(native));
+      const goldenCase = fixture(agent).cases[0];
+      const event = assertCaptured(agent, JSON.stringify(goldenCase.native));
       assert.equal(event.event, "pre_tool");
       assert.equal(event.tool, "Bash");
+      assert.deepEqual(event, goldenCase.event);
     }
   });
 

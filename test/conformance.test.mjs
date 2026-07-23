@@ -8,7 +8,11 @@ import {
   assertCoverageWellFormed,
   assertToolAliasesCovered,
 } from "../src/conformance.mjs";
-import { GEMINI_TOOL_ALIASES } from "../src/adapters/gemini.mjs";
+import { CallClass, coverageAllowsVeto } from "../src/control-plane.mjs";
+import { claudeAdapter } from "../src/adapters/claude.mjs";
+import { codexAdapter } from "../src/adapters/codex.mjs";
+import { ampAdapter } from "../src/adapters/amp.mjs";
+import { geminiAdapter, GEMINI_TOOL_ALIASES } from "../src/adapters/gemini.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const loadFixture = (agent) =>
@@ -420,4 +424,50 @@ describe("assertToolAliasesCovered ties the alias SSOTs to fixtures", () => {
       /is not witnessed/,
     );
   });
+
+  it("skips a native_tool-less case yet still passes when the aliases ARE witnessed", () => {
+    // POSITIVE proof the skip path is taken: pair a native_tool-less case (which
+    // the throw test above can only show is ignored via an unrelated throw) WITH
+    // a real witness for the sole global alias (run_shell_command → Bash). If the
+    // skip mis-fired — e.g. crashing on the missing meta.native_tool, or letting
+    // the prompt case poison the witness set — this doesNotThrow would fail.
+    const witnessed = {
+      agent: "x",
+      cases: [
+        { name: "prompt", event: { tool: null, meta: {} } },
+        {
+          name: "shell witness",
+          event: { tool: "Bash", meta: { native_tool: "run_shell_command" } },
+        },
+      ],
+    };
+    assert.doesNotThrow(() => assertToolAliasesCovered([witnessed], assert));
+  });
+});
+
+describe("coverage-witness: an mcp class marked un-vetoable is proven by a fixture", () => {
+  // runAdapterConformance already enforces that IF an mcp-tagged fixture exists it
+  // parses this_call_vetoable=false (item ⑦ coverage honesty). What that leaves
+  // unchecked is EXISTENCE: an adapter can declare mcp uncovered/unknown and ship
+  // zero mcp fixtures, so the un-gated claim is never exercised. Assert the
+  // witnessable subset — every shipped adapter whose mcp coverage forbids a veto
+  // must have an mcp-tagged fixture (surfaced via coverageClassesChecked), which
+  // running conformance also proves parses non-vetoable.
+  //
+  // subagent/resumed are deliberately EXEMPT: classifyCallClass can only ever
+  // return BUILTIN or MCP from a lone payload — subagent/resumed have no
+  // detectable signal — so no real fixture can witness them and a blanket
+  // "every un-vetoable class is witnessed" assertion is unsatisfiable by design.
+  const shipped = [claudeAdapter, codexAdapter, ampAdapter, geminiAdapter];
+  for (const adapter of shipped) {
+    it(`${adapter.AGENT}: mcp coverage forbidding veto is witnessed by an mcp fixture`, () => {
+      const fixtures = loadFixture(adapter.AGENT);
+      const summary = runAdapterConformance({ adapter, fixtures, assert });
+      if (!coverageAllowsVeto(adapter.COVERAGE[CallClass.MCP]))
+        assert.ok(
+          summary.coverageClassesChecked.has(CallClass.MCP),
+          `${adapter.AGENT} marks mcp ${adapter.COVERAGE[CallClass.MCP]} (no veto) but ships no mcp-tagged fixture to witness the un-gated class`,
+        );
+    });
+  }
 });
