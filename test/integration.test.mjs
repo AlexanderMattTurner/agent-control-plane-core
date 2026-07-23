@@ -15,6 +15,15 @@ const hookBin = (host) => join(binDir, `${host}-hook.mjs`);
 /** Spawn a host entry with a raw stdin string; return exit code + stdout. */
 function runRaw(host, input) {
   const res = spawnSync("node", [hookBin(host)], { input, encoding: "utf8" });
+  // A missing/renamed bin/<host>-hook.mjs makes spawnSync set `error` and leave
+  // status null + empty stdout; assert the spawn itself succeeded so "the bin is
+  // gone" fails loudly here instead of as a confusing downstream JSON.parse.
+  assert.equal(
+    res.error,
+    undefined,
+    `spawning ${hookBin(host)} failed: ${res.error && res.error.message}`,
+  );
+  assert.notEqual(res.status, null, `${hookBin(host)} produced no exit status`);
   return {
     code: res.status,
     stdout: res.stdout,

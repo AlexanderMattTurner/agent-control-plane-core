@@ -185,6 +185,9 @@ describe("shipped SSOT is well-formed", () => {
       assert.ok(["semver", "rolling"].includes(a.versioning));
       assert.equal(typeof a.captured_version, "string");
       assert.equal(typeof a.event_name, "string");
+      // tool_matcher drives the Tier-2 recipe and is mandatory per this config's
+      // _comment; assert it too so a row shipped without one fails here.
+      assert.equal(typeof a.tool_matcher, "string");
       assert.equal(typeof a.secret, "string");
     }
   });
@@ -196,5 +199,21 @@ describe("shipped SSOT is well-formed", () => {
       "codex",
       "gemini",
     ]);
+  });
+
+  it("every config row has a matching src/fixtures/<agent>.json whose agent field agrees", () => {
+    // Ties the SSOT to the golden fixtures it names: a row for an agent with no
+    // fixture file (or a fixture whose own `agent` disagrees) is a dangling
+    // reference the freshness check would silently accept.
+    const repoRoot = join(here, "..");
+    for (const a of config.adapters) {
+      const fixture = JSON.parse(
+        readFileSync(
+          join(repoRoot, "src", "fixtures", `${a.agent}.json`),
+          "utf8",
+        ),
+      );
+      assert.equal(fixture.agent, a.agent);
+    }
   });
 });
