@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { codexAdapter, canEnforce } from "../src/adapters/codex.mjs";
+import {
+  codexAdapter,
+  canEnforce,
+  DEFAULT_DENY_REASON,
+  MIN_ENFORCING_VERSION,
+} from "../src/adapters/codex.mjs";
 import { runAdapterConformance } from "../src/conformance.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -104,14 +109,14 @@ describe("codex adapter: enforced deny always carries a non-empty reason (Codex 
     assert.equal(out.enforced, true);
     assert.equal(out.exit_code, 2);
     const reason = out.stdout.hookSpecificOutput.permissionDecisionReason;
-    assert.equal(typeof reason, "string");
-    assert.ok(reason.length > 0);
+    assert.equal(reason, DEFAULT_DENY_REASON);
   });
 
   it("replaces an empty-string reason on an enforced deny", () => {
     const out = codexAdapter.render({ decision: "deny", reason: "" }, event);
-    assert.ok(
-      out.stdout.hookSpecificOutput.permissionDecisionReason.length > 0,
+    assert.equal(
+      out.stdout.hookSpecificOutput.permissionDecisionReason,
+      DEFAULT_DENY_REASON,
     );
   });
 
@@ -168,4 +173,13 @@ describe("canEnforce version gate (≥ v0.135)", () => {
       assert.equal(canEnforce(version), expected);
     });
   }
+
+  // Drift guard: derive the boundary versions from MIN_ENFORCING_VERSION so a
+  // threshold bump can't leave the hardcoded table above asserting a stale
+  // boundary. At-threshold enforces; the highest patch of the prior minor does not.
+  it("derives the boundary from MIN_ENFORCING_VERSION", () => {
+    const [maj, min] = MIN_ENFORCING_VERSION;
+    assert.equal(canEnforce(`${maj}.${min}.0`), true);
+    assert.equal(canEnforce(`${maj}.${min - 1}.999`), false);
+  });
 });

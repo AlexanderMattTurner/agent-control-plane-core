@@ -65,7 +65,7 @@ const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest"]);
 
 // Codex drops an enforced deny that carries no (or an empty) reason and runs the
 // tool, so a reasonless enforced deny still renders a non-empty one.
-const DEFAULT_DENY_REASON = "blocked by monitor";
+export const DEFAULT_DENY_REASON = "blocked by monitor";
 
 const CONSUMED = new Set([
   "hook_event_name",
