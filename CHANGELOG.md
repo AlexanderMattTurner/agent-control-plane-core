@@ -12,6 +12,15 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.2.13] - 2026-07-23
+
+### Changed
+
+- test: assert spawn success, tie live-conformance to fixtures, strengthen capture
+- test(conformance): prove the alias skip path and witness the un-gated MCP class
+- test(codex): exact default-deny-reason and version-gate boundary from SSOT
+- docs: release 0.2.12 [skip ci]
+
 ## [0.2.12] - 2026-07-22
 
 ### Changed
