@@ -1,49 +1,53 @@
 name: Release canary
 
-# Daily cross-check that the three release surfaces agree: the highest version
-# published to npm, the latest v* git tag, and the top dated CHANGELOG.md
-# heading. auto-version.yaml keeps them in lockstep on the happy path; a partial
-# release failure (published-but-untagged, tag-without-docs) desynchronizes them
-# and, left unnoticed, corrupts the next release's commit-range analysis. The
-# comparison logic lives in ci-truth-serum's `release-canary` console script —
-# this workflow is only schedule + install + invoke wiring.
+# Daily cross-check that the release pipeline actually released: the max version
+# published to npm, the latest v* git tag, and CHANGELOG.md's top dated heading
+# must all name the same release. Two real incidents (a silently no-op'd publish
+# loop and a silently degraded changelog promotion) rotted unseen for days —
+# this converts that failure mode into a same-day alert. On mismatch the run
+# fails; the "Build/publish failure notify" (ntfy) and "CI failure notify"
+# (tracking issue) workflow_run listeners turn that failure into a notification.
 #
-# A mismatch fails this run, and the "Workflow failure notify" workflow (which
-# names this workflow in its `workflow_run` list) pushes the ntfy notification.
-# Schedule + manual ONLY — the check compares against the moving npm registry
-# state, so it must never gate a PR.
+# A repo that does not publish to npm is a no-op, not a daily red alert:
+# release-canary.sh skips (exit 0 with "disable me" guidance) when package.json
+# is "private": true (e.g. the template itself) OR when the package was never
+# published and declares no "publishConfig". It only fails when a repo that
+# genuinely publishes is out of sync — the failure mode this canary exists for.
 
 on:
   schedule:
-    - cron: "41 8 * * *" # daily 08:41 UTC
+    - cron: "17 6 * * *" # daily, offset from the top of the hour
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Serialize canary runs; never cancel — a dropped run is a dropped alert. The
+  # static group (no per-ref key) is intentional and safe: no pull_request
+  # trigger, so this never backs a required check that a cancelled run could hang.
+  group: release-canary
+  cancel-in-progress: false
+  # static-concurrency-ok: not a required check (schedule/dispatch only)
 
 permissions:
   contents: read
 
 jobs:
   canary:
-    name: Release surfaces agree (npm / git tag / CHANGELOG)
+    name: npm / git tag / changelog release agreement
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # Full history so the v* tags the canary compares against are present.
+          # Full history so every v* tag is present for the tag-side check.
           fetch-depth: 0
           persist-credentials: false
 
+      # Sets up Node and runs `pnpm install`, so npm-max-stable.mjs can resolve
+      # the `semver` package it uses to order published versions.
       - name: Setup base environment
         uses: ./.github/actions/setup-base-env
+        with:
+          node-version: 22
 
-      - name: Install the canary tool (ci-truth-serum)
-        # Pin to the same ci-truth-serum commit the pre-commit hooks and
-        # sync-required-checks use, so every consumer shares one version.
-        run: python3 -m pip install --user "ci-truth-serum @ git+https://github.com/alexander-turner/ci-truth-serum@1314a61e16854aa43da3612989c86533a5667b30"
-
-      - name: Compare npm max version, latest v* tag, and CHANGELOG heading
-        run: release-canary --package agent-control-plane-core
+      - name: Run release canary
+        run: bash .github/scripts/release-canary.sh

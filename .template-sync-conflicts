@@ -1,0 +1,1 @@
+Template updates available for: .claude/hooks/session-setup.sh .hooks/pre-commit .github/scripts/template-sync.sh .github/scripts/version-bump.sh .github/workflows/template-sync.yaml .github/workflows/build-publish-notify.yaml .github/workflows/sync-required-checks.yaml .github/workflows/release-canary.yaml .github/workflows/pre-commit.yaml 
