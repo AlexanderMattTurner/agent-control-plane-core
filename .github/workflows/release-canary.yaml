@@ -43,7 +43,12 @@ jobs:
       - name: Install the canary tool (ci-truth-serum)
         # Pin to the same ci-truth-serum commit the pre-commit hooks and
         # sync-required-checks use, so every consumer shares one version.
-        run: python3 -m pip install --user "ci-truth-serum @ git+https://github.com/alexander-turner/ci-truth-serum@1314a61e16854aa43da3612989c86533a5667b30"
+        run: python3 -m pip install --user "ci-truth-serum @ git+https://github.com/alexander-turner/ci-truth-serum@22b9c8b5d8090e68872cbb5e3ad963d0020b6449"
 
       - name: Compare npm max version, latest v* tag, and CHANGELOG heading
-        run: release-canary --package agent-control-plane-core
+        # Module form, not the bare `release-canary` console script: `pip
+        # install --user` drops console scripts in a user scripts directory
+        # whose presence on PATH is a property of the runner image, while
+        # `python3 -m` resolves through the same interpreter that installed the
+        # package. Matches how sync-required-checks.yaml invokes this package.
+        run: python3 -m hooks.release_canary --package agent-control-plane-core
