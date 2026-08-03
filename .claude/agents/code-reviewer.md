@@ -57,13 +57,13 @@ and stop—do not invent issues to look thorough.
 
 ### Example 1: Real bug
 
-> **Blocker** — `src/auth/session.ts:42` — `expiresAt` compared with `<` instead of `<=`, so a
+> **Blocker** — <!-- allow-line-ref: illustrative finding on a fictional file; the line number is the format being demonstrated --> `src/auth/session.ts:42` — `expiresAt` compared with `<` instead of `<=`, so a
 > token is treated as valid for one extra second at the exact expiry boundary. The added test on
 > line 88 only checks the far-future case, so it never catches this.
 
 ### Example 2: Reuse opportunity
 
-> **Should-fix** — `src/api/users.ts:30-48`—this re-implements the email validation already in
+> **Should-fix** — <!-- allow-line-ref: illustrative finding on a fictional file; the line number is the format being demonstrated --> `src/api/users.ts:30-48`—this re-implements the email validation already in
 > `src/lib/validate.ts:validateEmail`. Reuse it instead of duplicating the regex, which has already
 > drifted (missing the `+` subaddress case the shared helper handles).
 

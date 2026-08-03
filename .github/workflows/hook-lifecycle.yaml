@@ -34,6 +34,7 @@ jobs:
           - '.pre-commit-config.yaml'
           - '.github/scripts/run-hook-lifecycle.sh'
           - '.github/workflows/hook-lifecycle.yaml'
+          - '.github/actions/setup-base-env/**'
 
   hook-lifecycle:
     needs: decide

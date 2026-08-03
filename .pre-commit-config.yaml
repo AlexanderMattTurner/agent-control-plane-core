@@ -59,12 +59,15 @@ repos:
   # hangs forever, or a mutable base-image/download pin. Tier 2 adds the
   # required-check-shape lints this template's workflows already follow
   # (classified always() reporters, explicit concurrency, externalized run
-  # blocks). Extras adds check-claude-model (explicit --model on the
-  # claude-code-action steps this template ships) plus the unnamed-regex-group
-  # and global-stdio-swap Python lints. Tier aggregates over per-check ids so a
-  # check added upstream to a tier applies here with no config change.
+  # blocks). Extras adds the off-theme checks: check-claude-model (explicit
+  # --model on the claude-code-action steps this template ships), the Python
+  # lints (unnamed-regex-group, global-stdio-swap), and the prose lints that
+  # reject a hand-wave or a rotting file:line citation in docs and comments.
+  # Tier aggregates over per-check ids so a check added upstream to a tier
+  # applies here with no config change — which is also why advancing `rev` can
+  # surface new findings in code this repo has not touched.
   - repo: https://github.com/alexander-turner/ci-truth-serum
-    rev: 1314a61e16854aa43da3612989c86533a5667b30 # main
+    rev: 22b9c8b5d8090e68872cbb5e3ad963d0020b6449 # main
     hooks:
       - id: check-tier1
       - id: check-tier2

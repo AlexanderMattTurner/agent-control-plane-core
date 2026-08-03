@@ -22,7 +22,7 @@ detectable signal — the tables below remain the SSOT for what each cell claims
 
 ## Why "hook fires?" is exactly `this_call_vetoable`
 
-`ToolCallEvent.this_call_vetoable` (`src/control-plane.mjs:140`) is defined as:
+`ToolCallEvent.this_call_vetoable` (`src/control-plane.mjs`) is defined as:
 "false ⇒ the guardrail cannot veto THIS call; a monitor must auto-degrade deny
 to notify, and any render of it stays advisory (never `enforced`)." That is the
 schema's exact handle for a hook-coverage hole:
@@ -83,8 +83,8 @@ point: a guessed ✅ is a silent fail-open.
   but a live probe (item ⑤) would harden it.
 
 **Codex CLI** (`external_hook`; `PreToolUse`/`PostToolUse` modeled on Claude
-Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]`,
-`src/adapters/codex.mjs:36`)
+Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
+`src/adapters/codex.mjs`)
 
 - **[X1] builtin ⚠️ Bash only** — `PreToolUse` "intercepts the shell (Bash) tool
   only — by design." `apply_patch`, Read/Edit/Write, and web fetch do **not**
