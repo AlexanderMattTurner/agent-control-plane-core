@@ -145,8 +145,8 @@ surface, not resolve.
   security layer. Flag, don't assume either way.
 - A live bug ([#11309](https://github.com/OpenHands/OpenHands/issues/11309)):
   removing the analyzer while the LLM still emits `security_risk` throws a hard
-  `RuntimeError` instead of ignoring the now-unhandled field — a robustness gap on the
-  analyzer on/off transition, not a security bypass.
+  `RuntimeError` instead of ignoring the now-unhandled field — a robustness gap
+  on the analyzer on/off transition, not a security bypass.
 
 ### (e) Version/config gating
 
