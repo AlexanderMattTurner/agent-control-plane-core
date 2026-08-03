@@ -16,7 +16,7 @@ skill codifies the four-phase loop. Skip it for trivial edits (typos, single-lin
 ## 1. Explore (read-only)
 
 Understand before changing. Use plan mode for read-only tracing of the relevant files and data
-models. Prefer **references over descriptions**: cite `path/to/file.py:42` and read the real code
+models. Prefer **references over descriptions**: cite <!-- allow-line-ref: teaches the file:line citation convention, so the example must show one --> `path/to/file.py:42` and read the real code
 rather than guessing. Pipe real errors in (`cat error.log | claude`) instead of paraphrasing them.
 Launch parallel `Explore` agents when scope is uncertain or spans multiple areas.
 

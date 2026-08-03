@@ -145,7 +145,7 @@ surface, not resolve.
   security layer. Flag, don't assume either way.
 - A live bug ([#11309](https://github.com/OpenHands/OpenHands/issues/11309)):
   removing the analyzer while the LLM still emits `security_risk` throws a hard
-  `RuntimeError` instead of degrading gracefully — a robustness gap on the
+  `RuntimeError` instead of ignoring the now-unhandled field — a robustness gap on the
   analyzer on/off transition, not a security bypass.
 
 ### (e) Version/config gating
@@ -353,7 +353,7 @@ research's independent timeline reconstruction (GitHub PRs/issues/releases)
 places enforcing `PreToolUse`/`PostToolUse` hooks landing around **v0.117.0**
 (released ~March 26, 2026), while the shipped adapter's
 `MIN_ENFORCING_VERSION` is pinned to `[0, 135]`
-(`src/adapters/codex.mjs:36`). This may be a deliberate conservative pin (wait
+(`src/adapters/codex.mjs`). This may be a deliberate conservative pin (wait
 for the feature to stabilize past its initial release) rather than a bug — the
 research could not independently verify the _exact_ JSON field names in the
 v0.117–v0.135 window, only that enforcement-shaped events existed. Surfacing
