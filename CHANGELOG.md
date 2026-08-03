@@ -12,6 +12,12 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.2.14] - 2026-08-03
+
+### Fixed
+
+- Pinned ci-truth-serum to a commit that includes release-canary support, resolving linting issues introduced by the dependency.
+
 ## [0.2.13] - 2026-07-23
 
 ### Changed
