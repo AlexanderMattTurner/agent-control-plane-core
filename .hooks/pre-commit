@@ -1,12 +1,7 @@
 #!/bin/bash
 # Pre-commit hook: Format and lint staged files via lint-staged.
-<<<<<<< local
-# Warns and exits 0 without formatting when lint-staged is not installed
-# (non-Node projects), so the commit proceeds unformatted rather than failing.
-=======
 # Projects without a package.json have no lint-staged config to run; a Node
 # project whose tools are missing FAILS the commit (see lib-gate.sh).
->>>>>>> template
 
 set -euo pipefail
 
@@ -26,14 +21,6 @@ if [[ -d "$git_root/.venv/bin" ]]; then
   export PATH="$git_root/.venv/bin:$PATH"
 fi
 
-<<<<<<< local
-if [[ ! -f "$git_root/node_modules/.bin/lint-staged" ]]; then
-  # Still exit 0 (non-Node projects and fresh clones must be able to commit),
-  # but never silently: a missing install otherwise disables all lint/format
-  # enforcement with zero signal.
-  echo "pre-commit: WARNING — lint-staged not installed; lint/format checks SKIPPED for this commit." >&2
-  echo "pre-commit:           run 'pnpm install' to enable them." >&2
-=======
 # Durable recovery snapshot before the destructive part. lint-staged (and the
 # pre-commit auto-fixers it drives) hide your UNSTAGED tracked edits in an internal
 # stash, rewrite the staged files, then restore that stash. A failed run — a
@@ -52,7 +39,6 @@ fi
 
 # No package.json: not a Node project, so there is no lint-staged gate to run.
 if [[ ! -f "$git_root/package.json" ]]; then
->>>>>>> template
   exit 0
 fi
 

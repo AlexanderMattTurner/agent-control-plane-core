@@ -73,12 +73,6 @@ go_install_pinned() {
 apt_updated=0
 apt_install_if_missing() {
   local cmd="$1" pkg="${2:-$1}"
-<<<<<<< local
-  command -v "$cmd" &>/dev/null && return 0
-  if ! is_root || ! command -v apt-get &>/dev/null; then
-    warn "$cmd not found and cannot be auto-installed (needs root + apt); install it manually"
-    return 0
-=======
   if ! command -v "$cmd" &>/dev/null; then
     local installer
     installer=$(mktemp "${TMPDIR:-/tmp}/webi-${cmd}-XXXXXX.sh")
@@ -97,7 +91,6 @@ apt_install_if_missing() {
       warn "Failed to download installer for $cmd"
     fi
     rm -f "$installer"
->>>>>>> template
   fi
   if [[ "$apt_updated" -eq 0 ]]; then
     apt-get update -qq || warn "apt-get update failed"
