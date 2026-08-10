@@ -19,7 +19,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, basename, dirname } from "node:path";
-import { isMain } from "../../.claude/hooks/lib-hook-io.mjs";
+import { isMainModule } from "./lib/cli-args.mjs";
 
 export const MARKER = "<!-- pr-review-advisory -->";
 
@@ -463,4 +463,4 @@ function main() {
   writeFileSync(process.env.TIER_FILE, maxTier(declared, heuristic) + "\n");
 }
 
-if (isMain(import.meta.url)) main();
+if (isMainModule(import.meta.url)) main();

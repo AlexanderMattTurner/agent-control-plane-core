@@ -36,7 +36,8 @@ import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { readStdinJson, errMessage, isMain } from "./lib-hook-io.mjs";
+import { readStdinJson, errMessage } from "./lib-hook-io.mjs";
+import { isMainModule } from "../../.github/scripts/lib/cli-args.mjs";
 import { controlPlane, runJudgeCli } from "./lib-control-plane.mjs";
 
 const pExecFile = promisify(execFile);
@@ -299,6 +300,6 @@ export async function main(read, write, listHeads = defaultListHeads) {
   );
 }
 
-if (isMain(import.meta.url)) {
+if (isMainModule(import.meta.url)) {
   void main(readStdinJson, (chunk) => process.stdout.write(chunk));
 }

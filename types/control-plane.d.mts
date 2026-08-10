@@ -17,6 +17,21 @@ export function assertAliasTargetsModeled(aliases: Record<string, string>): void
  */
 export function canonicalTool(tool: string | null): string | null;
 /**
+ * Own-property lookup on an object used as a string-keyed map. Returns the value
+ * ONLY when `key` is an OWN property; an inherited `Object.prototype` member
+ * (`constructor`, `toString`, `valueOf`, `__proto__`, `hasOwnProperty`, …) that
+ * an untrusted key could name resolves to `undefined`, never the prototype
+ * function. EVERY map keyed by an untrusted native string — a tool name, an
+ * agent id, a native event name — MUST resolve through this: a bare `map[key]`
+ * index lets a payload named after a prototype member resolve a JS function
+ * instead of falling through to the default, silently reclassifying the call.
+ * @template T
+ * @param {Record<string, T>} map
+ * @param {string} key
+ * @returns {T|undefined}
+ */
+export function lookup<T>(map: Record<string, T>, key: string): T | undefined;
+/**
  * Whether a coverage status PERMITS an adapter to mark a call in that class
  * `this_call_vetoable: true`. Only a hook confirmed to fire does: COVERED, or
  * PARTIAL (for the tools in its covered subset). UNCOVERED and UNKNOWN both
@@ -70,6 +85,7 @@ export function classifyCallClass(tool: string | null, native?: Record<string, u
  * @property {number} exit_code process exit code carrying the decision (0 = proceed)
  * @property {boolean} enforced whether THIS render actually blocks (false ⇒ advisory only)
  * @property {unknown} [stdout] native JSON body to write to stdout, when the transport uses one
+ * @property {string} [stderr] text the host reads from STDERR — the block reason on a transport (e.g. Gemini CLI's exit-2 System Block) that takes its rationale from stderr rather than the stdout body. The caller writes it to fd 2 before exiting.
  */
 /**
  * A normalized, agent-agnostic view of one agent event.
@@ -188,14 +204,15 @@ export function asString(value: unknown, fallback: string): string;
 /**
  * Assemble a {@link NativeResponse}, omitting an absent `stdout` so a pure
  * exit-code transport carries no `stdout` key.
- * @param {{ transport: string, exit_code: number, enforced: boolean, stdout?: unknown }} parts
+ * @param {{ transport: string, exit_code: number, enforced: boolean, stdout?: unknown, stderr?: string }} parts
  * @returns {NativeResponse}
  */
-export function nativeResponse({ transport, exit_code, enforced, stdout }: {
+export function nativeResponse({ transport, exit_code, enforced, stdout, stderr, }: {
     transport: string;
     exit_code: number;
     enforced: boolean;
     stdout?: unknown;
+    stderr?: string;
 }): NativeResponse;
 /**
  * The vendor-neutral control-plane contract.
@@ -379,6 +396,10 @@ export type NativeResponse = {
      * native JSON body to write to stdout, when the transport uses one
      */
     stdout?: unknown;
+    /**
+     * text the host reads from STDERR — the block reason on a transport (e.g. Gemini CLI's exit-2 System Block) that takes its rationale from stderr rather than the stdout body. The caller writes it to fd 2 before exiting.
+     */
+    stderr?: string | undefined;
 };
 /**
  * A normalized, agent-agnostic view of one agent event.

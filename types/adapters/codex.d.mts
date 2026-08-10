@@ -3,6 +3,17 @@
  * `semver.coerce` normalizes a patch/prerelease/build-tagged version to its
  * release core; anything it can't coerce to a valid version (missing, empty,
  * garbage) yields `null` and is treated as too old — fail closed to advisory.
+ *
+ * TRUST BOUNDARY (sandbox, not adapter): `version` is read from the hook stdin
+ * payload, so a payload that under-reports it downgrades enforcement to advisory
+ * (a deny renders exit 0). The adapter cannot distinguish a spoofed version from
+ * a genuinely old Codex — the ground-truth version lives outside the payload —
+ * so anti-spoofing belongs to the sandbox that controls what the hook is fed
+ * (the same "pin it from outside" posture the managed-config mount enforces for
+ * the hook binary; see docs/monitor-invariants.md §Invariant 1). Coercing an
+ * absent/garbage version to enforcing HERE would break the legitimate old-Codex
+ * case (rendering an exit-2 block a pre-0.135 Codex ignores, while dishonestly
+ * marking it `enforced`), so the adapter stays faithful to what the payload says.
  * @param {unknown} version
  * @returns {boolean}
  */
@@ -50,6 +61,7 @@ export const INTEGRATION_MODE: "external_hook";
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION: readonly number[];
+export const DEFAULT_DENY_REASON: "blocked by monitor";
 /** @type {import("../control-plane.mjs").Adapter} */
 export const codexAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;
