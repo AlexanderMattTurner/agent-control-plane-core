@@ -6,10 +6,8 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync, rmSync, existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const extractLessons = require("./phone-home-extract.js");
 
@@ -103,7 +101,7 @@ describe("phone-home-extract", () => {
       "",
       "- A shallow CI clone breaks range-scoped git hooks; fetch --unshallow first.",
       "",
-      "🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+      "\u{1F916} Generated with [Claude Code](https://claude.com/claude-code)",
       "",
       "Co-authored-by: Claude <noreply@anthropic.com>",
     ].join("\n");
