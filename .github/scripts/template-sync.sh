@@ -421,7 +421,9 @@ main() {
       mv "$capped" "$CONFLICT_REPORT"
     fi
     emit_multiline_output "conflict_report" "$(cat "$CONFLICT_REPORT")"
-    echo "Template updates available for: $conflicts" >.template-sync-conflicts
+    # `$conflicts` appends a trailing space per path; leaving it in the file makes
+    # pre-commit's trailing-whitespace hook rewrite it and fail the check.
+    echo "Template updates available for: ${conflicts%"${conflicts##*[![:space:]]}"}" >.template-sync-conflicts
   else
     echo "has_conflicts=false" >>"$GITHUB_OUTPUT"
     rm -f .template-sync-conflicts
