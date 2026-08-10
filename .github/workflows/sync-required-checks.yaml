@@ -10,8 +10,9 @@ name: Sync required status checks
 #
 # Runs only post-merge on main (and on demand). It mutates branch protection, so
 # it needs a token with `administration: write`; the stock GITHUB_TOKEN cannot
-# edit rulesets. Provide it as the RULESET_SYNC_TOKEN_ORG secret — the job fails loud
-# if it is absent. Not a required check itself (no pull_request trigger).
+# edit rulesets. It reuses the org PAT that template-sync already runs with,
+# TEMPLATE_SYNC_TOKEN_ORG — the job fails loud if it is absent. Not a required
+# check itself (no pull_request trigger).
 on:
   push:
     branches: [main]
@@ -53,7 +54,7 @@ jobs:
 
       - name: Sync required status checks
         env:
-          GH_TOKEN: ${{ secrets.RULESET_SYNC_TOKEN_ORG }}
+          GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN_ORG }}
           REPO: ${{ github.repository }}
           CHECK_ONLY: ${{ inputs.check-only }}
         run: |
