@@ -2,6 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+// Namespace import, not a named one: on a node without `registerHooks` a named
+// import of it is a link-time SyntaxError that takes the whole file down before
+// any test reports.
+import * as nodeModule from "node:module";
 import { fileURLToPath } from "node:url";
 
 const ROOT = new URL("../", import.meta.url);
@@ -14,6 +18,11 @@ const SUBPATHS = Object.entries(manifest.exports);
 // life of a process, so a resolve hook registered after some other test already
 // imported the subject records nothing and every assertion over its output
 // passes vacuously. A cold process is the only place the graph is observable.
+//
+// `module.registerHooks` is synchronous and in-thread, which is what lets the
+// hook record a resolution the same process then uses. It arrived in Node
+// 22.15, above `engines.node` (>=20) — `devEngines.runtime` in package.json
+// carries that floor for anyone running the suite.
 const RECORDER = `
 import { registerHooks } from "node:module";
 const root = process.env.PKG_ROOT;
@@ -38,6 +47,12 @@ process.stdout.write(JSON.stringify(seen));
  * @returns {string[]}
  */
 function resolvedDuring(subject) {
+  // Fail by name, not through the child's `registerHooks is not a function`.
+  assert.equal(
+    typeof nodeModule.registerHooks,
+    "function",
+    `node ${process.versions.node} has no module.registerHooks; the graph tests need >=22.15 (see devEngines in package.json)`,
+  );
   const out = execFileSync(
     process.execPath,
     ["--input-type=module", "-e", RECORDER],

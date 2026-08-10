@@ -16,6 +16,13 @@
   "engines": {
     "node": ">=20"
   },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=22.15",
+      "onFail": "error"
+    }
+  },
   "main": "./src/index.mjs",
   "types": "./types/index.d.mts",
   "exports": {
