@@ -246,7 +246,7 @@ export function shouldAdviseSplit({ clusters, fileCount, totalLines }) {
   );
 }
 
-// ── suggested review order ───────────────────────────────────────────────────
+// ── suggested review order ──────────────────────────────────────────────────
 
 const ORDER_LABELS = [
   "security/enforcement",
@@ -294,7 +294,7 @@ const TIER_RANK = { low: 0, medium: 1, high: 2 };
 
 // A stoplight glyph per tier so the risk line is scannable at a glance in the
 // PR comment (red = human review expected, green = low-touch).
-const TIER_EMOJI = { low: "\\u{1F7E2}", medium: "\\u{1F7E1}", high: "\\u{1F534}" };
+const TIER_EMOJI = { low: "\u{1F7E2}", medium: "\u{1F7E1}", high: "\u{1F534}" };
 
 // The PR body is fork-controlled: this strict, line-anchored match is the ONLY
 // way any of it influences output, and only the enum token survives — a quoted
