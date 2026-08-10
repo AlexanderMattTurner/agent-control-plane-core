@@ -12,6 +12,10 @@ the prose from the release's commits.
 
 ## Unreleased
 
+### Added
+
+- An `agent-control-plane-core/contract` subpath export carrying `Decision`, `EventKind`, `normalizeVerdict` and `makeEvent`. It reaches no adapter, no registry and no conformance module, so a consumer that needs only the contract pays 9 ms of import work instead of the barrel's 31 ms. A guardrail hook is one process per tool call, which is where that difference is spent.
+
 ## [0.2.14] - 2026-08-03
 
 ### Fixed
