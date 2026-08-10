@@ -37,8 +37,8 @@ def _toolless_env(home: Path) -> dict[str, str]:
 
 @pytest.fixture
 def repo_with_hook(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
-    """A clone of a bare remote, with the real `.hooks/` installed and one
-    commit already pushed to main."""
+    """A repo with a real bare remote, the real `pre-push` hook installed, and
+    one commit already pushed to main."""
     remote = tmp_path / "remote.git"
     subprocess.run(
         ["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True
