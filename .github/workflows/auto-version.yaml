@@ -57,6 +57,15 @@ jobs:
           # a recent npm) and point it at the npm registry so provenance works.
           node-version: 24
           registry-url: https://registry.npmjs.org
+          # uv is a release-time prerequisite, not an optional extra: `pnpm
+          # install` points core.hooksPath at .hooks, so the release-docs push
+          # below runs .hooks/pre-push, which refuses to push a range it cannot
+          # check with `uvx pre-commit`. Without uv on the runner the package
+          # publishes and tags but the CHANGELOG commit never lands, leaving
+          # npm/tag/changelog desynced for release-canary.yaml to find. The docs
+          # commit carries `[skip ci]`, so this hook is the ONLY check that ever
+          # reads it — provision the tool rather than skip the check.
+          setup-python: "true"
 
       - name: Bump version and publish if commits warrant a release
         # The changelog-prose call walks the anthropic-ladder.bash credential
