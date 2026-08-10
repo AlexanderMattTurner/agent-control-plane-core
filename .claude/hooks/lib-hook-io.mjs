@@ -1,21 +1,5 @@
 /** Shared I/O helpers for Claude Code hook scripts. */
 
-import { pathToFileURL } from "node:url";
-
-/**
- * True when this module is the process entry point (run directly as a CLI, not
- * imported). Guards an undefined `process.argv[1]` before resolving it, and
- * normalizes a relative invocation path to an absolute file URL before comparing.
- * @param {string} importMetaUrl  the caller's `import.meta.url`
- * @returns {boolean}
- */
-export function isMain(importMetaUrl) {
-  return (
-    Boolean(process.argv[1]) &&
-    importMetaUrl === pathToFileURL(process.argv[1]).href
-  );
-}
-
 /**
  * Hard cap on hook stdin. A well-formed payload is at most a few MB; 64 MiB
  * leaves headroom while refusing a runaway sender before its bytes OOM the hook.
