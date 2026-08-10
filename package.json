@@ -23,6 +23,10 @@
       "types": "./types/index.d.mts",
       "import": "./src/index.mjs"
     },
+    "./contract": {
+      "types": "./types/control-plane.d.mts",
+      "import": "./src/control-plane.mjs"
+    },
     "./claude": {
       "types": "./types/adapters/claude.d.mts",
       "import": "./src/adapters/claude.mjs"

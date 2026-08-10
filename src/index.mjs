@@ -8,6 +8,13 @@
  * `agent-control-plane-core/claude`, `/codex`, `/amp`, `/gemini`, and the
  * harness at `/conformance`. The agent-id → adapter registry (the SSOT a
  * host/dispatcher selects from) is at `/registry`.
+ *
+ * A consumer that needs only the contract — {@link Decision},
+ * {@link EventKind} and the event/verdict helpers — imports `/contract`
+ * instead of this barrel. This barrel re-exports every adapter, the registry
+ * and the conformance harness, so it costs 31 ms of import work against the
+ * contract module's 9 ms. That is paid per PROCESS, and a guardrail hook is one
+ * process per tool call.
  */
 
 export * from "./control-plane.mjs";
