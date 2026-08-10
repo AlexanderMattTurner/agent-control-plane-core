@@ -117,8 +117,10 @@ export function writeHookConfig(agent, baseDir, opts) {
     writeFileSync(abs, f.content);
     written.push(abs);
   }
+  // Prototype-less: the keys come from cfg.env, and a plain `{}` written with a
+  // computed key silently drops a `__proto__` entry instead of storing it.
   /** @type {Record<string, string>} */
-  const env = {};
+  const env = Object.create(null);
   for (const [k, v] of Object.entries(cfg.env)) env[k] = join(baseDir, v);
   return { written, env };
 }
