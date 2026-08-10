@@ -19,11 +19,11 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, basename, dirname } from "node:path";
-import { isMain } from "../../.claude/hooks/lib-hook-io.mjs";
+import { isMainModule } from "./lib/cli-args.mjs";
 
 export const MARKER = "<!-- pr-review-advisory -->";
 
-// ── path tiers (adopter-overridable) ────────────────────────────────────────
+// ── path tiers (adopter-overridable) ───────────────────────────────────
 // The enforcement surfaces of THIS automation template — the guardrail hooks and
 // the CI automation (workflows + their scripts) — ARE the security-relevant code,
 // so they lead the review order and drive the risk tier. Adopters describe their
@@ -246,7 +246,7 @@ export function shouldAdviseSplit({ clusters, fileCount, totalLines }) {
   );
 }
 
-// ── suggested review order ──────────────────────────────────────────────────
+// ── suggested review order ──────────────────────────────────────────
 
 const ORDER_LABELS = [
   "security/enforcement",
@@ -288,7 +288,7 @@ export function orderForReview(files, generatedSet, cfg = PATHS) {
     );
 }
 
-// ── risk tier ───────────────────────────────────────────────────────────────
+// ── risk tier ───────────────────────────────────────────────────
 
 const TIER_RANK = { low: 0, medium: 1, high: 2 };
 
@@ -327,7 +327,7 @@ export function maxTier(a, b) {
   return TIER_RANK[a] >= TIER_RANK[b] ? a : b;
 }
 
-// ── rendering ───────────────────────────────────────────────────────────────
+// ── rendering ───────────────────────────────────────────────────
 
 // Fork-controlled paths reach the comment only through this gate: printable
 // ASCII, no backtick, bounded length, rendered inside a code span — that is
@@ -407,7 +407,7 @@ export function renderComment({
   return lines.join("\n");
 }
 
-// ── entry point ─────────────────────────────────────────────────────────────
+// ── entry point ─────────────────────────────────────────────────
 
 // linguist-generated per file, read from the TRUSTED checkout's .gitattributes
 // (the attribute is the SSOT — no hard-coded generated-file list). Untrusted
@@ -463,4 +463,4 @@ function main() {
   writeFileSync(process.env.TIER_FILE, maxTier(declared, heuristic) + "\n");
 }
 
-if (isMain(import.meta.url)) main();
+if (isMainModule(import.meta.url)) main();

@@ -43,6 +43,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
+import { isMainModule } from "./lib/cli-args.mjs";
 
 const SUPPRESS = "proto-pollution-ok:";
 const SUPPRESS_HINT = "// proto-pollution-ok:";
@@ -292,6 +293,6 @@ function main() {
 }
 
 // Run as a CLI, but stay importable for the test suite.
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main();
 }
