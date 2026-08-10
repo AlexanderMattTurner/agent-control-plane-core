@@ -101,7 +101,7 @@ describe("phone-home-extract", () => {
       "",
       "- A shallow CI clone breaks range-scoped git hooks; fetch --unshallow first.",
       "",
-      "\u{1F916} Generated with [Claude Code](https://claude.com/claude-code)",
+      "🤖 Generated with [Claude Code](https://claude.com/claude-code)",
       "",
       "Co-authored-by: Claude <noreply@anthropic.com>",
     ].join("\n");

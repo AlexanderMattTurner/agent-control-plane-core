@@ -23,7 +23,7 @@ import { isMainModule } from "./lib/cli-args.mjs";
 
 export const MARKER = "<!-- pr-review-advisory -->";
 
-// ── path tiers (adopter-overridable) ───────────────────────────────────
+// ── path tiers (adopter-overridable) ────────────────────────────────────────
 // The enforcement surfaces of THIS automation template — the guardrail hooks and
 // the CI automation (workflows + their scripts) — ARE the security-relevant code,
 // so they lead the review order and drive the risk tier. Adopters describe their
@@ -246,7 +246,7 @@ export function shouldAdviseSplit({ clusters, fileCount, totalLines }) {
   );
 }
 
-// ── suggested review order ──────────────────────────────────────────
+// ── suggested review order ───────────────────────────────────────────────────
 
 const ORDER_LABELS = [
   "security/enforcement",
@@ -288,13 +288,13 @@ export function orderForReview(files, generatedSet, cfg = PATHS) {
     );
 }
 
-// ── risk tier ───────────────────────────────────────────────────
+// ── risk tier ───────────────────────────────────────────────────────────────
 
 const TIER_RANK = { low: 0, medium: 1, high: 2 };
 
 // A stoplight glyph per tier so the risk line is scannable at a glance in the
 // PR comment (red = human review expected, green = low-touch).
-const TIER_EMOJI = { low: "\u{1F7E2}", medium: "\u{1F7E1}", high: "\u{1F534}" };
+const TIER_EMOJI = { low: "\\u{1F7E2}", medium: "\\u{1F7E1}", high: "\\u{1F534}" };
 
 // The PR body is fork-controlled: this strict, line-anchored match is the ONLY
 // way any of it influences output, and only the enum token survives — a quoted
@@ -327,7 +327,7 @@ export function maxTier(a, b) {
   return TIER_RANK[a] >= TIER_RANK[b] ? a : b;
 }
 
-// ── rendering ───────────────────────────────────────────────────
+// ── rendering ───────────────────────────────────────────────────────────────
 
 // Fork-controlled paths reach the comment only through this gate: printable
 // ASCII, no backtick, bounded length, rendered inside a code span — that is
@@ -407,7 +407,7 @@ export function renderComment({
   return lines.join("\n");
 }
 
-// ── entry point ─────────────────────────────────────────────────
+// ── entry point ─────────────────────────────────────────────────────────────
 
 // linguist-generated per file, read from the TRUSTED checkout's .gitattributes
 // (the attribute is the SSOT — no hard-coded generated-file list). Untrusted
