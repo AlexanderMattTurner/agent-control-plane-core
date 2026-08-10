@@ -12,9 +12,41 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.3.0] - 2026-08-10
+
 ### Added
 
 - An `agent-control-plane-core/contract` subpath export carrying `Decision`, `EventKind`, `normalizeVerdict` and `makeEvent`. It reaches no adapter, no registry and no conformance module, so a consumer that needs only the contract pays 9 ms of import work instead of the barrel's 31 ms. A guardrail hook is one process per tool call, which is where that difference is spent.
+
+## [0.2.18] - 2026-08-10
+
+### Fixed
+
+- Restored the executable bit on the scripts the GitHub contents API had written back without it.
+
+## [0.2.17] - 2026-08-10
+
+### Fixed
+
+- `.hooks/pre-push` computes the pushed range before it demands `pre-commit`, so a push with nothing new to check — a release tag on a commit the remote already has — is no longer refused on a runner without the tool.
+
+## [0.2.16] - 2026-08-10
+
+### Fixed
+
+- The live-capture env map is built without a prototype, so an env var named after an `Object.prototype` member can no longer be read as an inherited value.
+- template-sync no longer writes a trailing space into `.template-sync-conflicts`.
+- Restored the executable bit on the two hook scripts, and the verbatim bytes of two files a worktree round-trip had re-encoded.
+
+### Changed
+
+- The hook entry-point check comes from `cli-args` instead of a second local implementation; declarations regenerated to match.
+
+## [0.2.15] - 2026-08-03
+
+### Changed
+
+- Synced the automation template (`.claude`, `.hooks`, `.github`).
 
 ## [0.2.14] - 2026-08-03
 
