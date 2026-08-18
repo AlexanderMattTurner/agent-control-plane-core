@@ -397,6 +397,14 @@ else
     log "Direct push to $DEFAULT_BRANCH is blocked by a branch ruleset (GH013); opening a release-docs PR instead."
     RELEASE_BRANCH="release-docs-v$NEW_VERSION"
     git checkout -b "$RELEASE_BRANCH"
+    # `[skip ci]` on the commit is what keeps a direct push from spawning
+    # another workflow run; on a PR head it also skips the pull_request-triggered
+    # required checks (node-tests-passed, pre-commit-passed), which then sit
+    # Pending forever and the ruleset can never be satisfied. Drop it from the
+    # PR's own commit and put it back only in the squash subject below, which is
+    # the message that actually lands on main and is what needs to suppress the
+    # retrigger.
+    git commit --amend -m "docs: release $NEW_VERSION"
     PR_FAILED=0
     if ! retry_cmd 4 2 git push origin "$RELEASE_BRANCH"; then
       PR_FAILED=1
@@ -405,8 +413,16 @@ else
       --base "$DEFAULT_BRANCH" --head "$RELEASE_BRANCH" 2>&1); then
       log "$PR_URL"
       PR_FAILED=1
-    elif ! MERGE_OUT=$(gh pr merge --auto --squash "$PR_URL" 2>&1); then
+    elif ! MERGE_OUT=$(gh pr merge --auto --squash \
+      --subject "docs: release $NEW_VERSION [skip ci]" --body "" "$PR_URL" 2>&1); then
       log "$MERGE_OUT"
+      PR_FAILED=1
+    # Read back rather than trusting the exit status: the enable mutation can be
+    # rejected (auto-merge disabled on the repository, branch protection absent)
+    # and still report success, which would leave this PR open with nothing
+    # waiting to merge it (mirrors template-sync-automerge.sh's same check).
+    elif [[ "$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')" != "true" ]]; then
+      log "auto-merge did not stick on $PR_URL. Enable 'Allow auto-merge' in the repository settings."
       PR_FAILED=1
     fi
     if [[ "$PR_FAILED" -eq 1 ]]; then
