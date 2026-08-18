@@ -124,23 +124,34 @@ export function assertToolAliasesCovered(
  * @param {any} assert node:assert/strict (injected)
  */
 export function assertAliasedInputsCanonical(fixturesList, assert) {
-  for (const fixtures of fixturesList) {
-    for (const testCase of fixtures.cases) {
-      const nativeTool = testCase.event?.meta?.native_tool;
-      const canon = testCase.event?.tool;
-      if (typeof nativeTool !== "string" || nativeTool === canon) continue;
-      const key = lookup(
-        /** @type {Record<string, string>} */ (MODELED_TOOL_INPUT_KEYS),
-        canon,
-      );
-      if (key === undefined) continue;
-      assert.ok(
-        testCase.event.input !== undefined &&
-          Object.hasOwn(testCase.event.input, key),
-        `fixture '${testCase.name}' (${fixtures.agent}): ${JSON.stringify(nativeTool)} was canonicalized to ${JSON.stringify(canon)}, which advertises input.${key}, but the input carries ${JSON.stringify(Object.keys(testCase.event.input ?? {}))} — rename the input keys or drop the alias`,
-      );
-    }
-  }
+  for (const fixtures of fixturesList)
+    for (const testCase of fixtures.cases)
+      assertAliasedInput(fixtures.agent, testCase.name, testCase.event, assert);
+}
+
+/**
+ * The per-event half of {@link assertAliasedInputsCanonical}, shared with
+ * {@link runAdapterConformance} so the rule holds against a LIVE parse and not
+ * only against the fixture file.
+ * @param {string} agent
+ * @param {string} caseName
+ * @param {any} event a normalized ToolCallEvent
+ * @param {any} assert node:assert/strict (injected)
+ */
+function assertAliasedInput(agent, caseName, event, assert) {
+  const nativeTool = event?.meta?.native_tool;
+  const canon = event?.tool;
+  // Only a RENAME makes the promise; a native-named tool advertises nothing.
+  if (typeof nativeTool !== "string" || nativeTool === canon) return;
+  const key = lookup(
+    /** @type {Record<string, string>} */ (MODELED_TOOL_INPUT_KEYS),
+    canon,
+  );
+  if (key === undefined) return;
+  assert.ok(
+    event.input !== undefined && Object.hasOwn(event.input, key),
+    `'${caseName}' (${agent}): ${JSON.stringify(nativeTool)} was canonicalized to ${JSON.stringify(canon)}, which advertises input.${key}, but the input carries ${JSON.stringify(Object.keys(event.input ?? {}))} — rename the input keys or drop the alias`,
+  );
 }
 
 /**
@@ -217,6 +228,11 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
       testCase.event,
       `parse mismatch: ${testCase.name}`,
     );
+    // Against what parse ACTUALLY produced, not the fixture's copy of it. The
+    // deepEqual above ties the two today, but it is the fixture that gets
+    // updated when an adapter changes — so checking the fixture alone would let
+    // a rename-without-its-input land by editing the expectation.
+    assertAliasedInput(adapter.AGENT, testCase.name, parsed, assert);
 
     if (testCase.call_class !== undefined) {
       assert.ok(
