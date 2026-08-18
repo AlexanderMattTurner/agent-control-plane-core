@@ -20,6 +20,7 @@ import {
   classifyCallClass,
   coverageAllowsVeto,
   canonicalTool,
+  lookup,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
@@ -88,6 +89,49 @@ export function parse(native) {
 }
 
 /**
+ * The EXHAUSTIVE (decision × `this_call_vetoable`) → exit-code table for Amp's
+ * pure exit-code transport: 0 allow / 1 ask / 2 reject.
+ *
+ * Written as a total table rather than a ternary chain because the chain's
+ * fall-through case was ALLOW: an unenforceable deny — a deny on a call this
+ * guardrail cannot veto — silently rendered as exit 0, Amp's "run it". A
+ * combination this table forgets is a construction error (below), not a silent
+ * approval.
+ *
+ * The non-vetoable DENY row is exit 1 (ask), not 0. Amp has a real ask tier, so
+ * the honest render of "I object but cannot block" is to put the call in front
+ * of the human rather than wave it through. It is still `enforced: false` — the
+ * guardrail is not claiming a veto it does not have; it is declining to spend
+ * its one remaining signal on an approval.
+ *
+ * @type {Readonly<Record<string, Readonly<Record<string, number>>>>}
+ */
+const EXIT_CODE_BY_DECISION = Object.freeze({
+  [Decision.ALLOW]: Object.freeze({ true: 0, false: 0 }),
+  [Decision.DENY]: Object.freeze({ true: 2, false: 1 }),
+  [Decision.ASK]: Object.freeze({ true: 1, false: 1 }),
+});
+
+/**
+ * Totality check at IMPORT: every {@link Decision} must have a row and every row
+ * both vetoable columns. A decision added to the contract breaks this module
+ * loudly at load instead of silently defaulting to exit 0.
+ */
+for (const decision of Object.values(Decision)) {
+  const row = lookup(EXIT_CODE_BY_DECISION, decision);
+  if (row === undefined)
+    throw new Error(
+      `amp adapter: exit-code table has no row for decision ${JSON.stringify(decision)}`,
+    );
+  for (const vetoable of ["true", "false"]) {
+    if (typeof lookup(row, vetoable) === "number") continue;
+    throw new Error(
+      `amp adapter: exit-code table row ${JSON.stringify(decision)} has no this_call_vetoable=${vetoable} column`,
+    );
+  }
+}
+
+/**
  * Render into Amp's pure exit-code transport: the decision is the exit code,
  * with no stdout body. `reason` has no native channel here, so it is dropped
  * (Amp surfaces the helper's own stderr). No `soleGate` option — an allow
@@ -99,8 +143,28 @@ export function parse(native) {
  */
 export function render(verdict, event) {
   const vd = normalizeVerdict(verdict);
-  const enforced = vd.decision === Decision.DENY && event.this_call_vetoable;
-  const exit_code = enforced ? 2 : vd.decision === Decision.ASK ? 1 : 0;
+  const vetoable = event.this_call_vetoable;
+  // `makeEvent` already rejects a non-boolean, so reaching this means a
+  // hand-built event — and guessing whether it can be vetoed is how fail-open
+  // starts. The string "true" is the case that makes this a real check rather
+  // than a formality: it would otherwise index the vetoable column.
+  if (typeof vetoable !== "boolean")
+    throw new Error(
+      `amp adapter: this_call_vetoable must be a boolean, got ${JSON.stringify(vetoable)}`,
+    );
+  const enforced = vd.decision === Decision.DENY && vetoable;
+  const exit_code = lookup(
+    lookup(EXIT_CODE_BY_DECISION, vd.decision) ?? {},
+    String(vetoable),
+  );
+  // Unreachable while the import-time totality check and `normalizeVerdict` both
+  // hold; kept because the alternative to throwing is `exit_code: undefined`,
+  // which `process.exit` renders as 0 — the exact silent allow this table exists
+  // to eliminate.
+  if (exit_code === undefined)
+    throw new Error(
+      `amp adapter: exit-code table has no entry for decision ${JSON.stringify(vd.decision)} / this_call_vetoable ${JSON.stringify(vetoable)}`,
+    );
   return nativeResponse({ transport: INTEGRATION_MODE, exit_code, enforced });
 }
 

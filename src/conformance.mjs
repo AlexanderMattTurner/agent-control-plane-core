@@ -1,10 +1,24 @@
 import {
   CALL_CLASSES,
+  Decision,
+  EventKind,
+  IntegrationMode,
   TOOL_ALIASES,
   canonicalTool,
   coverageAllowsVeto,
   isCoverageStatus,
+  lookup,
 } from "./control-plane.mjs";
+
+/**
+ * The two probe verdicts rule ⑧ renders against a non-vetoable variant of each
+ * pre-tool fixture event. Frozen so a mutating adapter cannot poison later cases.
+ */
+const UNENFORCEABLE_DENY_PROBE = Object.freeze({
+  decision: Decision.DENY,
+  reason: "conformance probe: unenforceable deny",
+});
+const ABSTAINING_ALLOW_PROBE = Object.freeze({ decision: Decision.ALLOW });
 
 /**
  * Assert an adapter's {@link import("./control-plane.mjs").Adapter.COVERAGE}
@@ -64,14 +78,17 @@ export function assertToolAliasesCovered(
     let witnessed = witnessedByAgent.get(fixtures.agent);
     if (witnessed === undefined)
       witnessedByAgent.set(fixtures.agent, (witnessed = new Map()));
-    const scopedMap = adapterAliases[fixtures.agent] ?? {};
+    // `fixtures.agent` and the native tool names below are ADAPTER-SUPPLIED
+    // strings; a bare index would resolve `constructor`/`__proto__` to an
+    // inherited Object.prototype member instead of missing. See `lookup`.
+    const scopedMap = lookup(adapterAliases, fixtures.agent) ?? {};
     for (const testCase of fixtures.cases) {
       const nativeTool = testCase.event?.meta?.native_tool;
       if (typeof nativeTool !== "string") continue;
       const canon = testCase.event.tool;
       const allowed = new Set([canonicalTool(nativeTool)]);
-      if (scopedMap[nativeTool] !== undefined)
-        allowed.add(scopedMap[nativeTool]);
+      const scopedTarget = lookup(scopedMap, nativeTool);
+      if (scopedTarget !== undefined) allowed.add(scopedTarget);
       assert.ok(
         allowed.has(canon),
         `fixture '${testCase.name}' (${fixtures.agent}): native_tool ${JSON.stringify(nativeTool)} normalized to ${JSON.stringify(canon)}, but only ${JSON.stringify([...allowed])} are valid canonicalizations for this agent`,
@@ -135,13 +152,21 @@ export function assertToolAliasesCovered(
  *      permit a veto (uncovered/unknown — an ❓ is treated as ❌) MUST parse to
  *      `this_call_vetoable: false`. An adapter cannot claim a class is un-gated
  *      while parsing its calls as vetoable.
+ *   8. unenforceable deny ≠ allow: for every pre-tool fixture event, rendering a
+ *      DENY over a non-vetoable variant of that event must produce a response
+ *      that differs from the same adapter's abstaining `allow` render. Rule ⑤
+ *      only says such a deny is not `enforced`; without this, an adapter is free
+ *      to collapse it onto the host's literal "run it" signal (Amp's exit 0),
+ *      throwing away the objection entirely. The strongest honest signal a
+ *      transport has left — an ask, an advisory body — must survive. An
+ *      OBSERVE_ONLY render is exempt: it has no pre-emption channel to differ in.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, coverageClassesChecked: Set<string> }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }) {
   assert.equal(
@@ -158,6 +183,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   const coverageClassesChecked = new Set();
   let mutationSeen = false;
   let enforcedDenySeen = false;
+  let unenforceableDenyChecks = 0;
   let renders = 0;
 
   for (const testCase of fixtures.cases) {
@@ -173,11 +199,15 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
         CALL_CLASSES.includes(testCase.call_class),
         `unknown call_class '${testCase.call_class}': ${testCase.name}`,
       );
-      if (!coverageAllowsVeto(adapter.COVERAGE[testCase.call_class])) {
+      // Fixture-supplied key ⇒ prototype-safe read (see `lookup`): a
+      // `call_class` naming an Object.prototype member must MISS, not resolve a
+      // function that `coverageAllowsVeto` would then reject or accept by luck.
+      const coverage = lookup(adapter.COVERAGE, testCase.call_class);
+      if (!coverageAllowsVeto(coverage)) {
         assert.equal(
           parsed.this_call_vetoable,
           false,
-          `call_class '${testCase.call_class}' is ${adapter.COVERAGE[testCase.call_class]} (no veto) but parsed this_call_vetoable !== false: ${testCase.name}`,
+          `call_class '${testCase.call_class}' is ${coverage} (no veto) but parsed this_call_vetoable !== false: ${testCase.name}`,
         );
       }
       coverageClassesChecked.add(testCase.call_class);
@@ -221,6 +251,37 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
       if (spec.verdict.mutated_input !== undefined) mutationSeen = true;
       renders += 1;
     }
+
+    // Rule ⑧, probed on a synthesized non-vetoable variant rather than on a
+    // fixture flag: an adapter whose COVERAGE marks every reachable call class
+    // as gated can never PARSE a non-vetoable event, so a fixture-driven check
+    // would sit vacuous on exactly the adapters this rule exists for. Only
+    // pre-tool events are probed — a post-tool/prompt event has no veto to lose,
+    // so its deny and allow renders may legitimately coincide.
+    if (parsed.event !== EventKind.PRE_TOOL) continue;
+    const unenforceable = { ...parsed, this_call_vetoable: false };
+    const deniedRender = adapter.render(
+      UNENFORCEABLE_DENY_PROBE,
+      unenforceable,
+    );
+    assert.equal(
+      deniedRender.enforced,
+      false,
+      `unenforceable deny rendered as enforced: ${testCase.name}`,
+    );
+    // Counted before the OBSERVE_ONLY exemption: the honesty half above ran, so
+    // an adapter whose every pre-tool case is observe-only has still been
+    // checked and must not fail the non-vacuity assertion below.
+    unenforceableDenyChecks += 1;
+    // An OBSERVE_ONLY render is exempt from the ≠-allow half: that transport has
+    // no pre-emption channel at all, so its deny and allow are identical by
+    // construction. Demanding a distinct signal there would demand a fiction.
+    if (deniedRender.transport === IntegrationMode.OBSERVE_ONLY) continue;
+    assert.notDeepEqual(
+      deniedRender,
+      adapter.render(ABSTAINING_ALLOW_PROBE, unenforceable),
+      `unenforceable deny renders identically to an abstaining allow — the objection is lost: ${testCase.name}`,
+    );
   }
 
   for (const decision of ["allow", "deny", "ask"]) {
@@ -238,6 +299,10 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     "no enforced deny rendered — enforcement honesty is untested",
   );
   assert.ok(renders > 0, "conformance fixtures render nothing");
+  assert.ok(
+    unenforceableDenyChecks > 0,
+    "rule ⑧ (unenforceable deny ≠ allow) never ran — no pre-tool fixture case to probe",
+  );
 
   return {
     cases: fixtures.cases.length,
@@ -246,5 +311,6 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     mutationSeen,
     enforcedDenySeen,
     coverageClassesChecked,
+    unenforceableDenyChecks,
   };
 }

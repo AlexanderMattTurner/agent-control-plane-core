@@ -61,13 +61,21 @@ export function assertToolAliasesCovered(fixturesList: any[], assert: any, adapt
  *      permit a veto (uncovered/unknown — an ❓ is treated as ❌) MUST parse to
  *      `this_call_vetoable: false`. An adapter cannot claim a class is un-gated
  *      while parsing its calls as vetoable.
+ *   8. unenforceable deny ≠ allow: for every pre-tool fixture event, rendering a
+ *      DENY over a non-vetoable variant of that event must produce a response
+ *      that differs from the same adapter's abstaining `allow` render. Rule ⑤
+ *      only says such a deny is not `enforced`; without this, an adapter is free
+ *      to collapse it onto the host's literal "run it" signal (Amp's exit 0),
+ *      throwing away the objection entirely. The strongest honest signal a
+ *      transport has left — an ask, an advisory body — must survive. An
+ *      OBSERVE_ONLY render is exempt: it has no pre-emption channel to differ in.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, coverageClassesChecked: Set<string> }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }: {
     adapter: import("./control-plane.mjs").Adapter;
@@ -80,4 +88,5 @@ export function runAdapterConformance({ adapter, fixtures, assert }: {
     mutationSeen: boolean;
     enforcedDenySeen: boolean;
     coverageClassesChecked: Set<string>;
+    unenforceableDenyChecks: number;
 };

@@ -38,10 +38,14 @@ export function lookup<T>(map: Record<string, T>, key: string): T | undefined;
  * forbid it — an unknown is fail-closed to uncovered, which is the whole point
  * of the matrix. Throws on an unrecognized status (fail loud — a typo must not
  * quietly read as "permitted").
- * @param {string} status a {@link CoverageStatus} value
+ *
+ * `undefined` is accepted as an INPUT type — that is what a prototype-safe
+ * `lookup` of a missing key yields — and takes the same throw: a coverage a
+ * caller could not resolve must never read as "permitted" either.
+ * @param {string|undefined} status a {@link CoverageStatus} value
  * @returns {boolean}
  */
-export function coverageAllowsVeto(status: string): boolean;
+export function coverageAllowsVeto(status: string | undefined): boolean;
 /**
  * True when `status` is a recognized {@link CoverageStatus} value.
  * @param {unknown} status

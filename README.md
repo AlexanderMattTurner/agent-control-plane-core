@@ -167,6 +167,12 @@ The harness pins both directions and rejects a vacuous suite:
 3. The fixture set collectively renders an `allow`, a `deny`, an `ask`, **and** a
    `mutated_input` — so a suite can't pass while skipping a decision the contract
    requires every adapter to express.
+4. A deny the adapter cannot enforce (`this_call_vetoable: false`) must render as
+   something OTHER than that host's allow signal — an ask, or an advisory body.
+   The harness probes this itself on a non-vetoable variant of every pre-tool
+   fixture event, so an adapter that collapses the objection onto "run it" fails
+   even with no non-vetoable fixture of its own. `observe_only` renders are
+   exempt: that transport has no pre-emption channel to differ in.
 
 See `src/fixtures/claude.json` and `src/fixtures/codex.json` for the format.
 
