@@ -32,16 +32,33 @@ const fullCoverage = {
   resumed: "covered",
 };
 
+// A minimal event the echo adapter returns verbatim, so a self-test can drive
+// this_call_vetoable directly and pin the coverage-matrix checks.
+const echoEvent = (vetoable) => ({
+  schema_version: 1,
+  event: "pre_tool",
+  tool: "x",
+  input: {},
+  this_call_vetoable: vetoable,
+  meta: {},
+});
+
 const echoAdapter = {
   AGENT: "t",
   INTEGRATION_MODE: "external_hook",
   COVERAGE: fullCoverage,
   parse: (native) => native.event,
-  render: (verdict) => ({
-    transport: "external_hook",
-    exit_code: verdict.decision === "deny" ? 2 : 0,
-    enforced: verdict.decision === "deny",
-  }),
+  // Honours `this_call_vetoable` the way rule ⑤/⑧ require of a REAL adapter: a
+  // deny it cannot enforce degrades to the transport's ask (1), never to allow.
+  render: (verdict, event) => {
+    const enforced =
+      verdict.decision === "deny" && event.this_call_vetoable === true;
+    return {
+      transport: "external_hook",
+      exit_code: enforced ? 2 : verdict.decision === "deny" ? 1 : 0,
+      enforced,
+    };
+  },
 };
 
 const deny = (exit_code, enforced) => ({
@@ -56,8 +73,8 @@ function fullFixtures() {
     cases: [
       {
         name: "c",
-        native: { event: { k: 1 } },
-        event: { k: 1 },
+        native: { event: echoEvent(true) },
+        event: echoEvent(true),
         render: {
           allow: { verdict: { decision: "allow" }, native: deny(0, false) },
           deny: { verdict: { decision: "deny" }, native: deny(2, true) },
@@ -74,6 +91,29 @@ function fullFixtures() {
 
 const run = (adapter, fixtures) =>
   runAdapterConformance({ adapter, fixtures, assert });
+
+const observeOnlyNative = {
+  transport: "observe_only",
+  exit_code: 0,
+  enforced: false,
+};
+
+// An adapter that can only watch: it renders every verdict identically because
+// its transport has no pre-emption channel at all.
+const observerAdapter = { ...echoAdapter, render: () => observeOnlyNative };
+
+// The matching fixtures. The event is NON-vetoable, which is what an
+// observe-only transport actually reports: rule ⑤ ("a vetoable deny must
+// enforce") then has nothing to say, so these cases reach the enforcement-
+// honesty guard they exist to probe rather than tripping an earlier rule.
+function observeOnlyFixtures() {
+  const fx = fullFixtures();
+  fx.cases[0].native = { event: echoEvent(false) };
+  fx.cases[0].event = echoEvent(false);
+  for (const key of ["allow", "deny", "ask", "mutation"])
+    fx.cases[0].render[key].native = observeOnlyNative;
+  return fx;
+}
 
 describe("conformance harness self-tests (non-vacuity)", () => {
   it("passes a correct adapter and reports the summary", () => {
@@ -131,35 +171,53 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     assert.throws(() => run(bad, fx), /carries no block signal/);
   });
 
-  it("throws when no enforced deny is rendered at all", () => {
-    const advisory = {
+  it("throws when an unenforceable deny renders as the host's allow (rule ⑧)", () => {
+    // The Amp regression in adapter form: a render that ignores this_call_vetoable
+    // for the exit code, so a deny it cannot enforce is byte-identical to allow.
+    const collapsing = {
       ...echoAdapter,
-      render: () => ({
-        transport: "observe_only",
-        exit_code: 0,
-        enforced: false,
-      }),
+      render: (verdict, event) => {
+        const enforced =
+          verdict.decision === "deny" && event.this_call_vetoable === true;
+        return {
+          transport: "external_hook",
+          exit_code: enforced ? 2 : 0,
+          enforced,
+        };
+      },
     };
-    const fx = fullFixtures();
-    for (const key of ["allow", "deny", "ask", "mutation"])
-      fx.cases[0].render[key].native = {
-        transport: "observe_only",
-        exit_code: 0,
-        enforced: false,
-      };
-    assert.throws(() => run(advisory, fx), /enforcement honesty is untested/);
+    assert.throws(
+      () => run(collapsing, fullFixtures()),
+      /unenforceable deny renders identically to an abstaining allow/,
+    );
   });
-});
 
-// A minimal event the echo adapter returns verbatim, so a self-test can drive
-// this_call_vetoable directly and pin the coverage-matrix checks.
-const echoEvent = (vetoable) => ({
-  schema_version: 1,
-  event: "pre_tool",
-  tool: "x",
-  input: {},
-  this_call_vetoable: vetoable,
-  meta: {},
+  it("exempts an OBSERVE_ONLY render, which has no channel to differ in", () => {
+    // Same collapsing render as the case above, but on a transport that cannot
+    // pre-empt at all — there the identical rendering is the truth, not a lost
+    // objection. Asserted on WHICH guard fires: rule ⑧ must stay silent, and the
+    // run must fall through to the later enforcement-honesty guard.
+    let err = null;
+    try {
+      run(observerAdapter, observeOnlyFixtures());
+    } catch (caught) {
+      err = caught;
+    }
+    assert.ok(err, "the observe-only suite passed conformance outright");
+    assert.doesNotMatch(
+      String(err),
+      /identically to an abstaining allow/,
+      "rule ⑧ fired on an observe-only render it must exempt",
+    );
+    assert.match(String(err), /enforcement honesty is untested/);
+  });
+
+  it("throws when no enforced deny is rendered at all", () => {
+    assert.throws(
+      () => run(observerAdapter, observeOnlyFixtures()),
+      /enforcement honesty is untested/,
+    );
+  });
 });
 
 // A fixture pairing the standard all-verdicts case (satisfies the non-vacuity +
@@ -455,6 +513,48 @@ describe("assertToolAliasesCovered ties the alias SSOTs to fixtures", () => {
           { gemini: GEMINI_TOOL_ALIASES, other: { read_file: "Read" } },
         ),
       /adapter-scoped tool alias "read_file" -> "Read" \(gemini\) is not witnessed/,
+    );
+  });
+
+  it("a prototype-named agent id MISSES the scoped-alias map, never inherits", () => {
+    // `adapterAliases[fixtures.agent]` with agent "constructor" used to resolve
+    // Object itself, whose `name` property then read back as the string "Object"
+    // — silently blessing `native_tool: "name"` → `tool: "Object"` as a valid
+    // canonicalization. Routed through `lookup`, it is a miss, so the only valid
+    // canonicalization is the verbatim native name and the fixture is rejected.
+    const inheritedHit = {
+      agent: "constructor",
+      cases: [
+        {
+          name: "prototype-keyed agent",
+          event: { tool: "Object", meta: { native_tool: "name" } },
+        },
+      ],
+    };
+    assert.throws(
+      () => assertToolAliasesCovered([inheritedHit], assert, {}),
+      /only \["name"\] are valid canonicalizations/,
+    );
+  });
+
+  it("a prototype-named native tool MISSES a real scoped-alias map", () => {
+    // Same defect one level down: `scopedMap["toString"]` inherits a function.
+    // With `lookup` the only valid canonicalization is the verbatim name, so a
+    // fixture claiming any other target is rejected rather than compared against
+    // an inherited Function.
+    const scoped = { x: { run_shell_command: "Bash" } };
+    const inheritedHit = {
+      agent: "x",
+      cases: [
+        {
+          name: "prototype-keyed native tool",
+          event: { tool: "Bash", meta: { native_tool: "toString" } },
+        },
+      ],
+    };
+    assert.throws(
+      () => assertToolAliasesCovered([inheritedHit], assert, scoped),
+      /only \["toString"\] are valid canonicalizations/,
     );
   });
 

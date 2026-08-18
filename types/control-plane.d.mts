@@ -38,10 +38,14 @@ export function lookup<T>(map: Record<string, T>, key: string): T | undefined;
  * forbid it — an unknown is fail-closed to uncovered, which is the whole point
  * of the matrix. Throws on an unrecognized status (fail loud — a typo must not
  * quietly read as "permitted").
- * @param {string} status a {@link CoverageStatus} value
+ *
+ * `undefined` is accepted as an INPUT type — that is what a prototype-safe
+ * `lookup` of a missing key yields — and takes the same throw: a coverage a
+ * caller could not resolve must never read as "permitted" either.
+ * @param {string|undefined} status a {@link CoverageStatus} value
  * @returns {boolean}
  */
-export function coverageAllowsVeto(status: string): boolean;
+export function coverageAllowsVeto(status: string | undefined): boolean;
 /**
  * True when `status` is a recognized {@link CoverageStatus} value.
  * @param {unknown} status
@@ -271,6 +275,32 @@ export const Decision: Readonly<{
     ALLOW: "allow";
     DENY: "deny";
     ASK: "ask";
+}>;
+/**
+ * Every modeled tool, mapped to the input field a guardrail reads for it — the
+ * schema that renaming a native tool to this canonical name ADVERTISES.
+ *
+ * Canonicalizing the name while passing the native input dialect through is a
+ * silent bypass, and the worst kind: a judge written against `Read` reads
+ * `input.file_path`, an un-renamed Gemini payload supplies `absolute_path`, so
+ * the judge sees `undefined` and allows — having been told by `event.tool` that
+ * it was looking at a Read. Leaving the native name would at least fail
+ * visibly. `assertAliasedInputsCanonical` holds aliases to this map, so a new
+ * alias whose input dialect cannot be renamed faithfully fails conformance
+ * instead of shipping as a hole.
+ *
+ * This is also where {@link MODELED_TOOLS} comes from, rather than a second
+ * list beside it. A modeled tool missing its input key would make that guard
+ * skip it — re-opening the bypass one tool-add later — and deriving the names
+ * from the keys makes the two impossible to drift instead of asking a test to
+ * notice.
+ */
+export const MODELED_TOOL_INPUT_KEYS: Readonly<{
+    Bash: "command";
+    Edit: "file_path";
+    Write: "file_path";
+    Read: "file_path";
+    WebFetch: "url";
 }>;
 /**
  * Tools whose input shape the core models. Every other tool passes through

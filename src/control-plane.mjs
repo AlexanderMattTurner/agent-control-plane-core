@@ -242,11 +242,15 @@ const COVERAGE_STATUS_VALUES = new Set(Object.values(CoverageStatus));
  * forbid it — an unknown is fail-closed to uncovered, which is the whole point
  * of the matrix. Throws on an unrecognized status (fail loud — a typo must not
  * quietly read as "permitted").
- * @param {string} status a {@link CoverageStatus} value
+ *
+ * `undefined` is accepted as an INPUT type — that is what a prototype-safe
+ * `lookup` of a missing key yields — and takes the same throw: a coverage a
+ * caller could not resolve must never read as "permitted" either.
+ * @param {string|undefined} status a {@link CoverageStatus} value
  * @returns {boolean}
  */
 export function coverageAllowsVeto(status) {
-  if (!COVERAGE_STATUS_VALUES.has(status)) {
+  if (!COVERAGE_STATUS_VALUES.has(/** @type {string} */ (status))) {
     throw new Error(
       `control-plane: invalid coverage status ${JSON.stringify(status)}`,
     );
