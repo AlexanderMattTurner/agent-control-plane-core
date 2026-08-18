@@ -82,7 +82,10 @@ env:
   # The security-vulnerability-scan workflow + prompt are intentionally NOT
   # propagated to downstream repos; each consumer owns its own security-scan
   # cadence and model pin, so the template stops overwriting them on sync.
-  EXCLUDE_PATHS: ".github/workflows/security-vulnerability-scan.yaml .github/prompts/security-vulnerability-scan.md"
+  # .github/scripts/auto-resolve is the retired shell resolver. A consumer that
+  # still carries it keeps its own copy rather than having sync delete it out
+  # from under a caller that has not converted yet.
+  EXCLUDE_PATHS: ".github/workflows/security-vulnerability-scan.yaml .github/prompts/security-vulnerability-scan.md .github/scripts/auto-resolve"
 
 concurrency:
   group: template-sync
