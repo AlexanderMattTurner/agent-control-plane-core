@@ -7,6 +7,7 @@ import {
   runAdapterConformance,
   assertCoverageWellFormed,
   assertToolAliasesCovered,
+  assertAliasedInputsCanonical,
 } from "../src/conformance.mjs";
 import { CallClass, coverageAllowsVeto } from "../src/control-plane.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
@@ -281,9 +282,74 @@ describe("conformance harness self-tests (coverage matrix, item ③)", () => {
   });
 });
 
+describe("conformance harness self-tests (deny must block, item \u2464)", () => {
+  // A vetoable call whose deny renders exit 0 is a deny that does not deny. The
+  // golden `deepEqual` cannot catch it: the fixture below is written to match
+  // the broken render exactly, which is how such an adapter would ship green.
+  function vetoableDenyFixtures(nativeDeny) {
+    return {
+      agent: "t",
+      cases: [
+        {
+          name: "vetoable",
+          native: { event: { k: 1, this_call_vetoable: true } },
+          event: { k: 1, this_call_vetoable: true },
+          render: {
+            allow: { verdict: { decision: "allow" }, native: deny(0, false) },
+            deny: { verdict: { decision: "deny" }, native: nativeDeny },
+            ask: { verdict: { decision: "ask" }, native: deny(0, false) },
+            mutation: {
+              verdict: { decision: "allow", mutated_input: { a: 1 } },
+              native: deny(0, false),
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  const silentlyAllowing = {
+    ...echoAdapter,
+    render: () => deny(0, false),
+  };
+
+  it("throws when a vetoable deny renders as a non-block", () => {
+    assert.throws(
+      () => run(silentlyAllowing, vetoableDenyFixtures(deny(0, false))),
+      /vetoable deny did not enforce/,
+    );
+  });
+
+  it("throws when a vetoable deny claims enforced but exits 0", () => {
+    const claimsWithoutBlocking = {
+      ...echoAdapter,
+      render: (verdict) => deny(0, verdict.decision === "deny"),
+    };
+    assert.throws(
+      () => run(claimsWithoutBlocking, vetoableDenyFixtures(deny(0, true))),
+      /enforced deny carries no block signal/,
+    );
+  });
+
+  it("passes an adapter whose vetoable deny really blocks", () => {
+    const summary = run(echoAdapter, vetoableDenyFixtures(deny(2, true)));
+    // Positive marker: the forward check actually ran on this suite.
+    assert.equal(summary.vetoableDenySeen, true);
+  });
+});
+
 describe("assertToolAliasesCovered ties the alias SSOTs to fixtures", () => {
   const allFixtures = ["claude", "codex", "amp", "gemini"].map(loadFixture);
   const shippedScoped = { gemini: GEMINI_TOOL_ALIASES };
+
+  it("every aliased case carries the canonical tool's input key", () => {
+    // The bypass this closes: renaming `read_file` to `Read` tells a judge to
+    // read `input.file_path`, and a forwarded `absolute_path` makes that read
+    // `undefined` — so the judge allows, believing it inspected a Read.
+    assert.doesNotThrow(() =>
+      assertAliasedInputsCanonical(allFixtures, assert),
+    );
+  });
 
   it("passes: the shipped fixtures witness every global and adapter-scoped alias", () => {
     assert.doesNotThrow(() =>

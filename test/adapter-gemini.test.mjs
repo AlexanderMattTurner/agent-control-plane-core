@@ -91,10 +91,12 @@ describe("gemini render: BeforeTool decision channel", () => {
 describe("gemini adapter-scoped builtin tool aliases", () => {
   it("pins the scoped alias map exactly (frozen)", () => {
     assert.ok(Object.isFrozen(GEMINI_TOOL_ALIASES));
+    // `web_fetch` is absent on purpose: `WebFetch` advertises `input.url` and
+    // Gemini's payload carries only a prose `prompt`, so the alias handed a
+    // domain deny-lister an undefined target and it allowed the fetch.
     assert.deepEqual(GEMINI_TOOL_ALIASES, {
       read_file: "Read",
       write_file: "Write",
-      web_fetch: "WebFetch",
     });
   });
 
@@ -112,6 +114,45 @@ describe("gemini adapter-scoped builtin tool aliases", () => {
       assert.equal(event.this_call_vetoable, true);
     });
   }
+
+  it("renames read_file's absolute_path to the file_path Read advertises", () => {
+    // The bypass: a judge keyed on the canonical `Read` reads `input.file_path`.
+    // With the native `absolute_path` forwarded it read `undefined` and allowed,
+    // having been told by `event.tool` that it was inspecting a Read.
+    const event = geminiAdapter.parse({
+      hook_event_name: "BeforeTool",
+      tool_name: "read_file",
+      tool_input: { absolute_path: "/etc/passwd" },
+    });
+    assert.equal(event.tool, "Read");
+    assert.deepEqual(event.input, { file_path: "/etc/passwd" });
+    assert.equal(event.meta.native_tool, "read_file");
+  });
+
+  it("renames only for BUILTIN calls, leaving an MCP dialect alone", () => {
+    const event = geminiAdapter.parse({
+      hook_event_name: "BeforeTool",
+      tool_name: "read_file",
+      tool_input: { absolute_path: "/etc/passwd" },
+      mcp_context: { server: "fs" },
+    });
+    assert.equal(event.tool, "read_file");
+    assert.deepEqual(event.input, { absolute_path: "/etc/passwd" });
+  });
+
+  it("leaves web_fetch native, so a judge cannot mistake it for a WebFetch", () => {
+    // Gemini carries the target inside a prose prompt with no url field, so the
+    // alias could only have been honoured by guessing one. A judge that gates on
+    // a guessed destination is worse than one that does not recognise the tool.
+    const event = geminiAdapter.parse({
+      hook_event_name: "BeforeTool",
+      tool_name: "web_fetch",
+      tool_input: { prompt: "summarize https://evil.example" },
+    });
+    assert.equal(event.tool, "web_fetch");
+    assert.equal(event.input.url, undefined);
+    assert.deepEqual(event.input, { prompt: "summarize https://evil.example" });
+  });
 
   it("an MCP FQN is never aliased (mcp_ prefix wins)", () => {
     const event = geminiAdapter.parse({

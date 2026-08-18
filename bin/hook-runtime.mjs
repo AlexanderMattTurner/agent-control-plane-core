@@ -9,7 +9,7 @@
  * behavior; sharing pure plumbing across distinct entries is not that.
  */
 import { writeSync } from "node:fs";
-import { Decision } from "../src/control-plane.mjs";
+import { Decision, sanitizeVerdict } from "../src/control-plane.mjs";
 
 /** Read all of stdin to a string. */
 export function readStdin() {
@@ -51,12 +51,21 @@ export function demoJudge(event) {
  * helper's stderr, and gemini reads stderr as a reason only on exit 2 — none of
  * these fail-safe exits is a 2 for a stdout-carrying transport, and amp's ask
  * (exit 1) shows the diagnostic alongside the prompt, which is the point.
+ * `judge` is the seam a real deployment fills — {@link demoJudge} is a stand-in,
+ * so the guardrail is supplied here rather than by forking this file. Whatever
+ * it returns is treated as untrusted (see the clamp below).
  * @param {import("../src/control-plane.mjs").Adapter} adapter
  * @param {string} rawInput
  * @param {import("../src/control-plane.mjs").NativeResponse} onFailure
+ * @param {(event: import("../src/control-plane.mjs").ToolCallEvent) => import("../src/control-plane.mjs").Verdict} [judge]
  * @returns {import("../src/control-plane.mjs").NativeResponse}
  */
-export function renderHookResponse(adapter, rawInput, onFailure) {
+export function renderHookResponse(
+  adapter,
+  rawInput,
+  onFailure,
+  judge = demoJudge,
+) {
   try {
     const native = JSON.parse(rawInput);
     // A non-object top-level payload (null, array, number, string) is malformed:
@@ -69,7 +78,16 @@ export function renderHookResponse(adapter, rawInput, onFailure) {
         `hook payload must be a JSON object, got ${native === null ? "null" : Array.isArray(native) ? "array" : typeof native}`,
       );
     const event = adapter.parse(native);
-    return adapter.render(demoJudge(event), event);
+    // A judge's answer is clamped, not trusted. `normalizeVerdict` (inside
+    // every adapter's render) THROWS on a decision outside allow/deny/ask, and
+    // that throw lands in the catch below — which returns the host's fail-safe,
+    // exit 0 on claude/codex/gemini. So a judge that means DENY but spells it
+    // "denied" would let the tool run. Clamping to "ask" first keeps a
+    // malformed answer in front of a human. Prose is passed through: scrubbing
+    // monitor-authored text needs a scrubber this transport module has no
+    // business choosing, and the decision is the half that gates the call.
+    const verdict = sanitizeVerdict(judge(event), (text) => text);
+    return adapter.render(verdict, event);
   } catch (err) {
     const detail = err instanceof Error ? (err.stack ?? err.message) : `${err}`;
     process.stderr.write(`[acp] hook pipeline error: ${detail}\n`);
