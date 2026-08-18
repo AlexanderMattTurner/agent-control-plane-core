@@ -82,7 +82,10 @@ env:
   # The security-vulnerability-scan workflow + prompt are intentionally NOT
   # propagated to downstream repos; each consumer owns its own security-scan
   # cadence and model pin, so the template stops overwriting them on sync.
-  EXCLUDE_PATHS: ".github/workflows/security-vulnerability-scan.yaml .github/prompts/security-vulnerability-scan.md"
+  # .github/scripts/auto-resolve is the retired shell resolver. A consumer that
+  # still carries it keeps its own copy rather than having sync delete it out
+  # from under a caller that has not converted yet.
+  EXCLUDE_PATHS: ".github/workflows/security-vulnerability-scan.yaml .github/prompts/security-vulnerability-scan.md .github/scripts/auto-resolve"
 
 concurrency:
   group: template-sync
@@ -233,7 +236,16 @@ jobs:
         run: |
           git fetch --no-tags origin "+refs/heads/template-sync:refs/remotes/origin/template-sync"
           git checkout -B template-sync origin/template-sync
-          bash .github/scripts/template-sync-resolve.sh
+          # Tier 2 of the conflict resolution is the resolver's own fan-out, which
+          # lives in its own repository now. Pinned by SHA to the same commit
+          # auto-resolve-conflicts.yaml calls, so both run one version of it.
+          resolver_dir="${RUNNER_TEMP}/template-sync-resolver"
+          git clone --no-tags --depth 1 \
+            "https://github.com/AlexanderMattTurner/agent-resolve-merge-conflicts.git" "${resolver_dir}"
+          git -C "${resolver_dir}" fetch --no-tags --depth 1 origin ecbe088b2d3fba81adc6bd77448a03a155dc30ca
+          git -C "${resolver_dir}" checkout --detach FETCH_HEAD
+          RESOLVER_DIR="${resolver_dir}/.github/resolver" \
+            bash .github/scripts/template-sync-resolve.sh
 
       - name: Push the resolutions
         if: steps.resolve.outcome == 'success' && (steps.resolve.outputs.deterministic != '' || steps.resolve.outputs.by_model != '')
