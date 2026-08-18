@@ -89,7 +89,7 @@ determine_bump() {
 # success path can never contaminate CURRENT_VERSION.
 PACKAGE_NAME=$(node -p "require('./package.json').name")
 NPM_VIEW_ERR="$(mktemp)"
-trap 'rm -f "$NPM_VIEW_ERR"' EXIT
+trap 'rm -f "$NPM_VIEW_ERR" "${PUSH_LOG:-}"' EXIT
 if CURRENT_VERSION=$(npm view "$PACKAGE_NAME" version 2>"$NPM_VIEW_ERR"); then
   :
 elif grep -q "E404" "$NPM_VIEW_ERR"; then
@@ -362,10 +362,10 @@ fi
 
 # Commit the CHANGELOG entry back to the default branch so users see the release
 # notes. package.json stays dirty (npm is the source of truth for version). A
-# bot identity and `[skip ci]` keep the resulting push from spawning another
-# workflow run. A push failure here still fails the run LOUDLY (the release notes
-# are part of the release), but the tag above has already landed, so a retry or
-# the next run cannot re-process these commits — it only needs to re-push docs.
+# bot identity and `[skip ci]` keep a direct push from spawning another workflow
+# run. The tag above has already landed, so a retry or the next run cannot
+# re-process these commits — it only needs to land these docs, by whichever path
+# below succeeds.
 #
 # actions/checkout leaves the runner in detached HEAD even for `push` events,
 # so `git rev-parse --abbrev-ref HEAD` returns the literal string "HEAD", not
@@ -380,10 +380,40 @@ else
   git add -- CHANGELOG.md
   git commit -m "docs: release $NEW_VERSION [skip ci]"
   # Push to the default branch explicitly so this works whether actions/checkout
-  # left us on a branch or in detached HEAD state.
-  if ! retry_cmd 4 2 git push origin "HEAD:$DEFAULT_BRANCH"; then
-    log "Error: failed to push the release-docs update for v$NEW_VERSION."
-    log "       The release is published and tagged; push the CHANGELOG commit manually."
-    exit 1
+  # left us on a branch or in detached HEAD state. Captured (not streamed) so the
+  # fallback below can tell a permanent ruleset rejection from a transient one.
+  PUSH_LOG="$(mktemp)"
+  push_release_docs() { git push origin "HEAD:$DEFAULT_BRANCH" >"$PUSH_LOG" 2>&1; }
+  if ! retry_cmd 4 2 push_release_docs; then
+    cat "$PUSH_LOG" >&2
+    # GH013 "Changes must be made through a pull request" means main requires
+    # PRs and this bot has no bypass — a permanent rejection retries can't fix.
+    # Any OTHER failure (network, auth) is unexpected and stays a hard failure.
+    if ! grep -q "GH013\|Changes must be made through a pull request" "$PUSH_LOG"; then
+      log "Error: failed to push the release-docs update for v$NEW_VERSION."
+      log "       The release is published and tagged; push the CHANGELOG commit manually."
+      exit 1
+    fi
+    log "Direct push to $DEFAULT_BRANCH is blocked by a branch ruleset (GH013); opening a release-docs PR instead."
+    RELEASE_BRANCH="release-docs-v$NEW_VERSION"
+    git checkout -b "$RELEASE_BRANCH"
+    PR_FAILED=0
+    if ! retry_cmd 4 2 git push origin "$RELEASE_BRANCH"; then
+      PR_FAILED=1
+    elif ! PR_URL=$(gh pr create --title "docs: release $NEW_VERSION" \
+      --body "Automated CHANGELOG entry for v$NEW_VERSION (already published to npm and tagged). Opened because a branch ruleset blocks pushing this commit to $DEFAULT_BRANCH directly." \
+      --base "$DEFAULT_BRANCH" --head "$RELEASE_BRANCH" 2>&1); then
+      log "$PR_URL"
+      PR_FAILED=1
+    elif ! MERGE_OUT=$(gh pr merge --auto --squash "$PR_URL" 2>&1); then
+      log "$MERGE_OUT"
+      PR_FAILED=1
+    fi
+    if [[ "$PR_FAILED" -eq 1 ]]; then
+      log "Error: failed to open/auto-merge a release-docs PR for v$NEW_VERSION."
+      log "       The release is published and tagged; land the CHANGELOG commit manually."
+      exit 1
+    fi
+    log "Opened release-docs PR and armed auto-merge: $PR_URL"
   fi
 fi
