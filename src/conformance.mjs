@@ -3,6 +3,7 @@ import {
   Decision,
   EventKind,
   IntegrationMode,
+  MODELED_TOOL_INPUT_KEYS,
   TOOL_ALIASES,
   canonicalTool,
   coverageAllowsVeto,
@@ -120,6 +121,45 @@ export function assertToolAliasesCovered(
 }
 
 /**
+ * Assert that every case whose tool name was ALIASED carries the canonical
+ * tool's input key.
+ *
+ * Renaming a native tool to a {@link MODELED_TOOLS} name tells every consumer
+ * "this is a Read, read it like one" — the README's whole "write your logic
+ * once against the normalized types" promise. An adapter that renames the name
+ * but forwards the native input dialect makes that promise false in the one
+ * direction nobody checks: the judge reads the canonical field, gets
+ * `undefined`, and allows. A native-NAMED tool promises nothing and is left
+ * alone; this fires only where the adapter itself claimed the schema.
+ *
+ * The remedy for a failure is a real choice, not a fixture edit: rename the
+ * input keys too when the mapping is a pure rename, or drop the alias when it
+ * is not (a URL buried in a prose `prompt` cannot be renamed into a `url`
+ * without inventing it, and an invented target is worse than a visible gap).
+ * @param {any[]} fixturesList the golden fixtures for every shipped adapter
+ * @param {any} assert node:assert/strict (injected)
+ */
+export function assertAliasedInputsCanonical(fixturesList, assert) {
+  for (const fixtures of fixturesList) {
+    for (const testCase of fixtures.cases) {
+      const nativeTool = testCase.event?.meta?.native_tool;
+      const canon = testCase.event?.tool;
+      if (typeof nativeTool !== "string" || nativeTool === canon) continue;
+      const key = lookup(
+        /** @type {Record<string, string>} */ (MODELED_TOOL_INPUT_KEYS),
+        canon,
+      );
+      if (key === undefined) continue;
+      assert.ok(
+        testCase.event.input !== undefined &&
+          Object.hasOwn(testCase.event.input, key),
+        `fixture '${testCase.name}' (${fixtures.agent}): ${JSON.stringify(nativeTool)} was canonicalized to ${JSON.stringify(canon)}, which advertises input.${key}, but the input carries ${JSON.stringify(Object.keys(testCase.event.input ?? {}))} — rename the input keys or drop the alias`,
+      );
+    }
+  }
+}
+
+/**
  * The control-plane conformance harness.
  *
  * Any adapter — the reference claude one, codex, or a future
@@ -140,9 +180,17 @@ export function assertToolAliasesCovered(
  *      MUST carry a real block signal — a non-zero `exit_code` — not just a JSON
  *      body the agent is free to ignore. At least one enforced deny must appear,
  *      so the honesty check is never vacuous.
- *   5. non-vetoable honesty: when the parsed event's `this_call_vetoable` is
- *      false, EVERY render for that case must be `enforced === false` — a
- *      guardrail that cannot veto this call must never render as if it did.
+ *   5. vetoability honesty, BOTH directions. When the parsed event's
+ *      `this_call_vetoable` is false, EVERY render for that case must be
+ *      `enforced === false` — a guardrail that cannot veto this call must never
+ *      render as if it did. And when it is true, a `deny` verdict MUST render
+ *      `enforced === true` with a non-zero `exit_code`: where the host can be
+ *      stopped, a deny has to stop it. Without the forward half the whole
+ *      deny-must-block property rests on each fixture's golden `deepEqual`, so
+ *      an adapter that renders a vetoable deny as exit 0 passes as long as its
+ *      own fixture was written to match — which is the one bug this harness
+ *      exists to make impossible. Item ④'s enforced-deny requirement keeps this
+ *      non-vacuous: a suite that never enforces anything fails there.
  *   6. allow = abstain: by default (no `soleGate` opt-in) every `allow` render
  *      is `enforced === false` AND `exit_code === 0` — an "I have no objection"
  *      verdict never renders as a block, on any adapter. At least one `allow`
@@ -166,7 +214,7 @@ export function assertToolAliasesCovered(
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, vetoableDenySeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }) {
   assert.equal(
@@ -183,6 +231,8 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   const coverageClassesChecked = new Set();
   let mutationSeen = false;
   let enforcedDenySeen = false;
+  let vetoableDenySeen = false;
+  let preToolCases = 0;
   let unenforceableDenyChecks = 0;
   let renders = 0;
 
@@ -235,6 +285,26 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
           `non-vetoable call rendered as enforced: ${testCase.name} / ${scenario}`,
         );
       }
+      // The forward direction, and the one a guardrail's safety rests on: when
+      // the host CAN be stopped and the verdict says deny, the render must
+      // actually stop it. Without this the direction is left to each fixture's
+      // golden `deepEqual`, so an adapter that renders a vetoable deny as exit 0
+      // passes as long as its own fixture was written to match.
+      if (
+        spec.verdict.decision === "deny" &&
+        parsed.this_call_vetoable === true
+      ) {
+        assert.equal(
+          rendered.enforced,
+          true,
+          `vetoable deny did not enforce: ${testCase.name} / ${scenario}`,
+        );
+        assert.ok(
+          rendered.exit_code !== 0,
+          `vetoable deny carries no block signal: ${testCase.name} / ${scenario}`,
+        );
+        vetoableDenySeen = true;
+      }
       if (spec.verdict.decision === "allow") {
         assert.equal(
           rendered.enforced,
@@ -259,6 +329,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     // pre-tool events are probed — a post-tool/prompt event has no veto to lose,
     // so its deny and allow renders may legitimately coincide.
     if (parsed.event !== EventKind.PRE_TOOL) continue;
+    preToolCases += 1;
     const unenforceable = { ...parsed, this_call_vetoable: false };
     const deniedRender = adapter.render(
       UNENFORCEABLE_DENY_PROBE,
@@ -299,9 +370,14 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     "no enforced deny rendered — enforcement honesty is untested",
   );
   assert.ok(renders > 0, "conformance fixtures render nothing");
-  assert.ok(
-    unenforceableDenyChecks > 0,
-    "rule ⑧ (unenforceable deny ≠ allow) never ran — no pre-tool fixture case to probe",
+  // EVERY pre-tool case, not merely one: the count is what catches rule ⑧ being
+  // skipped by a stray `continue` rather than merely present somewhere. A suite
+  // with no pre-tool case has no veto surface to lose, and rule ⑤'s own
+  // `vetoableDenySeen` guard already forces enforcement honesty there.
+  assert.equal(
+    unenforceableDenyChecks,
+    preToolCases,
+    `rule ⑧ (unenforceable deny ≠ allow) ran on ${unenforceableDenyChecks} of ${preToolCases} pre-tool cases`,
   );
 
   return {
@@ -310,6 +386,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     decisionsSeen,
     mutationSeen,
     enforcedDenySeen,
+    vetoableDenySeen,
     coverageClassesChecked,
     unenforceableDenyChecks,
   };

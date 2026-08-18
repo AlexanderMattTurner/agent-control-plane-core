@@ -7,6 +7,7 @@ import {
   runAdapterConformance,
   assertCoverageWellFormed,
   assertToolAliasesCovered,
+  assertAliasedInputsCanonical,
 } from "../src/conformance.mjs";
 import { CallClass, coverageAllowsVeto } from "../src/control-plane.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
@@ -91,6 +92,29 @@ function fullFixtures() {
 const run = (adapter, fixtures) =>
   runAdapterConformance({ adapter, fixtures, assert });
 
+const observeOnlyNative = {
+  transport: "observe_only",
+  exit_code: 0,
+  enforced: false,
+};
+
+// An adapter that can only watch: it renders every verdict identically because
+// its transport has no pre-emption channel at all.
+const observerAdapter = { ...echoAdapter, render: () => observeOnlyNative };
+
+// The matching fixtures. The event is NON-vetoable, which is what an
+// observe-only transport actually reports: rule ⑤ ("a vetoable deny must
+// enforce") then has nothing to say, so these cases reach the enforcement-
+// honesty guard they exist to probe rather than tripping an earlier rule.
+function observeOnlyFixtures() {
+  const fx = fullFixtures();
+  fx.cases[0].native = { event: echoEvent(false) };
+  fx.cases[0].event = echoEvent(false);
+  for (const key of ["allow", "deny", "ask", "mutation"])
+    fx.cases[0].render[key].native = observeOnlyNative;
+  return fx;
+}
+
 describe("conformance harness self-tests (non-vacuity)", () => {
   it("passes a correct adapter and reports the summary", () => {
     const summary = run(echoAdapter, fullFixtures());
@@ -169,44 +193,30 @@ describe("conformance harness self-tests (non-vacuity)", () => {
   });
 
   it("exempts an OBSERVE_ONLY render, which has no channel to differ in", () => {
-    // Same collapsing render, but on a transport that cannot pre-empt at all —
-    // there the identical rendering is the truth, not a lost objection. It must
-    // reach the LATER enforcement-honesty guard, not rule ⑧.
-    const observer = {
-      ...echoAdapter,
-      render: () => ({
-        transport: "observe_only",
-        exit_code: 0,
-        enforced: false,
-      }),
-    };
-    const fx = fullFixtures();
-    for (const key of ["allow", "deny", "ask", "mutation"])
-      fx.cases[0].render[key].native = {
-        transport: "observe_only",
-        exit_code: 0,
-        enforced: false,
-      };
-    assert.throws(() => run(observer, fx), /enforcement honesty is untested/);
+    // Same collapsing render as the case above, but on a transport that cannot
+    // pre-empt at all — there the identical rendering is the truth, not a lost
+    // objection. Asserted on WHICH guard fires: rule ⑧ must stay silent, and the
+    // run must fall through to the later enforcement-honesty guard.
+    let err = null;
+    try {
+      run(observerAdapter, observeOnlyFixtures());
+    } catch (caught) {
+      err = caught;
+    }
+    assert.ok(err, "the observe-only suite passed conformance outright");
+    assert.doesNotMatch(
+      String(err),
+      /identically to an abstaining allow/,
+      "rule ⑧ fired on an observe-only render it must exempt",
+    );
+    assert.match(String(err), /enforcement honesty is untested/);
   });
 
   it("throws when no enforced deny is rendered at all", () => {
-    const advisory = {
-      ...echoAdapter,
-      render: () => ({
-        transport: "observe_only",
-        exit_code: 0,
-        enforced: false,
-      }),
-    };
-    const fx = fullFixtures();
-    for (const key of ["allow", "deny", "ask", "mutation"])
-      fx.cases[0].render[key].native = {
-        transport: "observe_only",
-        exit_code: 0,
-        enforced: false,
-      };
-    assert.throws(() => run(advisory, fx), /enforcement honesty is untested/);
+    assert.throws(
+      () => run(observerAdapter, observeOnlyFixtures()),
+      /enforcement honesty is untested/,
+    );
   });
 });
 
@@ -330,9 +340,74 @@ describe("conformance harness self-tests (coverage matrix, item ③)", () => {
   });
 });
 
+describe("conformance harness self-tests (deny must block, item \u2464)", () => {
+  // A vetoable call whose deny renders exit 0 is a deny that does not deny. The
+  // golden `deepEqual` cannot catch it: the fixture below is written to match
+  // the broken render exactly, which is how such an adapter would ship green.
+  function vetoableDenyFixtures(nativeDeny) {
+    return {
+      agent: "t",
+      cases: [
+        {
+          name: "vetoable",
+          native: { event: { k: 1, this_call_vetoable: true } },
+          event: { k: 1, this_call_vetoable: true },
+          render: {
+            allow: { verdict: { decision: "allow" }, native: deny(0, false) },
+            deny: { verdict: { decision: "deny" }, native: nativeDeny },
+            ask: { verdict: { decision: "ask" }, native: deny(0, false) },
+            mutation: {
+              verdict: { decision: "allow", mutated_input: { a: 1 } },
+              native: deny(0, false),
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  const silentlyAllowing = {
+    ...echoAdapter,
+    render: () => deny(0, false),
+  };
+
+  it("throws when a vetoable deny renders as a non-block", () => {
+    assert.throws(
+      () => run(silentlyAllowing, vetoableDenyFixtures(deny(0, false))),
+      /vetoable deny did not enforce/,
+    );
+  });
+
+  it("throws when a vetoable deny claims enforced but exits 0", () => {
+    const claimsWithoutBlocking = {
+      ...echoAdapter,
+      render: (verdict) => deny(0, verdict.decision === "deny"),
+    };
+    assert.throws(
+      () => run(claimsWithoutBlocking, vetoableDenyFixtures(deny(0, true))),
+      /enforced deny carries no block signal/,
+    );
+  });
+
+  it("passes an adapter whose vetoable deny really blocks", () => {
+    const summary = run(echoAdapter, vetoableDenyFixtures(deny(2, true)));
+    // Positive marker: the forward check actually ran on this suite.
+    assert.equal(summary.vetoableDenySeen, true);
+  });
+});
+
 describe("assertToolAliasesCovered ties the alias SSOTs to fixtures", () => {
   const allFixtures = ["claude", "codex", "amp", "gemini"].map(loadFixture);
   const shippedScoped = { gemini: GEMINI_TOOL_ALIASES };
+
+  it("every aliased case carries the canonical tool's input key", () => {
+    // The bypass this closes: renaming `read_file` to `Read` tells a judge to
+    // read `input.file_path`, and a forwarded `absolute_path` makes that read
+    // `undefined` — so the judge allows, believing it inspected a Read.
+    assert.doesNotThrow(() =>
+      assertAliasedInputsCanonical(allFixtures, assert),
+    );
+  });
 
   it("passes: the shipped fixtures witness every global and adapter-scoped alias", () => {
     assert.doesNotThrow(() =>

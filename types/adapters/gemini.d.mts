@@ -56,12 +56,14 @@ export const HookEvent: Readonly<{
  * CLI removes the ambiguity at parse time: every MCP tool is unconditionally
  * registered — and surfaced in hook payloads — under its fully qualified
  * `mcp_{server}_{tool}` name (gemini-cli docs/tools/mcp-server.md), so a bare
- * builtin name in `tool_name` can only be the builtin. The builtin's native
- * input fields still pass through verbatim (e.g. read_file's `absolute_path`,
- * not Read's `file_path`) — `meta.native_tool` tells a consumer which field
- * dialect to expect. Targets are pinned to {@link MODELED_TOOLS} at import, and
- * every entry must be witnessed by a gemini conformance fixture
- * (`assertToolAliasesCovered`).
+ * builtin name in `tool_name` can only be the builtin. Renaming the tool also
+ * renames its INPUT to the schema that name advertises, via
+ * {@link GEMINI_INPUT_ALIASES} — a consumer told `event.tool` is `Read` reads
+ * `input.file_path` and finds it, rather than reading `undefined` off a
+ * forwarded `absolute_path` and allowing. Targets are pinned to
+ * {@link MODELED_TOOLS} at import, every entry must be witnessed by a gemini
+ * conformance fixture (`assertToolAliasesCovered`), and every aliased case must
+ * carry the canonical input key (`assertAliasedInputsCanonical`).
  * @type {Readonly<Record<string, string>>}
  */
 export const GEMINI_TOOL_ALIASES: Readonly<Record<string, string>>;
