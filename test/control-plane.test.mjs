@@ -181,7 +181,26 @@ describe("makeEvent fails loud on an internally-malformed event", () => {
 
   it("accepts every modeled event kind, including UNKNOWN", () => {
     for (const kind of Object.values(EventKind))
-      assert.doesNotThrow(() => makeEvent({ ...base, event: kind }));
+      assert.doesNotThrow(() =>
+        // UNKNOWN is accepted as a KIND and refused only as a vetoable one, so
+        // it is built non-vetoable here; the case below pins that refusal.
+        makeEvent({
+          ...base,
+          event: kind,
+          this_call_vetoable: kind !== EventKind.UNKNOWN,
+        }),
+      );
+  });
+
+  it("throws on a vetoable UNKNOWN (the false-block seam)", () => {
+    // An event the adapter could not name has no host response to veto, so a
+    // veto reported for it is a block the render claims and the host never
+    // performs. Refused at the constructor every adapter builds through, so an
+    // adapter computing the flag its own way cannot reach the wire either.
+    assert.throws(
+      () => makeEvent({ ...base, event: EventKind.UNKNOWN }),
+      /vetoable UNKNOWN event/,
+    );
   });
 
   it("throws on an unmodeled event kind", () => {

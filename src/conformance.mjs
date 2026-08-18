@@ -22,10 +22,19 @@ const UNENFORCEABLE_DENY_PROBE = Object.freeze({
 const ABSTAINING_ALLOW_PROBE = Object.freeze({ decision: Decision.ALLOW });
 
 /**
- * The native event name rule ⑨ drifts an adapter with. No host emits it, so an
- * adapter that maps event names must answer {@link EventKind.UNKNOWN} for it.
+ * The payload rule ⑨ drifts an adapter with. No host emits that event name, so
+ * an adapter that maps event names must answer {@link EventKind.UNKNOWN}.
+ *
+ * `version` carries a release far past any adapter's enforcement floor. Without
+ * it Codex's own version gate answers non-vetoable for an unrelated reason, and
+ * the rule then passes on the adapter that needs it most — Codex routes EVERY
+ * non-PreToolUse event into UNKNOWN, so a probe it cannot bite on certifies
+ * nothing.
  */
-const UNMODELLED_EVENT_NAME = "ConformanceProbeUnmodelledEvent";
+const DRIFT_PROBE_NATIVE = Object.freeze({
+  hook_event_name: "ConformanceProbeUnmodelledEvent",
+  version: "9999.0.0",
+});
 
 /**
  * Assert an adapter's {@link import("./control-plane.mjs").Adapter.COVERAGE}
@@ -404,17 +413,19 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     enforcedDenySeen,
     "no enforced deny rendered — enforcement honesty is untested",
   );
-  // Rule ⑨, probed on a synthesized payload rather than a fixture flag: an
-  // adapter whose parse can never emit UNKNOWN — amp routes every payload to
-  // pre_tool — has no such fixture to write, so a fixture-driven check would sit
-  // vacuous on exactly the adapters this rule covers.
-  const drifted = adapter.parse({ hook_event_name: UNMODELLED_EVENT_NAME });
+  // Rule ⑨: parse must ANSWER for an event it cannot name rather than throw, and
+  // the render of a deny on that answer must not claim a block. Probed on a
+  // synthesized payload rather than a fixture flag, because an adapter whose
+  // parse can never emit UNKNOWN — amp routes every payload to pre_tool — has no
+  // such fixture to write, and a fixture-driven check would then sit vacuous on
+  // exactly the adapters this rule covers.
+  const drifted = adapter.parse({ ...DRIFT_PROBE_NATIVE });
   if (drifted.event === EventKind.UNKNOWN) {
-    assert.equal(
-      drifted.this_call_vetoable,
-      false,
-      "an unmodelled event parsed as vetoable",
-    );
+    // Not that the event is non-vetoable — `makeEvent` refuses to construct a
+    // vetoable UNKNOWN at all, so asserting it here would police a state the
+    // constructor already makes unreachable. What only a probe can reach is the
+    // RENDER: an adapter is free to derive `enforced` from something other than
+    // the flag, and then the false block returns by another door.
     assert.equal(
       adapter.render(UNENFORCEABLE_DENY_PROBE, drifted).enforced,
       false,

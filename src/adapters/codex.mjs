@@ -59,9 +59,11 @@ export const COVERAGE = Object.freeze({
  * The event kinds this host can actually gate. `PreToolUse` is the one event Codex can veto. Every other native event parses as
  * UNKNOWN today, so without this set each of them reported an enforced block.
  * A kind absent here parses non-vetoable, so an unmodelled event never renders as
- * an enforced block the host will not perform.
+ * an enforced block the host will not perform. Module-private: `Object.freeze` does
+ * not stop `Set.add`, so an exported set would let a consumer add UNKNOWN back
+ * after `assertGatedKinds` has already run.
  */
-export const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
+const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
 assertGatedKinds(GATED_EVENTS, AGENT);
 
 /** Minimum Codex version whose hook can actually veto a tool call. */
