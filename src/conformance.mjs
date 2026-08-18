@@ -123,9 +123,17 @@ export function assertToolAliasesCovered(
  *      MUST carry a real block signal — a non-zero `exit_code` — not just a JSON
  *      body the agent is free to ignore. At least one enforced deny must appear,
  *      so the honesty check is never vacuous.
- *   5. non-vetoable honesty: when the parsed event's `this_call_vetoable` is
- *      false, EVERY render for that case must be `enforced === false` — a
- *      guardrail that cannot veto this call must never render as if it did.
+ *   5. vetoability honesty, BOTH directions. When the parsed event's
+ *      `this_call_vetoable` is false, EVERY render for that case must be
+ *      `enforced === false` — a guardrail that cannot veto this call must never
+ *      render as if it did. And when it is true, a `deny` verdict MUST render
+ *      `enforced === true` with a non-zero `exit_code`: where the host can be
+ *      stopped, a deny has to stop it. Without the forward half the whole
+ *      deny-must-block property rests on each fixture's golden `deepEqual`, so
+ *      an adapter that renders a vetoable deny as exit 0 passes as long as its
+ *      own fixture was written to match — which is the one bug this harness
+ *      exists to make impossible. Item ④'s enforced-deny requirement keeps this
+ *      non-vacuous: a suite that never enforces anything fails there.
  *   6. allow = abstain: by default (no `soleGate` opt-in) every `allow` render
  *      is `enforced === false` AND `exit_code === 0` — an "I have no objection"
  *      verdict never renders as a block, on any adapter. At least one `allow`
@@ -141,7 +149,7 @@ export function assertToolAliasesCovered(
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, coverageClassesChecked: Set<string> }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, vetoableDenySeen: boolean, coverageClassesChecked: Set<string> }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }) {
   assert.equal(
@@ -158,6 +166,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   const coverageClassesChecked = new Set();
   let mutationSeen = false;
   let enforcedDenySeen = false;
+  let vetoableDenySeen = false;
   let renders = 0;
 
   for (const testCase of fixtures.cases) {
@@ -205,6 +214,26 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
           `non-vetoable call rendered as enforced: ${testCase.name} / ${scenario}`,
         );
       }
+      // The forward direction, and the one a guardrail's safety rests on: when
+      // the host CAN be stopped and the verdict says deny, the render must
+      // actually stop it. Without this the direction is left to each fixture's
+      // golden `deepEqual`, so an adapter that renders a vetoable deny as exit 0
+      // passes as long as its own fixture was written to match.
+      if (
+        spec.verdict.decision === "deny" &&
+        parsed.this_call_vetoable === true
+      ) {
+        assert.equal(
+          rendered.enforced,
+          true,
+          `vetoable deny did not enforce: ${testCase.name} / ${scenario}`,
+        );
+        assert.ok(
+          rendered.exit_code !== 0,
+          `vetoable deny carries no block signal: ${testCase.name} / ${scenario}`,
+        );
+        vetoableDenySeen = true;
+      }
       if (spec.verdict.decision === "allow") {
         assert.equal(
           rendered.enforced,
@@ -245,6 +274,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     decisionsSeen,
     mutationSeen,
     enforcedDenySeen,
+    vetoableDenySeen,
     coverageClassesChecked,
   };
 }
