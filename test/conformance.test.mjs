@@ -128,9 +128,13 @@ describe("conformance harness self-tests (drift honesty, item ⑨)", () => {
       parse: (native) =>
         native.event ?? { ...echoEvent(true), event: "unknown" },
     };
+    // The echo adapter builds its events by hand rather than through makeEvent,
+    // which is what lets this case exist at all — and it is the shape rule ⑨ is
+    // for, since an adapter deriving `enforced` its own way reaches the wire
+    // without the constructor ever seeing the flag.
     assert.throws(
       () => run(driftingAdapter, fullFixtures()),
-      /unmodelled event parsed as vetoable/,
+      /rendered as an enforced block/,
     );
   });
 

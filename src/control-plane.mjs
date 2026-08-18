@@ -429,6 +429,16 @@ export function makeEvent({
     throw new TypeError(
       `control-plane: makeEvent this_call_vetoable must be a boolean, got ${typeof this_call_vetoable}`,
     );
+  // The same fail-open seam, one step further: an event the adapter could not
+  // name is one whose host response nobody established, so a veto reported for
+  // it is a block the render claims and the host never performs. Refused HERE
+  // because every adapter builds its event through this call, so an adapter that
+  // computes the flag without `vetoableFor` cannot reach the wire either.
+  if (event === EventKind.UNKNOWN && this_call_vetoable)
+    throw new Error(
+      "control-plane: makeEvent got a vetoable UNKNOWN event — an unmodelled " +
+        "event has no host response to veto, so reporting one is a false block",
+    );
   /** @type {ToolCallEvent} */
   const evt = {
     schema_version: SCHEMA_VERSION,
