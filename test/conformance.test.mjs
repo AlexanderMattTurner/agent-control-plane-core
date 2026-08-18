@@ -7,6 +7,7 @@ import {
   runAdapterConformance,
   assertCoverageWellFormed,
   assertToolAliasesCovered,
+  assertAliasedInputsCanonical,
 } from "../src/conformance.mjs";
 import { CallClass, coverageAllowsVeto } from "../src/control-plane.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
@@ -340,6 +341,15 @@ describe("conformance harness self-tests (deny must block, item \u2464)", () => 
 describe("assertToolAliasesCovered ties the alias SSOTs to fixtures", () => {
   const allFixtures = ["claude", "codex", "amp", "gemini"].map(loadFixture);
   const shippedScoped = { gemini: GEMINI_TOOL_ALIASES };
+
+  it("every aliased case carries the canonical tool's input key", () => {
+    // The bypass this closes: renaming `read_file` to `Read` tells a judge to
+    // read `input.file_path`, and a forwarded `absolute_path` makes that read
+    // `undefined` — so the judge allows, believing it inspected a Read.
+    assert.doesNotThrow(() =>
+      assertAliasedInputsCanonical(allFixtures, assert),
+    );
+  });
 
   it("passes: the shipped fixtures witness every global and adapter-scoped alias", () => {
     assert.doesNotThrow(() =>

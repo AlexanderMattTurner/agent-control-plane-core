@@ -126,18 +126,35 @@ function geminiMeta(nativeEvent, raw) {
  * CLI removes the ambiguity at parse time: every MCP tool is unconditionally
  * registered — and surfaced in hook payloads — under its fully qualified
  * `mcp_{server}_{tool}` name (gemini-cli docs/tools/mcp-server.md), so a bare
- * builtin name in `tool_name` can only be the builtin. The builtin's native
- * input fields still pass through verbatim (e.g. read_file's `absolute_path`,
- * not Read's `file_path`) — `meta.native_tool` tells a consumer which field
- * dialect to expect. Targets are pinned to {@link MODELED_TOOLS} at import, and
- * every entry must be witnessed by a gemini conformance fixture
- * (`assertToolAliasesCovered`).
+ * builtin name in `tool_name` can only be the builtin. Renaming the tool also
+ * renames its INPUT to the schema that name advertises, via
+ * {@link GEMINI_INPUT_ALIASES} — a consumer told `event.tool` is `Read` reads
+ * `input.file_path` and finds it, rather than reading `undefined` off a
+ * forwarded `absolute_path` and allowing. Targets are pinned to
+ * {@link MODELED_TOOLS} at import, every entry must be witnessed by a gemini
+ * conformance fixture (`assertToolAliasesCovered`), and every aliased case must
+ * carry the canonical input key (`assertAliasedInputsCanonical`).
  * @type {Readonly<Record<string, string>>}
  */
+// `web_fetch` is deliberately ABSENT. Canonicalizing to `WebFetch` advertises
+// `input.url`, and Gemini's payload has no URL field at all — the target sits
+// inside a prose `prompt` ("summarize https://example.com"). Recovering it means
+// guessing which URL in free text is the target, and a guardrail that gates on a
+// guessed destination is worse than one that plainly does not recognize the
+// tool: under the alias a domain deny-lister read `input.url`, got `undefined`,
+// and allowed the fetch. Left native, `web_fetch` reaches a judge as a name it
+// must handle on purpose.
 export const GEMINI_TOOL_ALIASES = Object.freeze({
   read_file: "Read",
   write_file: "Write",
-  web_fetch: "WebFetch",
+});
+
+// Native input field → the canonical field the alias target advertises, per
+// tool. Only a pure RENAME belongs here: the value is carried across untouched,
+// so no consumer receives a field this adapter invented. A dialect that cannot
+// be expressed as a rename does not get an alias at all (see `web_fetch`).
+const GEMINI_INPUT_ALIASES = Object.freeze({
+  read_file: { absolute_path: "file_path" },
 });
 
 assertAliasTargetsModeled(GEMINI_TOOL_ALIASES);
@@ -161,14 +178,27 @@ function geminiCanonicalTool(nativeTool, callClass) {
 /**
  * @param {string} kind
  * @param {Record<string, unknown>} raw
+ * @param {string|null} nativeTool
+ * @param {string} callClass a {@link CallClass} value
  * @returns {Record<string, unknown>}
  */
-function geminiInput(kind, raw) {
+function geminiInput(kind, raw, nativeTool, callClass) {
   if (kind === EventKind.PROMPT_SUBMIT)
     return { prompt: asString(raw.prompt, "") };
-  if (kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL)
-    return asObject(raw.tool_input);
-  return {};
+  if (kind !== EventKind.PRE_TOOL && kind !== EventKind.POST_TOOL) return {};
+  const input = asObject(raw.tool_input);
+  // Renamed only where the NAME was renamed: the aliases are builtin-scoped, so
+  // an MCP tool that happens to be called `read_file` keeps its own dialect.
+  if (callClass !== CallClass.BUILTIN || nativeTool === null) return input;
+  const renames = lookup(GEMINI_INPUT_ALIASES, nativeTool);
+  if (renames === undefined) return input;
+  const out = { ...input };
+  for (const [nativeKey, canonicalKey] of Object.entries(renames)) {
+    if (!Object.hasOwn(out, nativeKey)) continue;
+    out[canonicalKey] = out[nativeKey];
+    delete out[nativeKey];
+  }
+  return out;
 }
 
 /**
@@ -204,7 +234,7 @@ export function parse(native) {
   return makeEvent({
     event: kind,
     tool: geminiCanonicalTool(nativeTool, callClass),
-    input: geminiInput(kind, raw),
+    input: geminiInput(kind, raw, nativeTool, callClass),
     response,
     this_call_vetoable: coverageAllowsVeto(COVERAGE[callClass]),
     meta,

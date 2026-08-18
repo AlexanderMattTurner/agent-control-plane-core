@@ -80,6 +80,27 @@ export const MODELED_TOOLS = Object.freeze([
 const MODELED_TOOL_SET = new Set(MODELED_TOOLS);
 
 /**
+ * The input field a guardrail reads for each {@link MODELED_TOOLS} entry — the
+ * schema that renaming a native tool to its canonical name ADVERTISES.
+ *
+ * Canonicalizing the name while passing the native input dialect through is a
+ * silent bypass, and the worst kind: a judge written against `Read` reads
+ * `input.file_path`, an un-renamed Gemini payload supplies `absolute_path`, so
+ * the judge sees `undefined` and allows — having been told by `event.tool` that
+ * it was looking at a Read. Leaving the native name would at least fail
+ * visibly. `assertAliasedInputsCanonical` holds aliases to this map, so a new
+ * alias whose input dialect cannot be renamed faithfully fails conformance
+ * instead of shipping as a hole.
+ */
+export const MODELED_TOOL_INPUT_KEYS = Object.freeze({
+  Bash: "command",
+  Edit: "file_path",
+  Write: "file_path",
+  Read: "file_path",
+  WebFetch: "url",
+});
+
+/**
  * Native-tool-name → canonical {@link MODELED_TOOLS} name. The SSOT that lets a
  * judge key on `event.tool` without a per-agent lookup: an agent whose native
  * name for the shell tool is `run_shell_command` (Gemini) is normalized to the

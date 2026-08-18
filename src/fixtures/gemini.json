@@ -291,7 +291,7 @@
         "event": "pre_tool",
         "tool": "Read",
         "input": {
-          "absolute_path": "/w/notes.txt"
+          "file_path": "/w/notes.txt"
         },
         "this_call_vetoable": true,
         "meta": {
@@ -359,7 +359,7 @@
       }
     },
     {
-      "name": "BeforeTool builtin web_fetch canonicalizes to WebFetch",
+      "name": "BeforeTool builtin web_fetch stays native (no url to canonicalize)",
       "call_class": "builtin",
       "native": {
         "hook_event_name": "BeforeTool",
@@ -371,7 +371,7 @@
       "event": {
         "schema_version": 1,
         "event": "pre_tool",
-        "tool": "WebFetch",
+        "tool": "web_fetch",
         "input": {
           "prompt": "summarize https://example.com"
         },

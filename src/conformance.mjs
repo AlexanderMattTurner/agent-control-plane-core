@@ -1,9 +1,11 @@
 import {
   CALL_CLASSES,
+  MODELED_TOOL_INPUT_KEYS,
   TOOL_ALIASES,
   canonicalTool,
   coverageAllowsVeto,
   isCoverageStatus,
+  lookup,
 } from "./control-plane.mjs";
 
 /**
@@ -97,6 +99,45 @@ export function assertToolAliasesCovered(
       assert.ok(
         witnessedByAgent.get(agent)?.get(nativeName)?.has(canonical),
         `adapter-scoped tool alias ${JSON.stringify(nativeName)} -> ${JSON.stringify(canonical)} (${agent}) is not witnessed by a '${agent}' conformance fixture — add a golden ${agent} case whose native tool is ${JSON.stringify(nativeName)}`,
+      );
+    }
+  }
+}
+
+/**
+ * Assert that every case whose tool name was ALIASED carries the canonical
+ * tool's input key.
+ *
+ * Renaming a native tool to a {@link MODELED_TOOLS} name tells every consumer
+ * "this is a Read, read it like one" — the README's whole "write your logic
+ * once against the normalized types" promise. An adapter that renames the name
+ * but forwards the native input dialect makes that promise false in the one
+ * direction nobody checks: the judge reads the canonical field, gets
+ * `undefined`, and allows. A native-NAMED tool promises nothing and is left
+ * alone; this fires only where the adapter itself claimed the schema.
+ *
+ * The remedy for a failure is a real choice, not a fixture edit: rename the
+ * input keys too when the mapping is a pure rename, or drop the alias when it
+ * is not (a URL buried in a prose `prompt` cannot be renamed into a `url`
+ * without inventing it, and an invented target is worse than a visible gap).
+ * @param {any[]} fixturesList the golden fixtures for every shipped adapter
+ * @param {any} assert node:assert/strict (injected)
+ */
+export function assertAliasedInputsCanonical(fixturesList, assert) {
+  for (const fixtures of fixturesList) {
+    for (const testCase of fixtures.cases) {
+      const nativeTool = testCase.event?.meta?.native_tool;
+      const canon = testCase.event?.tool;
+      if (typeof nativeTool !== "string" || nativeTool === canon) continue;
+      const key = lookup(
+        /** @type {Record<string, string>} */ (MODELED_TOOL_INPUT_KEYS),
+        canon,
+      );
+      if (key === undefined) continue;
+      assert.ok(
+        testCase.event.input !== undefined &&
+          Object.hasOwn(testCase.event.input, key),
+        `fixture '${testCase.name}' (${fixtures.agent}): ${JSON.stringify(nativeTool)} was canonicalized to ${JSON.stringify(canon)}, which advertises input.${key}, but the input carries ${JSON.stringify(Object.keys(testCase.event.input ?? {}))} — rename the input keys or drop the alias`,
       );
     }
   }
