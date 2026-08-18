@@ -22,10 +22,19 @@ const UNENFORCEABLE_DENY_PROBE = Object.freeze({
 const ABSTAINING_ALLOW_PROBE = Object.freeze({ decision: Decision.ALLOW });
 
 /**
- * The native event name rule ⑨ drifts an adapter with. No host emits it, so an
- * adapter that maps event names must answer {@link EventKind.UNKNOWN} for it.
+ * The payload rule ⑨ drifts an adapter with. No host emits that event name, so
+ * an adapter that maps event names must answer {@link EventKind.UNKNOWN}.
+ *
+ * `version` carries a release far past any adapter's enforcement floor. Without
+ * it Codex's own version gate answers non-vetoable for an unrelated reason, and
+ * the rule then passes on the adapter that needs it most — Codex routes EVERY
+ * non-PreToolUse event into UNKNOWN, so a probe it cannot bite on certifies
+ * nothing.
  */
-const UNMODELLED_EVENT_NAME = "ConformanceProbeUnmodelledEvent";
+const DRIFT_PROBE_NATIVE = Object.freeze({
+  hook_event_name: "ConformanceProbeUnmodelledEvent",
+  version: "9999.0.0",
+});
 
 /**
  * Assert an adapter's {@link import("./control-plane.mjs").Adapter.COVERAGE}
@@ -408,7 +417,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   // adapter whose parse can never emit UNKNOWN — amp routes every payload to
   // pre_tool — has no such fixture to write, so a fixture-driven check would sit
   // vacuous on exactly the adapters this rule covers.
-  const drifted = adapter.parse({ hook_event_name: UNMODELLED_EVENT_NAME });
+  const drifted = adapter.parse({ ...DRIFT_PROBE_NATIVE });
   if (drifted.event === EventKind.UNKNOWN) {
     assert.equal(
       drifted.this_call_vetoable,

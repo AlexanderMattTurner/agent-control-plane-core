@@ -57,9 +57,11 @@ export const COVERAGE = Object.freeze({
 /**
  * The event kinds this host can actually gate. Amp invokes the delegate for a tool call and nothing else, so parse only ever emits PRE_TOOL.
  * A kind absent here parses non-vetoable, so an unmodelled event never renders as
- * an enforced block the host will not perform.
+ * an enforced block the host will not perform. Module-private: `Object.freeze` does
+ * not stop `Set.add`, so an exported set would let a consumer add UNKNOWN back
+ * after `assertGatedKinds` has already run.
  */
-export const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
+const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
 assertGatedKinds(GATED_EVENTS, AGENT);
 
 // Amp invokes the delegate for a tool call; the payload carries the tool name +

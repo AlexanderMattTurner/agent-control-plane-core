@@ -10,6 +10,7 @@ import {
   MIN_ENFORCING_VERSION,
 } from "../src/adapters/codex.mjs";
 import { runAdapterConformance } from "../src/conformance.mjs";
+import { EventKind } from "../src/control-plane.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtures = JSON.parse(
@@ -181,5 +182,44 @@ describe("canEnforce version gate (≥ v0.135)", () => {
     const [maj, min] = MIN_ENFORCING_VERSION;
     assert.equal(canEnforce(`${maj}.${min}.0`), true);
     assert.equal(canEnforce(`${maj}.${min - 1}.999`), false);
+  });
+});
+
+describe("codex: an unmodelled event is never vetoable, even on an enforcing version", () => {
+  // Codex routes EVERY event other than PreToolUse/PermissionRequest into
+  // EventKind.UNKNOWN, so this is its ordinary path rather than drift. On an
+  // enforcing version the coverage map alone answered "vetoable", and the render
+  // then claimed a block Codex never performs for a SessionStart payload.
+  for (const nativeEvent of ["SessionStart", "PostToolUse", "Notification"]) {
+    it(`${nativeEvent} parses unknown and renders no enforced block`, () => {
+      const event = codexAdapter.parse({
+        hook_event_name: nativeEvent,
+        version: "9999.0.0",
+        tool_name: "Bash",
+        tool_input: { command: "ls" },
+      });
+      assert.equal(event.event, EventKind.UNKNOWN);
+      assert.equal(event.this_call_vetoable, false);
+      const out = codexAdapter.render({ decision: "deny", reason: "r" }, event);
+      assert.equal(out.enforced, false);
+      assert.equal(out.exit_code, 0);
+    });
+  }
+
+  // Positive marker: the same enforcing version DOES veto the event Codex gates,
+  // so the cases above are the event kind being read and not the version gate
+  // answering for it.
+  it("the same version still enforces a PreToolUse deny", () => {
+    const event = codexAdapter.parse({
+      hook_event_name: "PreToolUse",
+      version: "9999.0.0",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    });
+    assert.equal(event.this_call_vetoable, true);
+    assert.equal(
+      codexAdapter.render({ decision: "deny", reason: "r" }, event).enforced,
+      true,
+    );
   });
 });
