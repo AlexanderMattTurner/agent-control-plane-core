@@ -268,10 +268,20 @@ describe("gemini parse: never throws, preserves unmodelled fields", () => {
   });
 
   it("an unknown event kind renders without an enforced block", () => {
+    // Gemini honours a deny on BeforeTool/AfterTool/BeforeAgent and nothing
+    // else, so an event the adapter cannot name has no veto to report. Claiming
+    // one is the error that lies to a guardrail: the transcript shows a block
+    // and the host runs the tool anyway.
     const event = geminiAdapter.parse({ hook_event_name: "AfterAgent" });
     assert.equal(event.event, "unknown");
+    assert.equal(event.this_call_vetoable, false);
     const out = geminiAdapter.render({ decision: "deny", reason: "r" }, event);
-    // still vetoable=true, so an enforced deny renders exit 2 even on unknown
-    assert.equal(out.exit_code, 2);
+    assert.equal(out.enforced, false);
+    assert.equal(out.exit_code, 0);
+    // The objection still reaches the operator — only the false claim of
+    // enforcement is dropped. stderr is the System Block channel, so an
+    // un-enforced deny takes the advisory decision body instead.
+    assert.equal(out.stderr, undefined);
+    assert.deepEqual(out.stdout, { decision: "deny", reason: "r" });
   });
 });

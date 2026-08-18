@@ -18,7 +18,8 @@ import {
   CallClass,
   CoverageStatus,
   classifyCallClass,
-  coverageAllowsVeto,
+  vetoableFor,
+  assertGatedKinds,
   canonicalTool,
   lookup,
   makeEvent,
@@ -53,6 +54,14 @@ export const COVERAGE = Object.freeze({
   [CallClass.RESUMED]: CoverageStatus.UNKNOWN,
 });
 
+/**
+ * The event kinds this host can actually gate. Amp invokes the delegate for a tool call and nothing else, so parse only ever emits PRE_TOOL.
+ * A kind absent here parses non-vetoable, so an unmodelled event never renders as
+ * an enforced block the host will not perform.
+ */
+export const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
+assertGatedKinds(GATED_EVENTS, AGENT);
+
 // Amp invokes the delegate for a tool call; the payload carries the tool name +
 // input and the session context. Pinned by fixtures/amp.json.
 const CONSUMED = new Set(["tool", "input", "session_id", "cwd"]);
@@ -81,7 +90,9 @@ export function parse(native) {
     input: asObject(raw.input),
     response: undefined,
     // Classify on the NATIVE name (MCP detection keys on `mcp__…`).
-    this_call_vetoable: coverageAllowsVeto(
+    this_call_vetoable: vetoableFor(
+      EventKind.PRE_TOOL,
+      GATED_EVENTS,
       COVERAGE[classifyCallClass(nativeTool, raw)],
     ),
     meta,

@@ -22,6 +22,12 @@ const UNENFORCEABLE_DENY_PROBE = Object.freeze({
 const ABSTAINING_ALLOW_PROBE = Object.freeze({ decision: Decision.ALLOW });
 
 /**
+ * The native event name rule ⑨ drifts an adapter with. No host emits it, so an
+ * adapter that maps event names must answer {@link EventKind.UNKNOWN} for it.
+ */
+const UNMODELLED_EVENT_NAME = "ConformanceProbeUnmodelledEvent";
+
+/**
  * Assert an adapter's {@link import("./control-plane.mjs").Adapter.COVERAGE}
  * hook-coverage matrix is well-formed: it classifies EXACTLY the canonical
  * {@link CALL_CLASSES} (no class missing, none unknown) and every value is a
@@ -225,7 +231,7 @@ function assertAliasedInput(agent, caseName, event, assert) {
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, vetoableDenySeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }) {
   assert.equal(
@@ -243,6 +249,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   let mutationSeen = false;
   let enforcedDenySeen = false;
   let vetoableDenySeen = false;
+  let unknownKindSeen = false;
   let preToolCases = 0;
   let unenforceableDenyChecks = 0;
   let renders = 0;
@@ -259,6 +266,18 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     // updated when an adapter changes — so checking the fixture alone would let
     // a rename-without-its-input land by editing the expectation.
     assertAliasedInput(adapter.AGENT, testCase.name, parsed, assert);
+
+    // An event the adapter could not name is one whose host response nobody has
+    // established, so claiming a veto for it is the one error that lies to a
+    // guardrail: the transcript shows a block and the host runs the tool anyway.
+    if (parsed.event === EventKind.UNKNOWN) {
+      assert.equal(
+        parsed.this_call_vetoable,
+        false,
+        `unmodelled event parsed as vetoable: ${testCase.name}`,
+      );
+      unknownKindSeen = true;
+    }
 
     if (testCase.call_class !== undefined) {
       assert.ok(
@@ -385,6 +404,24 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     enforcedDenySeen,
     "no enforced deny rendered — enforcement honesty is untested",
   );
+  // Rule ⑨, probed on a synthesized payload rather than a fixture flag: an
+  // adapter whose parse can never emit UNKNOWN — amp routes every payload to
+  // pre_tool — has no such fixture to write, so a fixture-driven check would sit
+  // vacuous on exactly the adapters this rule covers.
+  const drifted = adapter.parse({ hook_event_name: UNMODELLED_EVENT_NAME });
+  if (drifted.event === EventKind.UNKNOWN) {
+    assert.equal(
+      drifted.this_call_vetoable,
+      false,
+      "an unmodelled event parsed as vetoable",
+    );
+    assert.equal(
+      adapter.render(UNENFORCEABLE_DENY_PROBE, drifted).enforced,
+      false,
+      "a deny on an unmodelled event rendered as an enforced block",
+    );
+    unknownKindSeen = true;
+  }
   assert.ok(renders > 0, "conformance fixtures render nothing");
   // EVERY pre-tool case, not merely one: the count is what catches rule ⑧ being
   // skipped by a stray `continue` rather than merely present somewhere. A suite
@@ -403,6 +440,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     mutationSeen,
     enforcedDenySeen,
     vetoableDenySeen,
+    unknownKindSeen,
     coverageClassesChecked,
     unenforceableDenyChecks,
   };

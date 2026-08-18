@@ -318,7 +318,7 @@
         "event": "session_start",
         "tool": null,
         "input": {},
-        "this_call_vetoable": true,
+        "this_call_vetoable": false,
         "meta": {
           "agent": "claude",
           "native_event": "SessionStart",
@@ -342,6 +342,24 @@
               "hookSpecificOutput": {
                 "hookEventName": "SessionStart"
               }
+            }
+          }
+        },
+        "deny": {
+          "verdict": {
+            "decision": "deny",
+            "reason": "not a gateable event"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "SessionStart"
+              },
+              "decision": "block",
+              "reason": "not a gateable event"
             }
           }
         }
