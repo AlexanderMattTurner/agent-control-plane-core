@@ -44,6 +44,7 @@ describe("public API surface (index barrel)", () => {
     "runAdapterConformance",
     "assertCoverageWellFormed",
     "assertToolAliasesCovered",
+    "assertAliasedInputsCanonical",
   ];
 
   for (const name of expected) {

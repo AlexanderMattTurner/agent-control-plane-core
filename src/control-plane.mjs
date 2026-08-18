@@ -65,23 +65,8 @@ export const Decision = Object.freeze({
 });
 
 /**
- * Tools whose input shape the core models. Every other tool passes through
- * unmodelled — its input object is preserved verbatim and no field is required.
- */
-export const MODELED_TOOLS = Object.freeze([
-  "Bash",
-  "Edit",
-  "Write",
-  "Read",
-  "WebFetch",
-]);
-
-/** @type {Set<string>} membership set for {@link MODELED_TOOLS}, used to constrain alias targets. */
-const MODELED_TOOL_SET = new Set(MODELED_TOOLS);
-
-/**
- * The input field a guardrail reads for each {@link MODELED_TOOLS} entry — the
- * schema that renaming a native tool to its canonical name ADVERTISES.
+ * Every modeled tool, mapped to the input field a guardrail reads for it — the
+ * schema that renaming a native tool to this canonical name ADVERTISES.
  *
  * Canonicalizing the name while passing the native input dialect through is a
  * silent bypass, and the worst kind: a judge written against `Read` reads
@@ -91,6 +76,12 @@ const MODELED_TOOL_SET = new Set(MODELED_TOOLS);
  * visibly. `assertAliasedInputsCanonical` holds aliases to this map, so a new
  * alias whose input dialect cannot be renamed faithfully fails conformance
  * instead of shipping as a hole.
+ *
+ * This is also where {@link MODELED_TOOLS} comes from, rather than a second
+ * list beside it. A modeled tool missing its input key would make that guard
+ * skip it — re-opening the bypass one tool-add later — and deriving the names
+ * from the keys makes the two impossible to drift instead of asking a test to
+ * notice.
  */
 export const MODELED_TOOL_INPUT_KEYS = Object.freeze({
   Bash: "command",
@@ -99,6 +90,17 @@ export const MODELED_TOOL_INPUT_KEYS = Object.freeze({
   Read: "file_path",
   WebFetch: "url",
 });
+
+/**
+ * Tools whose input shape the core models. Every other tool passes through
+ * unmodelled — its input object is preserved verbatim and no field is required.
+ */
+export const MODELED_TOOLS = Object.freeze(
+  Object.keys(MODELED_TOOL_INPUT_KEYS),
+);
+
+/** @type {Set<string>} membership set for {@link MODELED_TOOLS}, used to constrain alias targets. */
+const MODELED_TOOL_SET = new Set(MODELED_TOOLS);
 
 /**
  * Native-tool-name → canonical {@link MODELED_TOOLS} name. The SSOT that lets a
