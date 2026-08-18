@@ -47,7 +47,10 @@ const echoAdapter = {
   AGENT: "t",
   INTEGRATION_MODE: "external_hook",
   COVERAGE: fullCoverage,
-  parse: (native) => native.event,
+  // A payload the fixtures did not precompute is the DRIFT case rule ⑨ probes:
+  // the adapter contract is that parse answers an unmodelled event with an
+  // UNKNOWN kind rather than throwing.
+  parse: (native) => native.event ?? { ...echoEvent(false), event: "unknown" },
   // Honours `this_call_vetoable` the way rule ⑤/⑧ require of a REAL adapter: a
   // deny it cannot enforce degrades to the transport's ask (1), never to allow.
   render: (verdict, event) => {
@@ -114,6 +117,27 @@ function observeOnlyFixtures() {
     fx.cases[0].render[key].native = observeOnlyNative;
   return fx;
 }
+
+describe("conformance harness self-tests (drift honesty, item ⑨)", () => {
+  it("refuses an adapter that marks an unmodelled event vetoable", () => {
+    // The failure this rule exists for: a kind the adapter could not name is one
+    // whose host response nobody established, so an enforced block reported for
+    // it tells a guardrail the call stopped while the host ran the tool.
+    const driftingAdapter = {
+      ...echoAdapter,
+      parse: (native) =>
+        native.event ?? { ...echoEvent(true), event: "unknown" },
+    };
+    assert.throws(
+      () => run(driftingAdapter, fullFixtures()),
+      /unmodelled event parsed as vetoable/,
+    );
+  });
+
+  it("reports the probe ran, so the rule cannot pass by never firing", () => {
+    assert.equal(run(echoAdapter, fullFixtures()).unknownKindSeen, true);
+  });
+});
 
 describe("conformance harness self-tests (non-vacuity)", () => {
   it("passes a correct adapter and reports the summary", () => {

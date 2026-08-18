@@ -259,6 +259,52 @@ export function coverageAllowsVeto(status) {
 }
 
 /**
+ * The event kinds a host can gate at all. {@link EventKind.UNKNOWN} is absent by
+ * construction, and that absence is the point: an event this package could not
+ * name is one whose host response nobody has established.
+ */
+/** @type {Set<string>} */
+const GATEABLE_KINDS = new Set([
+  EventKind.PRE_TOOL,
+  EventKind.POST_TOOL,
+  EventKind.PROMPT_SUBMIT,
+  EventKind.SESSION_START,
+]);
+
+/**
+ * Whether an event may be marked `this_call_vetoable`.
+ *
+ * INVARIANT: an event whose kind the adapter's `GATED_EVENTS` does not name is
+ * never vetoable, whatever its coverage says. Coverage answers whether the
+ * host's hook fires for a CLASS of call and says nothing about a kind the
+ * adapter could not model — so keying on coverage alone reported an enforced
+ * block for every unmodelled event, which is the one direction that lies to a
+ * guardrail: the transcript shows a block and the host runs the tool.
+ * @param {string} kind an {@link EventKind} value
+ * @param {Set<string>} gatedKinds the adapter's own gated set
+ * @param {string|undefined} coverage a {@link CoverageStatus} value
+ * @returns {boolean}
+ */
+export function vetoableFor(kind, gatedKinds, coverage) {
+  if (!gatedKinds.has(kind)) return false;
+  return coverageAllowsVeto(coverage);
+}
+
+/**
+ * Refuse a gated-kind set naming a kind no host can gate. Called at module load
+ * by each adapter, so `EventKind.UNKNOWN` cannot be added to one by hand.
+ * @param {Set<string>} kinds an adapter's `GATED_EVENTS`
+ * @param {string} agent the adapter's agent id, for the message
+ */
+export function assertGatedKinds(kinds, agent) {
+  for (const kind of kinds)
+    if (!GATEABLE_KINDS.has(kind))
+      throw new Error(
+        `${agent} adapter: ${JSON.stringify(kind)} is not a gateable event kind`,
+      );
+}
+
+/**
  * True when `status` is a recognized {@link CoverageStatus} value.
  * @param {unknown} status
  * @returns {boolean}

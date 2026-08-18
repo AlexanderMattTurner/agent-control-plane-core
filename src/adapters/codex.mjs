@@ -20,7 +20,8 @@ import {
   CallClass,
   CoverageStatus,
   classifyCallClass,
-  coverageAllowsVeto,
+  vetoableFor,
+  assertGatedKinds,
   canonicalTool,
   makeEvent,
   normalizeVerdict,
@@ -53,6 +54,15 @@ export const COVERAGE = Object.freeze({
   [CallClass.SUBAGENT]: CoverageStatus.UNKNOWN,
   [CallClass.RESUMED]: CoverageStatus.UNKNOWN,
 });
+
+/**
+ * The event kinds this host can actually gate. `PreToolUse` is the one event Codex can veto. Every other native event parses as
+ * UNKNOWN today, so without this set each of them reported an enforced block.
+ * A kind absent here parses non-vetoable, so an unmodelled event never renders as
+ * an enforced block the host will not perform.
+ */
+export const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
+assertGatedKinds(GATED_EVENTS, AGENT);
 
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION = Object.freeze([0, 135]);
@@ -140,7 +150,12 @@ export function parse(native) {
   const nativeTool = asStringOrNull(raw.tool_name);
   if (nativeTool !== null) meta.native_tool = nativeTool;
   const vetoable =
-    enforce && coverageAllowsVeto(COVERAGE[classifyCallClass(nativeTool, raw)]);
+    enforce &&
+    vetoableFor(
+      kind,
+      GATED_EVENTS,
+      COVERAGE[classifyCallClass(nativeTool, raw)],
+    );
 
   return makeEvent({
     event: kind,

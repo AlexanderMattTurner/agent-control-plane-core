@@ -19,7 +19,8 @@ import {
   CallClass,
   CoverageStatus,
   classifyCallClass,
-  coverageAllowsVeto,
+  vetoableFor,
+  assertGatedKinds,
   canonicalTool,
   lookup,
   makeEvent,
@@ -56,6 +57,18 @@ export const COVERAGE = Object.freeze({
   [CallClass.SUBAGENT]: CoverageStatus.COVERED,
   [CallClass.RESUMED]: CoverageStatus.COVERED,
 });
+
+/**
+ * The event kinds this host can actually gate. Claude Code honours a deny on these three. SESSION_START is left out: exit 2 does
+ * not abort a session start, and the matrix documents no host response for it — an
+ * undocumented kind is fail-closed to non-vetoable, the same rule coverage uses.
+ * A kind absent here parses non-vetoable, so an unmodelled event never renders as
+ * an enforced block the host will not perform.
+ */
+export const GATED_EVENTS = Object.freeze(
+  new Set([EventKind.PRE_TOOL, EventKind.POST_TOOL, EventKind.PROMPT_SUBMIT]),
+);
+assertGatedKinds(GATED_EVENTS, AGENT);
 
 /** Claude Code native hook event names (the `hook_event_name` field). */
 export const HookEvent = Object.freeze({
@@ -162,7 +175,9 @@ export function parse(native) {
     response,
     // Classify on the NATIVE name — MCP detection keys on `mcp__…`, which a
     // canonical builtin name would never carry.
-    this_call_vetoable: coverageAllowsVeto(
+    this_call_vetoable: vetoableFor(
+      kind,
+      GATED_EVENTS,
       COVERAGE[classifyCallClass(nativeTool, raw)],
     ),
     meta,

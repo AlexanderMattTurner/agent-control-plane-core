@@ -35,7 +35,8 @@ import {
   CallClass,
   CoverageStatus,
   classifyCallClass,
-  coverageAllowsVeto,
+  vetoableFor,
+  assertGatedKinds,
   canonicalTool,
   lookup,
   assertAliasTargetsModeled,
@@ -71,6 +72,16 @@ export const COVERAGE = Object.freeze({
   [CallClass.SUBAGENT]: CoverageStatus.UNKNOWN,
   [CallClass.RESUMED]: CoverageStatus.UNKNOWN,
 });
+
+/**
+ * The event kinds this host can actually gate. Gemini CLI honours a deny on each of the three events NATIVE_TO_KIND maps.
+ * A kind absent here parses non-vetoable, so an unmodelled event never renders as
+ * an enforced block the host will not perform.
+ */
+export const GATED_EVENTS = Object.freeze(
+  new Set([EventKind.PRE_TOOL, EventKind.POST_TOOL, EventKind.PROMPT_SUBMIT]),
+);
+assertGatedKinds(GATED_EVENTS, AGENT);
 
 /** Gemini CLI native hook event names (the `hook_event_name` field). */
 export const HookEvent = Object.freeze({
@@ -236,7 +247,7 @@ export function parse(native) {
     tool: geminiCanonicalTool(nativeTool, callClass),
     input: geminiInput(kind, raw, nativeTool, callClass),
     response,
-    this_call_vetoable: coverageAllowsVeto(COVERAGE[callClass]),
+    this_call_vetoable: vetoableFor(kind, GATED_EVENTS, COVERAGE[callClass]),
     meta,
   });
 }
