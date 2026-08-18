@@ -32,4 +32,5 @@ export {
   runAdapterConformance,
   assertCoverageWellFormed,
   assertToolAliasesCovered,
+  assertAliasedInputsCanonical,
 } from "./conformance.mjs";

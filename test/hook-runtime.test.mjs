@@ -83,6 +83,50 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     assert.match(written[0], /SyntaxError/);
   });
 
+  it("clamps a malformed judge decision to ask instead of failing open", () => {
+    // The failure this closes: `normalizeVerdict` throws on a decision outside
+    // allow/deny/ask, that throw lands in the pipeline catch, and the catch
+    // returns the host's fail-safe — exit 0 for claude. So a judge that MEANT
+    // deny but spelled it "denied" used to let the tool run.
+    const malformed = () => ({
+      decision: "denied",
+      reason: "blocked by policy",
+    });
+    const out = renderHookResponse(
+      claudeAdapter,
+      claudePayload("ls"),
+      FAIL,
+      malformed,
+    );
+    assert.notEqual(out, FAIL, "malformed verdict took the fail-open path");
+    assert.equal(
+      out.stdout.hookSpecificOutput.permissionDecision,
+      "ask",
+      "malformed decision did not clamp to ask",
+    );
+    // The clamp names the rejected value, so an operator can see what the judge
+    // actually said rather than a bare prompt.
+    assert.match(
+      out.stdout.hookSpecificOutput.permissionDecisionReason,
+      /clamped to "ask"/,
+    );
+  });
+
+  it("still renders a well-formed judge verdict untouched", () => {
+    // Positive marker: the clamp is not swallowing ordinary verdicts, so the
+    // case above is the malformed path and not a blanket rewrite.
+    const denying = () => ({ decision: "deny", reason: "no" });
+    const out = renderHookResponse(
+      claudeAdapter,
+      claudePayload("ls"),
+      FAIL,
+      denying,
+    );
+    assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "deny");
+    assert.equal(out.enforced, true);
+    assert.notEqual(out.exit_code, 0);
+  });
+
   it("carries the adapter's transport through (amp = pure exit code)", () => {
     const ampFail = {
       transport: "external_hook",
