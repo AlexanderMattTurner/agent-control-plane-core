@@ -66,15 +66,13 @@ function fail(msg) {
 // A compact cost footnote: the review's API-equivalent cost, plus (via
 // plansLine) how many PRs/week that rate sustains on a Max 20x plan — the
 // budget-relative signal a single percentage used to carry, in the form a reader
-// actually reasons about. Emits a hidden `review-cost` marker so the Haiku
-// thread-resolver can read this cost back and fold it into the running total.
+// actually reasons about.
 function costFooter() {
   const { cost, model } = readRunCost();
   if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) return "";
   const modelLabel = model ? ` (${model})` : "";
-  const marker = `<!-- review-cost usd=${cost} -->`;
   const costLine = `<sub>📊 Review cost: **$${formatDollars(cost)}**${modelLabel}.</sub>`;
-  return [marker, costLine, plansLine(cost)].filter(Boolean).join("\n");
+  return [costLine, plansLine(cost)].filter(Boolean).join("\n");
 }
 
 let review;
@@ -228,15 +226,17 @@ for (let i = 0; i < diffLines.length; i++) {
   if (raw.startsWith("--- ")) continue;
   if (raw.startsWith("+++ ")) {
     const target = raw.slice(4);
-    const m = target.match(/^b\/(.*)$/);
-    path = m ? m[1] : target;
+    const m = target.match(/^b\/(?<path>.*)$/);
+    path = m ? m.groups.path : target;
     continue;
   }
   if (raw.startsWith("@@")) {
-    const m = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    const m = raw.match(
+      /@@ -(?<oldStart>\d+)(?:,\d+)? \+(?<newStart>\d+)(?:,\d+)? @@/,
+    );
     if (m) {
-      oldLine = Number.parseInt(m[1], 10);
-      newLine = Number.parseInt(m[2], 10);
+      oldLine = Number.parseInt(m.groups.oldStart, 10);
+      newLine = Number.parseInt(m.groups.newStart, 10);
     }
     continue;
   }

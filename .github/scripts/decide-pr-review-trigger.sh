@@ -18,14 +18,12 @@
 #          blocks the merge — CHANGES_REQUESTED (an explicit hold) OR COMMENTED
 #          (a review the reviewer left without approving). Under a review-required
 #          ruleset both leave the PR at zero approvals, so both must clear the
-#          same way: EVERY push gets a cheap HAIKU re-check, so a push that
-#          addresses the concerns is re-evaluated and can flip the verdict to
-#          APPROVE (clearing the block) instead of the stale hold gating the PR
-#          until someone re-tags it by hand. Self-terminating: once the re-check
+#          same way: EVERY push gets a re-check, so a push that addresses the
+#          concerns is re-evaluated and can flip the verdict to APPROVE
+#          (clearing the block) instead of the stale hold gating the PR until
+#          someone re-tags it by hand. Self-terminating: once the re-check
 #          approves, the latest verdict is no longer a non-approving review and
-#          later pushes stop re-running. This automatic recheck NEVER spends
-#          Opus — the expensive model is only ever the explicit [opus-review]
-#          opt-in.
+#          later pushes stop re-running.
 #
 # Read under pull_request_target, so the untrusted PR head is NEVER checked out
 # or executed here: the head commit's message and the PR's reviews are fetched as
@@ -33,25 +31,33 @@
 # eval). A transient API failure yields run=false (no review, no red) rather than
 # a spurious re-review.
 #
-# Env: GH_TOKEN, ACTION, REPO, HEAD_SHA, PR, LABEL (LABEL set only on `labeled`).
+# Env: GH_TOKEN, ACTION, REPO, HEAD_SHA, PR, LABEL (LABEL set only on `labeled`);
+# REVIEWER_LOGIN optional.
 set -euo pipefail
 
 KEYWORD="[opus-review]"
 REVIEW_LABEL="needs-auto-review"
 # The reviewer posts with GITHUB_TOKEN, so its reviews are authored by this bot;
 # the latest review it left is the effective verdict that gates the PR.
-REVIEWER="github-actions[bot]"
-OPUS_MODEL="claude-opus-4-8"
-HAIKU_MODEL="claude-haiku-4-5"
+# reviewer_login_init owns that identity for every reviewer script, including the
+# REST/GraphQL `[bot]`-suffix mismatch (lib/reviewer-login.bash).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/reviewer-login.bash disable=SC1091
+source "$SCRIPT_DIR/lib/reviewer-login.bash"
+reviewer_login_init
+# The one model behind every verdict that gates or clears a PR's merge — the
+# first read and the re-check alike. Not a place to economize: a cheaper model
+# that flips a hold to APPROVE clears the merge on its own judgement.
+REVIEW_MODEL="claude-opus-5"
 
 emit() {
-  # $1 run, $2 reason, $3 model (defaults to Opus — the thorough first-look model)
-  local run="$1" reason="$2" model="${3:-$OPUS_MODEL}"
+  # $1 run, $2 reason
+  local run="$1" reason="$2"
   {
     echo "run=$run"
-    echo "model=$model"
+    echo "model=$REVIEW_MODEL"
   } >>"$GITHUB_OUTPUT"
-  echo "decision: run=$run model=$model ($reason)"
+  echo "decision: run=$run model=$REVIEW_MODEL ($reason)"
 }
 
 case "$ACTION" in
@@ -84,11 +90,11 @@ esac
 message="$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.commit.message' 2>/dev/null || true)"
 subject="${message%%$'\n'*}"
 if grep -qiF "$KEYWORD" <<<"$subject"; then
-  emit true "$KEYWORD in head commit title" "$OPUS_MODEL"
+  emit true "$KEYWORD in head commit title"
   exit 0
 fi
 
-# synchronize, trigger 2: a cheap Haiku re-check on every push while the
+# synchronize, trigger 2: a re-check on every push while the
 # reviewer's latest verdict is a non-approving review it can supersede —
 # CHANGES_REQUESTED or COMMENTED. The latest review authored by the reviewer bot
 # is the effective verdict; both of these leave the PR at zero approvals under a
@@ -106,9 +112,9 @@ fi
 # `--paginate` would run the filter per page and concatenate. A transient API
 # failure yields empty -> no re-review.
 state="$(gh api "repos/$REPO/pulls/${PR:-}/reviews" --paginate --slurp \
-  --jq "[.[][] | select(.user.login == \"$REVIEWER\")] | last | .state // empty" 2>/dev/null || true)"
+  --jq "[.[][] | ${REVIEWER_MATCH_USER}] | last | .state // empty" 2>/dev/null || true)"
 if [[ "$state" == "CHANGES_REQUESTED" || "$state" == "COMMENTED" ]]; then
-  emit true "outstanding $REVIEWER hold ($state) — re-checking on Haiku" "$HAIKU_MODEL"
+  emit true "outstanding $REVIEWER_LOGIN hold ($state) — re-checking"
 else
   emit false "no $KEYWORD opt-in and no outstanding reviewer hold"
 fi
