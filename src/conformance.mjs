@@ -171,13 +171,30 @@ function assertRowReads(agent, kind, row, assert) {
   );
   /** @type {string[][]} */
   const walked = [];
-  row.forEach((/** @type {string} */ value, /** @type {string} */ key) =>
-    walked.push([value, key]),
+  /** @type {unknown[]} */
+  const handed = [];
+  row.forEach(
+    (
+      /** @type {string} */ value,
+      /** @type {string} */ key,
+      /** @type {any} */ set,
+    ) => {
+      walked.push([value, key]);
+      handed.push(set);
+    },
   );
   assert.deepEqual(
     walked,
     declared.map((field) => [field, field]),
     `${where}: forEach does not pass (value, value)`,
+  );
+  // The third argument is the row itself. A row that hands the callback its
+  // private inner collection instead gives a consumer a handle the frozen
+  // facade exists to withhold.
+  assert.deepEqual(
+    handed,
+    declared.map(() => row),
+    `${where}: forEach does not pass the row as its third argument`,
   );
 }
 
@@ -250,11 +267,12 @@ function coherentEvent(adapter, byKind, kind) {
   return {
     ...rest,
     event: /** @type {any} */ (kind),
-    // `makeEvent` refuses a vetoable UNKNOWN: an event the adapter could not
-    // name reports a block the host never performs. A seed from a vetoable tool
-    // event would carry the flag straight into that state.
-    this_call_vetoable:
-      kind === EventKind.UNKNOWN ? false : seed.this_call_vetoable,
+    // A synthesized event is one no fixture produced, so nothing here says this
+    // adapter gates this kind — Amp seeds every other kind from its vetoable
+    // `pre_tool` fixture and can gate none of them. Claiming enforcement would
+    // report a block the host never performs, which `makeEvent` refuses outright
+    // for UNKNOWN. Rule ⑧ probes the non-vetoable deny path on its own.
+    this_call_vetoable: false,
     tool: carriesTool ? seed.tool : null,
     input: carriesTool ? seed.input : {},
     ...(kind === EventKind.POST_TOOL && "response" in seed

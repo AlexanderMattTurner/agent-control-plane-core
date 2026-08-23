@@ -309,6 +309,12 @@ describe("conformance harness self-tests (non-vacuity)", () => {
           throw new Error("row reader is broken");
         },
       }),
+      // Correct values, and a third argument that is not the row — a handle the
+      // frozen facade exists to withhold.
+      Object.assign(new Set(["mutated_output"]), {
+        forEach: (/** @type {any} */ fn) =>
+          fn("mutated_output", "mutated_output", null),
+      }),
     ]) {
       const broken = { ...echoUnrendered, [EventKind.POST_TOOL]: row };
       assert.throws(
@@ -384,9 +390,13 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     }
     // `makeEvent` refuses a vetoable UNKNOWN, and the seed here IS vetoable, so
     // spreading it whole would build the state the contract rejects.
-    const unknowns = seen.filter((e) => e.event === EventKind.UNKNOWN);
-    assert.ok(unknowns.length > 0);
-    for (const event of unknowns) assert.equal(event.this_call_vetoable, false);
+    // Nothing here says the adapter gates a kind no fixture produced, and
+    // `makeEvent` refuses a vetoable UNKNOWN outright. The seed IS vetoable, so
+    // spreading it whole would claim a block the host never performs.
+    const synthesized = seen.filter((e) => e.event !== "pre_tool");
+    assert.ok(synthesized.length > 0);
+    for (const event of synthesized)
+      assert.equal(event.this_call_vetoable, false);
   });
 
   it("probes with the adapter's own native event when it names one", () => {
