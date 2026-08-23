@@ -69,8 +69,7 @@ if (
   );
 
 /**
- * Rule ⑩'s first half: the adapter declares a row for EVERY {@link EventKind},
- * and every one of those rows agrees with what `render` emits.
+ * Rule ⑩'s first half: the adapter declares a row for EVERY {@link EventKind}.
  *
  * Iterated over the SSOT rather than over the fixtures, because a kind an
  * adapter's `parse` never emits is exactly the one whose row goes missing — and
@@ -79,28 +78,68 @@ if (
  * `session_start` and Amp's `unknown` are the live cases: no fixture produces
  * either, so a fixture-driven check certifies neither.
  * @param {import("./control-plane.mjs").Adapter} adapter
- * @param {import("./control-plane.mjs").ToolCallEvent} event a parsed event to re-label
  * @param {any} assert
- * @param {Set<string>} seen fields observed to REACH a wire
  */
-function assertEveryKindDeclared(adapter, event, assert, seen) {
-  for (const kind of Object.values(EventKind)) {
+function assertEveryKindHasARow(adapter, assert) {
+  for (const kind of Object.values(EventKind))
     assert.ok(
       lookup(adapter.UNRENDERED_FIELDS, kind) !== undefined,
       `${adapter.AGENT}: UNRENDERED_FIELDS has no row for '${kind}' — every EventKind needs one, so an omission cannot read as full support`,
     );
-    // Existence is not agreement. A row for a kind no fixture produces could
-    // claim a channel the render drops, and the per-fixture probes would never
-    // ask — so every row is probed, on a representative event re-labelled with
-    // that kind.
+}
+
+/**
+ * Rule ⑩'s other half: every declared row agrees with what `render` emits.
+ *
+ * Existence is not agreement. A row for a kind no fixture produces could claim
+ * a channel the render drops, and the per-fixture probes would never ask.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {Record<string, import("./control-plane.mjs").ToolCallEvent>} byKind one parsed event per kind a fixture produced
+ * @param {any} assert
+ * @param {Set<string>} seen fields observed to REACH a wire
+ */
+function assertEveryKindRenders(adapter, byKind, assert, seen) {
+  for (const kind of Object.values(EventKind))
     assertContentChannels(
       adapter,
-      { ...event, event: kind },
+      lookup(byKind, kind) ?? coherentEvent(byKind, kind),
       `every-kind probe '${kind}'`,
       assert,
       seen,
     );
-  }
+}
+
+/**
+ * A representative event OF `kind`, preferring one a fixture actually produced.
+ *
+ * Re-labelling a parsed event is not enough: a `pre_tool` event relabelled
+ * `prompt_submit` still carries a `tool` the contract says is null there, and
+ * still names `PreToolUse` on `meta.native_event` — so an adapter that picks its
+ * native schema from that field would be probed about the wrong channel. The
+ * synthesized event drops what the kind cannot carry, and drops `native_event`
+ * rather than carrying a wrong one.
+ * @param {Record<string, import("./control-plane.mjs").ToolCallEvent>} byKind
+ * @param {string} kind
+ * @returns {import("./control-plane.mjs").ToolCallEvent}
+ */
+function coherentEvent(byKind, kind) {
+  const [seed] = Object.values(byKind);
+  const carriesTool =
+    kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL;
+  const { native_event, ...meta } = seed.meta ?? {};
+  void native_event;
+  const { response, ...rest } = seed;
+  void response;
+  return {
+    ...rest,
+    event: /** @type {any} */ (kind),
+    tool: carriesTool ? seed.tool : null,
+    input: carriesTool ? seed.input : {},
+    ...(kind === EventKind.POST_TOOL && "response" in seed
+      ? { response: seed.response }
+      : {}),
+    meta: /** @type {any} */ (meta),
+  };
 }
 
 /**
@@ -392,6 +431,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   );
 
   assertCoverageWellFormed(adapter, assert);
+  assertEveryKindHasARow(adapter, assert);
 
   /** @type {Set<string>} */
   const decisionsSeen = new Set();
@@ -403,7 +443,8 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   let enforcedDenySeen = false;
   let vetoableDenySeen = false;
   let unknownKindSeen = false;
-  let everyKindChecked = false;
+  /** @type {Record<string, import("./control-plane.mjs").ToolCallEvent>} */
+  const parsedByKind = {};
   let preToolCases = 0;
   let unenforceableDenyChecks = 0;
   let renders = 0;
@@ -511,10 +552,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
       renders += 1;
     }
 
-    if (!everyKindChecked) {
-      assertEveryKindDeclared(adapter, parsed, assert, contentFieldsSeen);
-      everyKindChecked = true;
-    }
+    parsedByKind[parsed.event] ??= parsed;
     assertContentChannels(
       adapter,
       parsed,
@@ -599,9 +637,10 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   }
   assert.ok(renders > 0, "conformance fixtures render nothing");
   assert.ok(
-    everyKindChecked,
-    "the every-EventKind declaration sweep never ran — no fixture case parsed",
+    Object.keys(parsedByKind).length > 0,
+    "the every-EventKind declaration sweep has no parsed event to build from",
   );
+  assertEveryKindRenders(adapter, parsedByKind, assert, contentFieldsSeen);
   // EVERY pre-tool case, not merely one: the count is what catches rule ⑧ being
   // skipped by a stray `continue` rather than merely present somewhere. A suite
   // with no pre-tool case has no veto surface to lose, and rule ⑤'s own

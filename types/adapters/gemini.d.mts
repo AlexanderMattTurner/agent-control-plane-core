@@ -54,6 +54,10 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * tool input at all, so emitting `tool_input` there names a channel the host
  * ignores while reading to the caller as a mutation applied.
  *
+ * ALLOW path only. The enforced-deny branch of `render` returns no stdout at
+ * all, so a deny drops `additional_context` too, on every kind — these rows do
+ * not describe it.
+ *
  * AfterTool is GATED here, so a redaction verdict does reach this adapter and
  * cannot be honoured. It renders {@link POST_TOOL_REDACTION_UNSUPPORTED} on
  * `systemMessage` instead, so the model is told the output above it is

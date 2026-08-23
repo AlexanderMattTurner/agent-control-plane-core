@@ -301,6 +301,27 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
   });
 
+  it("builds a coherent event for a kind no fixture produces", () => {
+    // Re-labelling a pre_tool event leaves a `tool` the contract says is null
+    // on a prompt/session kind, and a `native_event` naming the wrong host
+    // event — an adapter picking its schema from either is probed about a
+    // channel that is not the one under test.
+    const seen = [];
+    const recording = {
+      ...echoAdapter,
+      render: (verdict, event) => {
+        seen.push(event);
+        return echoAdapter.render(verdict, event);
+      },
+    };
+    run(recording, fullFixtures());
+    for (const event of seen.filter((e) => e.event === "prompt_submit")) {
+      assert.equal(event.tool, null);
+      assert.equal(event.meta?.native_event, undefined);
+      assert.equal("response" in event, false);
+    }
+  });
+
   it("probes a declared row for a kind no fixture produces", () => {
     // Row existence is not agreement: a row for an unreached kind could claim a
     // channel the render drops, and the per-fixture probes would never ask.
