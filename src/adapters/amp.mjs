@@ -70,7 +70,7 @@ const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
  * adapter's own answer, so an every-kind probe exercises the branch that kind
  * really takes. Amp's observer names every event `delegate` and reaches no
  * other kind.
- * @type {Record<string, string>}
+ * @type {Record<string, string|undefined>}
  */
 export const NATIVE_EVENT_FOR = Object.freeze({
   [EventKind.PRE_TOOL]: "delegate",

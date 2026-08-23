@@ -155,11 +155,17 @@ function assertRowReads(agent, kind, row, assert) {
   const where = `${agent}: UNRENDERED_FIELDS row for '${kind}'`;
   const declared = [...row];
   assert.deepEqual(
-    declared.filter(
-      (field) => VERDICT_CONTENT_FIELDS.includes(field) && row.has(field),
-    ),
+    declared.filter((field) => VERDICT_CONTENT_FIELDS.includes(field)),
     declared,
     `${where} does not iterate as a set of ${VERDICT_CONTENT_FIELDS.join("/")} — got ${JSON.stringify(declared)}`,
+  );
+  // `has` has to answer for EVERY content field, not only the iterated ones:
+  // a row that iterates one field while `has` says yes to all three tells rule
+  // ⑩ one declaration and a consumer that iterates it another.
+  assert.deepEqual(
+    VERDICT_CONTENT_FIELDS.filter((field) => row.has(field)),
+    VERDICT_CONTENT_FIELDS.filter((field) => declared.includes(field)),
+    `${where}: has() and iteration disagree about ${VERDICT_CONTENT_FIELDS.join("/")}`,
   );
   assert.equal(declared.length, row.size, `${where} miscounts its own size`);
   assert.deepEqual([...row.keys()], declared, `${where}: keys() disagrees`);

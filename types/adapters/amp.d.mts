@@ -35,9 +35,9 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * adapter's own answer, so an every-kind probe exercises the branch that kind
  * really takes. Amp's observer names every event `delegate` and reaches no
  * other kind.
- * @type {Record<string, string>}
+ * @type {Record<string, string|undefined>}
  */
-export const NATIVE_EVENT_FOR: Record<string, string>;
+export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
 /**
  * Which {@link VERDICT_CONTENT_FIELDS} have no native channel, so `render`
  * drops them. Amp's transport is the exit code and nothing else — there is no

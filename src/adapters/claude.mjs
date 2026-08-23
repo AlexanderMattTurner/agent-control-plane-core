@@ -130,7 +130,7 @@ const KIND_TO_NATIVE = Object.freeze({
  * The native event a conformance probe should carry for each kind — this
  * adapter's own answer, so an every-kind probe exercises the branch that kind
  * really takes. `unknown` has no native name by definition and is absent.
- * @type {Record<string, string>}
+ * @type {Record<string, string|undefined>}
  */
 export const NATIVE_EVENT_FOR = KIND_TO_NATIVE;
 

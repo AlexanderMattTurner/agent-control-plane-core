@@ -101,7 +101,7 @@ const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest"]);
  * adapter's own answer, so an every-kind probe exercises the branch that kind
  * really takes. Codex routes every other native event into `unknown`, which has
  * no native name, so `pre_tool` is the only row.
- * @type {Record<string, string>}
+ * @type {Record<string, string|undefined>}
  */
 export const NATIVE_EVENT_FOR = Object.freeze({
   [EventKind.PRE_TOOL]: "PreToolUse",

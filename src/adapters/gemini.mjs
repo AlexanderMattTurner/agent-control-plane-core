@@ -153,7 +153,7 @@ const NATIVE_TO_KIND = Object.freeze({
  * adapter's own answer, so an every-kind probe exercises the branch that kind
  * really takes. `session_start` and `unknown` have no Gemini event and are
  * absent.
- * @type {Record<string, string>}
+ * @type {Record<string, string|undefined>}
  */
 export const NATIVE_EVENT_FOR = Object.freeze(
   Object.fromEntries(

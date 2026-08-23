@@ -85,9 +85,9 @@ export const HookEvent: Readonly<{
  * adapter's own answer, so an every-kind probe exercises the branch that kind
  * really takes. `session_start` and `unknown` have no Gemini event and are
  * absent.
- * @type {Record<string, string>}
+ * @type {Record<string, string|undefined>}
  */
-export const NATIVE_EVENT_FOR: Record<string, string>;
+export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
 /**
  * Adapter-scoped native-builtin → canonical tool aliases, applied ONLY when a
  * call classifies as BUILTIN. These names are too generic for the global

@@ -309,6 +309,9 @@ describe("conformance harness self-tests (non-vacuity)", () => {
           throw new Error("row reader is broken");
         },
       }),
+      // Iterates one field while `has` says yes to all three: rule ⑩ reads one
+      // declaration and a consumer that iterates the row reads another.
+      Object.assign(new Set(["mutated_output"]), { has: () => true }),
       // Correct values, and a third argument that is not the row — a handle the
       // frozen facade exists to withhold.
       Object.assign(new Set(["mutated_output"]), {
