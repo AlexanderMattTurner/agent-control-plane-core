@@ -50,11 +50,11 @@ const echoEvent = (vetoable) => ({
 // The echo transport is exit-code only, like Amp's: no stdout body, so no
 // content field can reach the wire. Declaring that is what rule ⑩ asks of a real
 // adapter, and it keeps the self-tests below testing the rule they name.
-const echoUnrendered = {
-  pre_tool: new Set(VERDICT_CONTENT_FIELDS),
-  post_tool: new Set(VERDICT_CONTENT_FIELDS),
-  unknown: new Set(VERDICT_CONTENT_FIELDS),
-};
+const echoUnrendered = Object.fromEntries(
+  ["pre_tool", "post_tool", "prompt_submit", "session_start", "unknown"].map(
+    (kind) => [kind, new Set(VERDICT_CONTENT_FIELDS)],
+  ),
+);
 
 const echoAdapter = {
   AGENT: "t",
@@ -252,6 +252,18 @@ describe("conformance harness self-tests (non-vacuity)", () => {
       "rule ⑧ fired on an observe-only render it must exempt",
     );
     assert.match(String(err), /enforcement honesty is untested/);
+  });
+
+  it("throws when UNRENDERED_FIELDS has no row for a rendered kind", () => {
+    // Read as "every field reaches a channel", a missing row tells a consumer
+    // the opposite of the truth on a transport that carries none.
+    const { pre_tool, ...missingRow } = echoUnrendered;
+    void pre_tool;
+    assert.throws(
+      () =>
+        run({ ...echoAdapter, UNRENDERED_FIELDS: missingRow }, fullFixtures()),
+      /has no row for 'pre_tool'/,
+    );
   });
 
   it("throws when a content field reaches no channel and is not declared", () => {

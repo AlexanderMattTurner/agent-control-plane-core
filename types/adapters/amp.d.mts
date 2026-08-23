@@ -36,7 +36,9 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * stdout body to carry a replacement input, a replacement output or extra
  * context, so ALL THREE are dropped on every kind, the same gap `reason` has
  * here (Amp surfaces the helper's own stderr instead). A guardrail that needs
- * any of them cannot use Amp as its only integration.
+ * any of them cannot use Amp as its only integration. Built over every
+ * {@link EventKind} rather than the one `parse` emits: a row this adapter cannot
+ * reach is still the honest answer for a caller that asks.
  * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;

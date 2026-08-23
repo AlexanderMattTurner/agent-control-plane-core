@@ -26,7 +26,6 @@ import {
   normalizeVerdict,
   nativeResponse,
   VERDICT_CONTENT_FIELDS,
-  UNRENDERED_ON_UNKNOWN,
   collectPassthrough,
   asObject,
   asStringOrNull,
@@ -72,13 +71,19 @@ assertGatedKinds(GATED_EVENTS, AGENT);
  * stdout body to carry a replacement input, a replacement output or extra
  * context, so ALL THREE are dropped on every kind, the same gap `reason` has
  * here (Amp surfaces the helper's own stderr instead). A guardrail that needs
- * any of them cannot use Amp as its only integration.
+ * any of them cannot use Amp as its only integration. Built over every
+ * {@link EventKind} rather than the one `parse` emits: a row this adapter cannot
+ * reach is still the honest answer for a caller that asks.
  * @type {Record<string, ReadonlySet<string>|undefined>}
  */
-export const UNRENDERED_FIELDS = Object.freeze({
-  [EventKind.PRE_TOOL]: Object.freeze(new Set(VERDICT_CONTENT_FIELDS)),
-  [EventKind.UNKNOWN]: UNRENDERED_ON_UNKNOWN,
-});
+export const UNRENDERED_FIELDS = Object.freeze(
+  Object.fromEntries(
+    Object.values(EventKind).map((kind) => [
+      kind,
+      Object.freeze(new Set(VERDICT_CONTENT_FIELDS)),
+    ]),
+  ),
+);
 
 // Amp invokes the delegate for a tool call; the payload carries the tool name +
 // input and the session context. Pinned by fixtures/amp.json.

@@ -102,6 +102,14 @@ if (
  */
 function assertContentChannels(adapter, event, caseName, assert, seen) {
   const declared = lookup(adapter.UNRENDERED_FIELDS, event.event);
+  // Every kind carries a row, so a MISSING one is a bug rather than a claim.
+  // Read the other way — absent means "every field reaches a channel" — a
+  // consumer asking Amp about `post_tool` is told Amp can carry content, which
+  // is the reverse of the truth on a transport with no stdout body at all.
+  assert.ok(
+    declared !== undefined,
+    `${adapter.AGENT}: UNRENDERED_FIELDS has no row for '${event.event}' — every EventKind needs one, so an omission cannot read as full support`,
+  );
   for (const field of VERDICT_CONTENT_FIELDS) {
     const rendered = adapter.render(
       { decision: Decision.ALLOW, [field]: lookup(CONTENT_PROBE_VALUE, field) },

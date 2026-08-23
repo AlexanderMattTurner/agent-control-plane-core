@@ -80,10 +80,12 @@ assertGatedKinds(GATED_EVENTS, AGENT);
  * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS = Object.freeze({
+  ...Object.fromEntries(
+    Object.values(EventKind).map((kind) => [kind, UNRENDERED_ON_UNKNOWN]),
+  ),
   [EventKind.PRE_TOOL]: Object.freeze(
     new Set(["mutated_output", "additional_context"]),
   ),
-  [EventKind.UNKNOWN]: UNRENDERED_ON_UNKNOWN,
 });
 
 /** Minimum Codex version whose hook can actually veto a tool call. */

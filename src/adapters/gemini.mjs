@@ -112,10 +112,12 @@ const CONTEXT_ONLY = Object.freeze(
  * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS = Object.freeze({
+  ...Object.fromEntries(
+    Object.values(EventKind).map((kind) => [kind, UNRENDERED_ON_UNKNOWN]),
+  ),
   [EventKind.PRE_TOOL]: Object.freeze(new Set(["mutated_output"])),
   [EventKind.POST_TOOL]: CONTEXT_ONLY,
   [EventKind.PROMPT_SUBMIT]: CONTEXT_ONLY,
-  [EventKind.UNKNOWN]: UNRENDERED_ON_UNKNOWN,
 });
 
 /**

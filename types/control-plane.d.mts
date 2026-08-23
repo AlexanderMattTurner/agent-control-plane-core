@@ -100,7 +100,7 @@ export function classifyCallClass(tool: string | null, native?: Record<string, u
  * @property {Record<string, "covered"|"partial"|"uncovered"|"unknown">} COVERAGE per-{@link CallClass} hook-coverage status; must classify every {@link CALL_CLASSES} entry
  * @property {(native: any) => ToolCallEvent} parse
  * @property {(verdict: Verdict, event: ToolCallEvent, options?: { soleGate?: boolean }) => NativeResponse} render
- * @property {Record<string, ReadonlySet<string>|undefined>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. An OMITTED kind declares that every content field reaches a channel there, so the value type carries `undefined` — a consumer must handle a missing row rather than index straight into `.has(...)`. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
+ * @property {Record<string, ReadonlySet<string>|undefined>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
  */
 /**
  * Build a normalized {@link ToolCallEvent}, stamping the schema version. Pure —
@@ -435,7 +435,7 @@ export type Adapter = {
         soleGate?: boolean;
     }) => NativeResponse;
     /**
-     * per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. An OMITTED kind declares that every content field reaches a channel there, so the value type carries `undefined` — a consumer must handle a missing row rather than index straight into `.has(...)`. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
+     * per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
      */
     UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
 };
