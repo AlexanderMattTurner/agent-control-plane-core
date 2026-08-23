@@ -264,6 +264,18 @@ describe("conformance harness self-tests (non-vacuity)", () => {
         run({ ...echoAdapter, UNRENDERED_FIELDS: missingRow }, fullFixtures()),
       /has no row for 'pre_tool'/,
     );
+    // The kind NO fixture produces is the one whose row goes missing, so the
+    // check reads the EventKind SSOT rather than the events it happens to see.
+    const { session_start, ...noSessionRow } = echoUnrendered;
+    void session_start;
+    assert.throws(
+      () =>
+        run(
+          { ...echoAdapter, UNRENDERED_FIELDS: noSessionRow },
+          fullFixtures(),
+        ),
+      /has no row for 'session_start'/,
+    );
   });
 
   it("throws when a content field reaches no channel and is not declared", () => {
