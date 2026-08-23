@@ -291,6 +291,17 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
   });
 
+  it("throws when an UNRENDERED_FIELDS row is not a set", () => {
+    // `null` passes an existence check and then answers nothing at every `has`,
+    // so the adapter claims every channel while a consumer indexing into
+    // `.has(...)` crashes.
+    const nulled = { ...echoUnrendered, [EventKind.POST_TOOL]: null };
+    assert.throws(
+      () => run({ ...echoAdapter, UNRENDERED_FIELDS: nulled }, fullFixtures()),
+      /row for 'post_tool' is not a set/,
+    );
+  });
+
   it("throws when UNRENDERED_FIELDS has no row for a rendered kind", () => {
     // Read as "every field reaches a channel", a missing row tells a consumer
     // the opposite of the truth on a transport that carries none.

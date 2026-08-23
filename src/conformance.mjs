@@ -97,11 +97,22 @@ function assertEveryKindHasARow(adapter, assert) {
       typeof adapter.UNRENDERED_FIELDS === "object",
     `${adapter.AGENT}: adapter declares no UNRENDERED_FIELDS — every adapter needs one row per EventKind naming the VERDICT_CONTENT_FIELDS this host has no channel for (UNRENDERED_ON_UNKNOWN for a kind that carries none, readonlySet([]) for one that carries all three)`,
   );
-  for (const kind of Object.values(EventKind))
+  for (const kind of Object.values(EventKind)) {
+    const row = lookup(adapter.UNRENDERED_FIELDS, kind);
     assert.ok(
-      lookup(adapter.UNRENDERED_FIELDS, kind) !== undefined,
+      row !== undefined,
       `${adapter.AGENT}: UNRENDERED_FIELDS has no row for '${kind}' — every EventKind needs one, so an omission cannot read as full support`,
     );
+    // A row is only a declaration if it can answer. `null` (or any non-set)
+    // passes an existence check and then reads as "declares nothing" at every
+    // `has` call, so the adapter claims every channel while a consumer indexing
+    // straight into `.has(...)` crashes.
+    assert.equal(
+      typeof (/** @type {any} */ (row)?.has),
+      "function",
+      `${adapter.AGENT}: UNRENDERED_FIELDS row for '${kind}' is not a set — use readonlySet([...]) so the row can answer 'has'`,
+    );
+  }
 }
 
 /**

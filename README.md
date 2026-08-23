@@ -28,10 +28,11 @@ removes.
   (a tool about to run, a tool that just ran, a prompt, a session start).
 - **`Verdict`** — one normalized way to say what your guardrail decided:
   `allow` / `deny` / `ask`, optionally with a rewritten input or extra context.
-- **Adapters** — a thin `{ parse, render }` translator per agent. `parse` turns
-  that agent's raw hook payload into a `ToolCallEvent`; `render` turns your
-  `Verdict` back into the **real** native signal that agent enforces (the right
-  JSON body, exit code, or thrown error — not just a print).
+- **Adapters** — a thin `{ parse, render }` translator per agent, plus the
+  declaration of what that agent's transport cannot carry. `parse` turns that
+  agent's raw hook payload into a `ToolCallEvent`; `render` turns your `Verdict`
+  back into the **real** native signal that agent enforces (the right JSON body,
+  exit code, or thrown error — not just a print).
 
 You write your logic **once** against the normalized types. Adding support for a
 new agent is a new adapter (~one file + fixtures), not a rewrite of your tool.
@@ -90,12 +91,30 @@ pnpm add agent-control-plane-core
 }
 ```
 
-An **Adapter** is a pair `{ AGENT, parse, render }`:
+An **Adapter** is `{ AGENT, COVERAGE, UNRENDERED_FIELDS, parse, render }`:
 
 ```js
 parse(nativeEvent) -> ToolCallEvent      // never throws on unknown input
 render(verdict, event) -> nativeResponse // the agent's native shape
+
+// Which Verdict content fields this host has NO native channel for, per event
+// kind. Every EventKind needs a row: an omission would read as "every field
+// reaches a channel here", which is the reverse of the truth on a transport
+// that carries none.
+UNRENDERED_FIELDS = {
+  [EventKind.PRE_TOOL]: readonlySet(["mutated_output"]),
+  [EventKind.POST_TOOL]: readonlySet(["mutated_output"]),
+  [EventKind.PROMPT_SUBMIT]: UNRENDERED_ON_UNKNOWN,
+  [EventKind.SESSION_START]: UNRENDERED_ON_UNKNOWN,
+  [EventKind.UNKNOWN]: UNRENDERED_ON_UNKNOWN,
+}
 ```
+
+`readonlySet([])` is the row for a kind that carries all three;
+`UNRENDERED_ON_UNKNOWN` is the row for one that carries none. Both come from
+`agent-control-plane-core/contract`. A render that ships a field the row
+declares dropped fails conformance, and so does a row that declares a channel
+the render does not carry.
 
 ## Usage
 
@@ -167,7 +186,13 @@ The harness pins both directions and rejects a vacuous suite:
 3. The fixture set collectively renders an `allow`, a `deny`, an `ask`, **and** a
    `mutated_input` — so a suite can't pass while skipping a decision the contract
    requires every adapter to express.
-4. A deny the adapter cannot enforce (`this_call_vetoable: false`) must render as
+4. Every `Verdict` content field either reaches this host's wire or is declared
+   in `UNRENDERED_FIELDS` for that event kind, checked both ways on a
+   synthesized verdict — so an adapter with no channel for a field must say so,
+   and a declared drop that still ships the value fails. Set the optional
+   `NATIVE_EVENT_FOR` to have a kind your fixtures skip probed on its real
+   native event rather than on your unrecognized-event branch.
+5. A deny the adapter cannot enforce (`this_call_vetoable: false`) must render as
    something OTHER than that host's allow signal — an ask, or an advisory body.
    The harness probes this itself on a non-vetoable variant of every pre-tool
    fixture event, so an adapter that collapses the objection onto "run it" fails
