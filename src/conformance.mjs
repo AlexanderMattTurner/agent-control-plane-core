@@ -67,14 +67,30 @@ const SET_SURFACE = Object.freeze([
   "entries",
   Symbol.iterator,
 ]);
-const CONTENT_PROBE_VALUE = Object.freeze({
+/** One field's sentinel — distinct per field, so a probe carrying several can
+ * say WHICH of them reached the wire. */
+const sentinelFor = (/** @type {string} */ field) =>
+  `${CONTENT_PROBE_SENTINEL}-${field}`;
+
+/**
+ * The value each content field is probed with, in each shape its contract
+ * allows. `mutated_output` gets two: the `Verdict` permits a structured tool
+ * result as well as a string, and an adapter that forwards one while dropping
+ * the other is a redaction that silently does not happen.
+ */
+const CONTENT_PROBE_VALUES = Object.freeze({
   // The sentinel is the VALUE, never a key: an adapter that forwards an input's
   // key set while dropping the values would serialize a sentinel KEY and pass,
   // which is exactly the self-consistent broken render this rule exists to
   // catch independently of the golden fixtures.
-  mutated_input: Object.freeze({ command: CONTENT_PROBE_SENTINEL }),
-  mutated_output: CONTENT_PROBE_SENTINEL,
-  additional_context: CONTENT_PROBE_SENTINEL,
+  mutated_input: Object.freeze([
+    Object.freeze({ command: sentinelFor("mutated_input") }),
+  ]),
+  mutated_output: Object.freeze([
+    sentinelFor("mutated_output"),
+    Object.freeze({ content: sentinelFor("mutated_output") }),
+  ]),
+  additional_context: Object.freeze([sentinelFor("additional_context")]),
 });
 
 // A field added to VERDICT_CONTENT_FIELDS with no probe value would be dropped
@@ -82,11 +98,11 @@ const CONTENT_PROBE_VALUE = Object.freeze({
 // every adapter, naming the adapter for the harness's own omission.
 if (
   VERDICT_CONTENT_FIELDS.some(
-    (field) => lookup(CONTENT_PROBE_VALUE, field) === undefined,
+    (field) => (lookup(CONTENT_PROBE_VALUES, field) ?? []).length === 0,
   )
 )
   throw new Error(
-    `conformance: CONTENT_PROBE_VALUE is missing a probe for one of ${VERDICT_CONTENT_FIELDS.join(", ")}`,
+    `conformance: CONTENT_PROBE_VALUES is missing a probe for one of ${VERDICT_CONTENT_FIELDS.join(", ")}`,
   );
 
 /**
@@ -345,27 +361,47 @@ function coherentEvent(adapter, byKind, kind) {
  */
 function assertContentChannels(adapter, event, caseName, assert, seen) {
   const declared = lookup(adapter.UNRENDERED_FIELDS, event.event);
-  for (const field of VERDICT_CONTENT_FIELDS) {
+  /** @param {Record<string, unknown>} content @param {string} field @param {string} shape */
+  const probe = (content, field, shape) => {
     const rendered = adapter.render(
-      { decision: Decision.ALLOW, [field]: lookup(CONTENT_PROBE_VALUE, field) },
+      { decision: Decision.ALLOW, ...content },
       event,
     );
-    const onTheWire = JSON.stringify(rendered).includes(CONTENT_PROBE_SENTINEL);
+    const onTheWire = JSON.stringify(rendered).includes(sentinelFor(field));
+    const where = `'${caseName}' (${adapter.AGENT}), ${shape}`;
     if (declared?.has(field)) {
       assert.equal(
         onTheWire,
         false,
-        `'${caseName}' (${adapter.AGENT}): UNRENDERED_FIELDS declares ${field} has no channel on ${event.event}, but the render carries its value`,
+        `${where}: UNRENDERED_FIELDS declares ${field} has no channel on ${event.event}, but the render carries its value`,
       );
-      continue;
+      return;
     }
     assert.equal(
       onTheWire,
       true,
-      `'${caseName}' (${adapter.AGENT}): ${field} reaches no native channel on ${event.event} and is not declared in UNRENDERED_FIELDS — the verdict is silently lost`,
+      `${where}: ${field} reaches no native channel on ${event.event} and is not declared in UNRENDERED_FIELDS — the verdict is silently lost`,
     );
     seen.add(field);
-  }
+  };
+
+  for (const field of VERDICT_CONTENT_FIELDS)
+    for (const [index, value] of (
+      lookup(CONTENT_PROBE_VALUES, field) ?? []
+    ).entries())
+      probe({ [field]: value }, field, `${field} shape ${index + 1}`);
+
+  // One verdict carrying every field at once. A `Verdict` permits that, and an
+  // adapter can drop one field only when another shares its native channel —
+  // a state no single-field probe reaches.
+  const together = Object.fromEntries(
+    VERDICT_CONTENT_FIELDS.map((field) => [
+      field,
+      (lookup(CONTENT_PROBE_VALUES, field) ?? [])[0],
+    ]),
+  );
+  for (const field of VERDICT_CONTENT_FIELDS)
+    probe(together, field, "all fields together");
 }
 
 /**
