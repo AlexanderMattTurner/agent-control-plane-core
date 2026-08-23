@@ -74,6 +74,14 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
 export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION: readonly number[];
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. Codex routes every other native event into `unknown`, which has
+ * no native name, so `pre_tool` is the only row.
+ * @type {Record<string, string>}
+ */
+export const NATIVE_EVENT_FOR: Record<string, string>;
 export const DEFAULT_DENY_REASON: "blocked by monitor";
 /** @type {import("../control-plane.mjs").Adapter} */
 export const codexAdapter: import("../control-plane.mjs").Adapter;

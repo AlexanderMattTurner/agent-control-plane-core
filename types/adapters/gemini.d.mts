@@ -81,6 +81,14 @@ export const HookEvent: Readonly<{
     BEFORE_AGENT: "BeforeAgent";
 }>;
 /**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. `session_start` and `unknown` have no Gemini event and are
+ * absent.
+ * @type {Record<string, string>}
+ */
+export const NATIVE_EVENT_FOR: Record<string, string>;
+/**
  * Adapter-scoped native-builtin → canonical tool aliases, applied ONLY when a
  * call classifies as BUILTIN. These names are too generic for the global
  * {@link TOOL_ALIASES} (an MCP server could export a `read_file`), but Gemini

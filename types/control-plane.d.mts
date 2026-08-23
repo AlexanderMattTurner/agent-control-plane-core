@@ -111,6 +111,7 @@ export function readonlySet(values: Iterable<string>): ReadonlySet<string>;
  * @property {Record<string, "covered"|"partial"|"uncovered"|"unknown">} COVERAGE per-{@link CallClass} hook-coverage status; must classify every {@link CALL_CLASSES} entry
  * @property {(native: any) => ToolCallEvent} parse
  * @property {(verdict: Verdict, event: ToolCallEvent, options?: { soleGate?: boolean }) => NativeResponse} render
+ * @property {Record<string, string>} [NATIVE_EVENT_FOR] the native event name this host uses for each {@link EventKind}, for a conformance probe of a kind no fixture produced. Optional: a kind absent here (`unknown` always, plus any kind this transport does not carry) is probed with a marker name, which takes the adapter's unrecognized-event branch. Never read at runtime — `parse` stamps the real name on `meta.native_event`.
  * @property {Record<string, ReadonlySet<string>|undefined>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. SCOPE — a row describes the ALLOW path only. An enforceable deny may drop more: Gemini's exit-2 System Block returns no stdout at all, so a deny there carries no `additional_context` whatever the row says. Do not read this map to infer what a deny delivers. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
  */
 /**
@@ -243,6 +244,14 @@ export function nativeResponse({ transport, exit_code, enforced, stdout, stderr,
  * field, a new modeled tool, a new tool alias) is backward-compatible and stays
  * at v1; RENAMING or REMOVING a field, or changing a decision/event vocabulary,
  * is breaking and bumps the version.
+ *
+ * That version covers the WIRE shapes an event or verdict carries, not the
+ * {@link Adapter} interface an integrator implements. A new REQUIRED adapter
+ * member breaks every third-party adapter while every event on the wire stays
+ * byte-identical, so it is a package-semver break and leaves
+ * {@link CONTROL_PLANE_SCHEMA} alone. `UNRENDERED_FIELDS` is one: adding it is
+ * a one-line change per adapter, and the conformance harness names the member
+ * and the migration rather than throwing from inside itself.
  */
 /** Wire identifier for this schema version; bump on a breaking shape change. */
 export const CONTROL_PLANE_SCHEMA: "control-plane/v1";
@@ -445,6 +454,10 @@ export type Adapter = {
     render: (verdict: Verdict, event: ToolCallEvent, options?: {
         soleGate?: boolean;
     }) => NativeResponse;
+    /**
+     * the native event name this host uses for each {@link EventKind}, for a conformance probe of a kind no fixture produced. Optional: a kind absent here (`unknown` always, plus any kind this transport does not carry) is probed with a marker name, which takes the adapter's unrecognized-event branch. Never read at runtime — `parse` stamps the real name on `meta.native_event`.
+     */
+    NATIVE_EVENT_FOR?: Record<string, string> | undefined;
     /**
      * per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. SCOPE — a row describes the ALLOW path only. An enforceable deny may drop more: Gemini's exit-2 System Block returns no stdout at all, so a deny there carries no `additional_context` whatever the row says. Do not read this map to infer what a deny delivers. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
      */
