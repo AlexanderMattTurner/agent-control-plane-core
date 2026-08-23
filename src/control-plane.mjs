@@ -33,6 +33,14 @@
  * field, a new modeled tool, a new tool alias) is backward-compatible and stays
  * at v1; RENAMING or REMOVING a field, or changing a decision/event vocabulary,
  * is breaking and bumps the version.
+ *
+ * That version covers the WIRE shapes an event or verdict carries, not the
+ * {@link Adapter} interface an integrator implements. A new REQUIRED adapter
+ * member breaks every third-party adapter while every event on the wire stays
+ * byte-identical, so it is a package-semver break and leaves
+ * {@link CONTROL_PLANE_SCHEMA} alone. `UNRENDERED_FIELDS` is one: adding it is
+ * a one-line change per adapter, and the conformance harness names the member
+ * and the migration rather than throwing from inside itself.
  */
 
 /** Wire identifier for this schema version; bump on a breaking shape change. */

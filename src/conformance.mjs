@@ -46,6 +46,13 @@ const DRIFT_PROBE_NATIVE = Object.freeze({
  * channel, where comparing two whole renders does not.
  */
 const CONTENT_PROBE_SENTINEL = "acpc-conformance-content-probe-b6f1";
+
+/**
+ * `meta.native_event` on a synthesized probe event — a name no host uses, so an
+ * adapter that selects its output schema from that field takes its
+ * unrecognized-event branch rather than a fallback naming a real one.
+ */
+const PROBE_NATIVE_EVENT = "acpc-conformance-synthesized-event";
 const CONTENT_PROBE_VALUE = Object.freeze({
   // The sentinel is the VALUE, never a key: an adapter that forwards an input's
   // key set while dropping the values would serialize a sentinel KEY and pass,
@@ -81,6 +88,15 @@ if (
  * @param {any} assert
  */
 function assertEveryKindHasARow(adapter, assert) {
+  // An adapter written against the earlier contract has no map at all, and
+  // `lookup` would throw a bare TypeError on it. Name the missing member and its
+  // one-line migration instead — a third-party adapter's author is who reads
+  // this, and a stack trace into the harness tells them nothing.
+  assert.ok(
+    adapter.UNRENDERED_FIELDS !== null &&
+      typeof adapter.UNRENDERED_FIELDS === "object",
+    `${adapter.AGENT}: adapter declares no UNRENDERED_FIELDS — every adapter needs one row per EventKind naming the VERDICT_CONTENT_FIELDS this host has no channel for (UNRENDERED_ON_UNKNOWN for a kind that carries none, readonlySet([]) for one that carries all three)`,
+  );
   for (const kind of Object.values(EventKind))
     assert.ok(
       lookup(adapter.UNRENDERED_FIELDS, kind) !== undefined,
@@ -116,8 +132,14 @@ function assertEveryKindRenders(adapter, byKind, assert, seen) {
  * `prompt_submit` still carries a `tool` the contract says is null there, and
  * still names `PreToolUse` on `meta.native_event` — so an adapter that picks its
  * native schema from that field would be probed about the wrong channel. The
- * synthesized event drops what the kind cannot carry, and drops `native_event`
- * rather than carrying a wrong one.
+ * synthesized event drops what the kind cannot carry, and names
+ * {@link PROBE_NATIVE_EVENT} rather than a real native event it is not.
+ *
+ * The marker is a value, not an absence, because `parse` always stamps this
+ * field: an adapter reading `undefined` there takes a fallback branch no real
+ * event reaches, and Codex's falls back to `PreToolUse` — the exact wrong name
+ * this helper exists to avoid. An unrecognized name takes the branch an
+ * unrecognized native event should.
  * @param {Record<string, import("./control-plane.mjs").ToolCallEvent>} byKind
  * @param {string} kind
  * @returns {import("./control-plane.mjs").ToolCallEvent}
@@ -126,8 +148,7 @@ function coherentEvent(byKind, kind) {
   const [seed] = Object.values(byKind);
   const carriesTool =
     kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL;
-  const { native_event, ...meta } = seed.meta ?? {};
-  void native_event;
+  const meta = { ...(seed.meta ?? {}), native_event: PROBE_NATIVE_EVENT };
   const { response, ...rest } = seed;
   void response;
   return {

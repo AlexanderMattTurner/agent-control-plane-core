@@ -277,6 +277,19 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     assert.equal(UNRENDERED_ON_UNKNOWN.size, 3);
   });
 
+  it("names the missing member when an adapter declares no UNRENDERED_FIELDS", () => {
+    // An adapter written against the earlier contract: the map is absent
+    // entirely, and reading a row off it throws a bare TypeError from inside
+    // the harness. The author reading that is a third-party adapter's, so the
+    // failure has to name the member and how to add it.
+    const { UNRENDERED_FIELDS, ...legacy } = echoAdapter;
+    void UNRENDERED_FIELDS;
+    assert.throws(
+      () => run(/** @type {any} */ (legacy), fullFixtures()),
+      /declares no UNRENDERED_FIELDS .* one row per EventKind/s,
+    );
+  });
+
   it("throws when UNRENDERED_FIELDS has no row for a rendered kind", () => {
     // Read as "every field reaches a channel", a missing row tells a consumer
     // the opposite of the truth on a transport that carries none.
@@ -305,7 +318,9 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     // Re-labelling a pre_tool event leaves a `tool` the contract says is null
     // on a prompt/session kind, and a `native_event` naming the wrong host
     // event — an adapter picking its schema from either is probed about a
-    // channel that is not the one under test.
+    // channel that is not the one under test. The marker name is what an
+    // adapter sees instead: `parse` always stamps this field, so leaving it
+    // absent sends a renderer down a fallback no real event reaches.
     const seen = [];
     const recording = {
       ...echoAdapter,
@@ -317,7 +332,10 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     run(recording, fullFixtures());
     for (const event of seen.filter((e) => e.event === "prompt_submit")) {
       assert.equal(event.tool, null);
-      assert.equal(event.meta?.native_event, undefined);
+      assert.equal(
+        event.meta?.native_event,
+        "acpc-conformance-synthesized-event",
+      );
       assert.equal("response" in event, false);
     }
   });

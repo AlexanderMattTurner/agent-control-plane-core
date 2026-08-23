@@ -22,6 +22,10 @@ the prose from the release's commits.
 
 - `VERDICT_CONTENT_FIELDS` and `UNRENDERED_ON_UNKNOWN` on the contract, and `POST_TOOL_REDACTION_UNSUPPORTED` on the barrel. Every adapter exports `UNRENDERED_FIELDS`, declaring for every `EventKind` which `Verdict` content fields the host has no native channel for. Conformance rule ⑩ holds each adapter to its declaration in both directions and refuses a missing row, so a field that reaches no channel must be declared and a declared drop that still ships the value fails. The Codex adapter declares `mutated_output` and `additional_context` dropped; Amp declares all three.
 
+### Changed
+
+- `UNRENDERED_FIELDS` is REQUIRED on every adapter, so a third-party adapter needs one row per `EventKind` before it passes conformance — `UNRENDERED_ON_UNKNOWN` for a kind whose transport carries none, `readonlySet([])` for one that carries all three. The wire shapes are unchanged, so `CONTROL_PLANE_SCHEMA` stays `control-plane/v1`; the break is in the adapter interface, and the harness names the missing member rather than throwing from inside itself.
+
 ## [0.3.0] - 2026-08-10
 
 ### Added
