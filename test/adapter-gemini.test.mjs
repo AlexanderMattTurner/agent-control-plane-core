@@ -101,10 +101,9 @@ describe("gemini render: AfterTool has no output-mutation channel", () => {
   });
 
   it("a redaction verdict warns the model instead of rendering a bare allow", () => {
-    // The leak this closes: AfterTool is gated, so a redaction verdict reaches
-    // this adapter, and Gemini documents no field to replace the output with.
-    // The render used to be an empty exit 0, so the raw output reached the model
-    // reading as vetted.
+    // AfterTool is gated, so a redaction verdict reaches this adapter, and
+    // Gemini documents no field to replace the output with. An empty exit 0
+    // here hands the model the raw output with nothing marking it unvetted.
     const out = geminiAdapter.render(
       { decision: "allow", mutated_output: "cat secrets\n[REDACTED]" },
       event,

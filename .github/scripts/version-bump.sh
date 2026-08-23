@@ -404,6 +404,9 @@ else
     # PR's own commit and put it back only in the squash subject below, which is
     # the message that actually lands on main and is what needs to suppress the
     # retrigger.
+    # allow-externalized-marker: this amends the release-docs commit on a branch
+    # this script just created and has not pushed, never published history, so an
+    # inline workflow guard scanning for a history rewrite has nothing to catch.
     git commit --amend -m "docs: release $NEW_VERSION"
     PR_FAILED=0
     if ! retry_cmd 4 2 git push origin "$RELEASE_BRANCH"; then
