@@ -90,6 +90,17 @@ export function isCoverageStatus(status: unknown): boolean;
  */
 export function classifyCallClass(tool: string | null, native?: Record<string, unknown>): string;
 /**
+ * A genuinely immutable set of `values`, for a row a consumer can reach.
+ *
+ * `Object.freeze` does not freeze a Set's CONTENTS — `frozen.delete(x)` still
+ * succeeds — and these rows are shared between adapters, so one `delete` would
+ * make several declarations report a channel their renders still discard. The
+ * wrapper holds the Set privately and exposes only the read half, frozen.
+ * @param {Iterable<string>} values
+ * @returns {ReadonlySet<string>}
+ */
+export function readonlySet(values: Iterable<string>): ReadonlySet<string>;
+/**
  * The translator for one agent's protocol. `parse` maps a native event to a
  * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the
  * integration mode / enforcement flags on `meta`); `render` maps a {@link Verdict}
@@ -416,7 +427,7 @@ export const VERDICT_CONTENT_FIELDS: readonly string[];
  * refuses for the veto: the caller reads a mutation as applied while the host
  * ignores the key it was written into.
  */
-export const UNRENDERED_ON_UNKNOWN: Readonly<Set<string>>;
+export const UNRENDERED_ON_UNKNOWN: ReadonlySet<string>;
 /**
  * The translator for one agent's protocol. `parse` maps a native event to a
  * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the

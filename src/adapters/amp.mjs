@@ -25,6 +25,7 @@ import {
   makeEvent,
   normalizeVerdict,
   nativeResponse,
+  readonlySet,
   VERDICT_CONTENT_FIELDS,
   collectPassthrough,
   asObject,
@@ -80,7 +81,7 @@ export const UNRENDERED_FIELDS = Object.freeze(
   Object.fromEntries(
     Object.values(EventKind).map((kind) => [
       kind,
-      Object.freeze(new Set(VERDICT_CONTENT_FIELDS)),
+      readonlySet(VERDICT_CONTENT_FIELDS),
     ]),
   ),
 );

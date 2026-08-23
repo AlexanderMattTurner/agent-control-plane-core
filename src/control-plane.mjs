@@ -402,15 +402,40 @@ export const VERDICT_CONTENT_FIELDS = Object.freeze([
 ]);
 
 /**
+ * A genuinely immutable set of `values`, for a row a consumer can reach.
+ *
+ * `Object.freeze` does not freeze a Set's CONTENTS — `frozen.delete(x)` still
+ * succeeds — and these rows are shared between adapters, so one `delete` would
+ * make several declarations report a channel their renders still discard. The
+ * wrapper holds the Set privately and exposes only the read half, frozen.
+ * @param {Iterable<string>} values
+ * @returns {ReadonlySet<string>}
+ */
+export function readonlySet(values) {
+  const inner = new Set(values);
+  return Object.freeze(
+    /** @type {ReadonlySet<string>} */ ({
+      has: (value) => inner.has(value),
+      keys: () => inner.keys(),
+      values: () => inner.values(),
+      entries: () => inner.entries(),
+      forEach: (fn, thisArg) => inner.forEach(fn, thisArg),
+      [Symbol.iterator]: () => inner[Symbol.iterator](),
+      get size() {
+        return inner.size;
+      },
+    }),
+  );
+}
+
+/**
  * The `UNRENDERED_FIELDS` row every adapter uses for {@link EventKind.UNKNOWN}.
  * An event the adapter could not name is one whose host channels nobody
  * established, so claiming any of them is the same fail-open `assertGatedKinds`
  * refuses for the veto: the caller reads a mutation as applied while the host
  * ignores the key it was written into.
  */
-export const UNRENDERED_ON_UNKNOWN = Object.freeze(
-  new Set(VERDICT_CONTENT_FIELDS),
-);
+export const UNRENDERED_ON_UNKNOWN = readonlySet(VERDICT_CONTENT_FIELDS);
 
 /**
  * The translator for one agent's protocol. `parse` maps a native event to a

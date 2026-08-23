@@ -47,7 +47,11 @@ const DRIFT_PROBE_NATIVE = Object.freeze({
  */
 const CONTENT_PROBE_SENTINEL = "acpc-conformance-content-probe-b6f1";
 const CONTENT_PROBE_VALUE = Object.freeze({
-  mutated_input: Object.freeze({ [CONTENT_PROBE_SENTINEL]: true }),
+  // The sentinel is the VALUE, never a key: an adapter that forwards an input's
+  // key set while dropping the values would serialize a sentinel KEY and pass,
+  // which is exactly the self-consistent broken render this rule exists to
+  // catch independently of the golden fixtures.
+  mutated_input: Object.freeze({ command: CONTENT_PROBE_SENTINEL }),
   mutated_output: CONTENT_PROBE_SENTINEL,
   additional_context: CONTENT_PROBE_SENTINEL,
 });

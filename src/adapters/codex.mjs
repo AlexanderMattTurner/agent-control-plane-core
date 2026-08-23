@@ -27,6 +27,7 @@ import {
   normalizeVerdict,
   nativeResponse,
   UNRENDERED_ON_UNKNOWN,
+  readonlySet,
   collectPassthrough,
   asObject,
   asString,
@@ -83,9 +84,7 @@ export const UNRENDERED_FIELDS = Object.freeze({
   ...Object.fromEntries(
     Object.values(EventKind).map((kind) => [kind, UNRENDERED_ON_UNKNOWN]),
   ),
-  [EventKind.PRE_TOOL]: Object.freeze(
-    new Set(["mutated_output", "additional_context"]),
-  ),
+  [EventKind.PRE_TOOL]: readonlySet(["mutated_output", "additional_context"]),
 });
 
 /** Minimum Codex version whose hook can actually veto a tool call. */

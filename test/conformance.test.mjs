@@ -12,6 +12,7 @@ import {
 import {
   CallClass,
   coverageAllowsVeto,
+  UNRENDERED_ON_UNKNOWN,
   VERDICT_CONTENT_FIELDS,
 } from "../src/control-plane.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
@@ -252,6 +253,21 @@ describe("conformance harness self-tests (non-vacuity)", () => {
       "rule ⑧ fired on an observe-only render it must exempt",
     );
     assert.match(String(err), /enforcement honesty is untested/);
+  });
+
+  it("a declared row cannot be mutated out from under the contract", () => {
+    // Object.freeze does not freeze a Set's CONTENTS, and these rows are shared
+    // between adapters — so one `delete` would make several declarations report
+    // a channel their renders still discard.
+    for (const row of [
+      UNRENDERED_ON_UNKNOWN,
+      claudeAdapter.UNRENDERED_FIELDS.pre_tool,
+    ]) {
+      assert.throws(() => row.delete("mutated_output"));
+      assert.throws(() => row.add("bogus"));
+    }
+    assert.equal(UNRENDERED_ON_UNKNOWN.has("mutated_output"), true);
+    assert.equal(UNRENDERED_ON_UNKNOWN.size, 3);
   });
 
   it("throws when UNRENDERED_FIELDS has no row for a rendered kind", () => {

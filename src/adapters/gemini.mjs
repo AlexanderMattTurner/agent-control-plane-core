@@ -44,6 +44,7 @@ import {
   normalizeVerdict,
   nativeResponse,
   UNRENDERED_ON_UNKNOWN,
+  readonlySet,
   collectPassthrough,
   asObject,
   asString,
@@ -89,9 +90,7 @@ assertGatedKinds(GATED_EVENTS, AGENT);
 // The kinds whose only content channel is context: the tool has already run
 // (or there is no tool), so neither an input nor an output replacement has
 // anywhere to go.
-const CONTEXT_ONLY = Object.freeze(
-  new Set(["mutated_input", "mutated_output"]),
-);
+const CONTEXT_ONLY = readonlySet(["mutated_input", "mutated_output"]);
 
 /**
  * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each event
@@ -115,7 +114,7 @@ export const UNRENDERED_FIELDS = Object.freeze({
   ...Object.fromEntries(
     Object.values(EventKind).map((kind) => [kind, UNRENDERED_ON_UNKNOWN]),
   ),
-  [EventKind.PRE_TOOL]: Object.freeze(new Set(["mutated_output"])),
+  [EventKind.PRE_TOOL]: readonlySet(["mutated_output"]),
   [EventKind.POST_TOOL]: CONTEXT_ONLY,
   [EventKind.PROMPT_SUBMIT]: CONTEXT_ONLY,
 });
