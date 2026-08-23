@@ -96,6 +96,17 @@ const MIN_ENFORCING_SEMVER = `${MIN_ENFORCING_VERSION[0]}.${MIN_ENFORCING_VERSIO
 // Both native events gate a tool call; PermissionRequest is the ask-tier veto.
 const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest"]);
 
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. Codex routes every other native event into `unknown`, which has
+ * no native name, so `pre_tool` is the only row.
+ * @type {Record<string, string>}
+ */
+export const NATIVE_EVENT_FOR = Object.freeze({
+  [EventKind.PRE_TOOL]: "PreToolUse",
+});
+
 // Codex drops an enforced deny that carries no (or an empty) reason and runs the
 // tool, so a reasonless enforced deny still renders a non-empty one.
 export const DEFAULT_DENY_REASON = "blocked by monitor";
@@ -247,6 +258,7 @@ export const codexAdapter = {
   INTEGRATION_MODE,
   COVERAGE,
   UNRENDERED_FIELDS,
+  NATIVE_EVENT_FOR,
   parse,
   render,
 };

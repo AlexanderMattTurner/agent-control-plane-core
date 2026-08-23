@@ -11,6 +11,7 @@ import {
 } from "../src/conformance.mjs";
 import {
   CallClass,
+  EventKind,
   coverageAllowsVeto,
   UNRENDERED_ON_UNKNOWN,
   VERDICT_CONTENT_FIELDS,
@@ -338,6 +339,26 @@ describe("conformance harness self-tests (non-vacuity)", () => {
       );
       assert.equal("response" in event, false);
     }
+  });
+
+  it("probes with the adapter's own native event when it names one", () => {
+    // The marker is the fallback, not the answer: an adapter that says which
+    // native event a kind uses gets probed on the branch that kind really
+    // takes, rather than on its unrecognized-event branch.
+    const seen = [];
+    const naming = {
+      ...echoAdapter,
+      NATIVE_EVENT_FOR: { [EventKind.PROMPT_SUBMIT]: "UserPromptSubmit" },
+      render: (verdict, event) => {
+        seen.push(event);
+        return echoAdapter.render(verdict, event);
+      },
+    };
+    run(naming, fullFixtures());
+    const probed = seen.filter((e) => e.event === EventKind.PROMPT_SUBMIT);
+    assert.ok(probed.length > 0);
+    for (const event of probed)
+      assert.equal(event.meta?.native_event, "UserPromptSubmit");
   });
 
   it("probes a declared row for a kind no fixture produces", () => {

@@ -118,7 +118,7 @@ function assertEveryKindRenders(adapter, byKind, assert, seen) {
   for (const kind of Object.values(EventKind))
     assertContentChannels(
       adapter,
-      lookup(byKind, kind) ?? coherentEvent(byKind, kind),
+      lookup(byKind, kind) ?? coherentEvent(adapter, byKind, kind),
       `every-kind probe '${kind}'`,
       assert,
       seen,
@@ -135,20 +135,28 @@ function assertEveryKindRenders(adapter, byKind, assert, seen) {
  * synthesized event drops what the kind cannot carry, and names
  * {@link PROBE_NATIVE_EVENT} rather than a real native event it is not.
  *
- * The marker is a value, not an absence, because `parse` always stamps this
- * field: an adapter reading `undefined` there takes a fallback branch no real
- * event reaches, and Codex's falls back to `PreToolUse` — the exact wrong name
- * this helper exists to avoid. An unrecognized name takes the branch an
- * unrecognized native event should.
+ * `NATIVE_EVENT_FOR` is the adapter's own answer for that field, so a render
+ * that selects its output schema from the native name takes the branch this
+ * kind really takes. {@link PROBE_NATIVE_EVENT} is the fallback for a kind the
+ * adapter names no native event for — `unknown` by definition, and any kind its
+ * transport does not carry. The marker is a value rather than an absence
+ * because `parse` always stamps this field: reading `undefined` sends a
+ * renderer down a fallback no real event reaches, and Codex's names
+ * `PreToolUse`.
+ * @param {import("./control-plane.mjs").Adapter} adapter
  * @param {Record<string, import("./control-plane.mjs").ToolCallEvent>} byKind
  * @param {string} kind
  * @returns {import("./control-plane.mjs").ToolCallEvent}
  */
-function coherentEvent(byKind, kind) {
+function coherentEvent(adapter, byKind, kind) {
   const [seed] = Object.values(byKind);
   const carriesTool =
     kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL;
-  const meta = { ...(seed.meta ?? {}), native_event: PROBE_NATIVE_EVENT };
+  const meta = {
+    ...(seed.meta ?? {}),
+    native_event:
+      lookup(adapter.NATIVE_EVENT_FOR ?? {}, kind) ?? PROBE_NATIVE_EVENT,
+  };
   const { response, ...rest } = seed;
   void response;
   return {

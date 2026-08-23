@@ -148,6 +148,19 @@ const NATIVE_TO_KIND = Object.freeze({
   [HookEvent.BEFORE_AGENT]: EventKind.PROMPT_SUBMIT,
 });
 
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. `session_start` and `unknown` have no Gemini event and are
+ * absent.
+ * @type {Record<string, string>}
+ */
+export const NATIVE_EVENT_FOR = Object.freeze(
+  Object.fromEntries(
+    Object.entries(NATIVE_TO_KIND).map(([native, kind]) => [kind, native]),
+  ),
+);
+
 // Only the fields the adapter maps are consumed; everything else (timestamp,
 // mcp_context, original_request_name, …) survives verbatim in meta.passthrough.
 const CONSUMED = new Set([
@@ -427,6 +440,7 @@ export const geminiAdapter = {
   INTEGRATION_MODE,
   COVERAGE,
   UNRENDERED_FIELDS,
+  NATIVE_EVENT_FOR,
   parse,
   render,
 };

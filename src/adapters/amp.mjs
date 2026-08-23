@@ -64,6 +64,17 @@ export const COVERAGE = Object.freeze({
  * after `assertGatedKinds` has already run.
  */
 const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
+
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. Amp's observer names every event `delegate` and reaches no
+ * other kind.
+ * @type {Record<string, string>}
+ */
+export const NATIVE_EVENT_FOR = Object.freeze({
+  [EventKind.PRE_TOOL]: "delegate",
+});
 assertGatedKinds(GATED_EVENTS, AGENT);
 
 /**
@@ -209,6 +220,7 @@ export const ampAdapter = {
   INTEGRATION_MODE,
   COVERAGE,
   UNRENDERED_FIELDS,
+  NATIVE_EVENT_FOR,
   parse,
   render,
 };
