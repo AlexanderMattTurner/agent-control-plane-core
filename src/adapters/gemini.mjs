@@ -109,7 +109,7 @@ const CONTEXT_ONLY = Object.freeze(
  * `systemMessage` instead, so the model is told the output above it is
  * unredacted rather than left to read it as vetted. The raw output still reaches
  * the model; a guardrail that must actually redact has to deny.
- * @type {Record<string, ReadonlySet<string>>}
+ * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS = Object.freeze({
   [EventKind.PRE_TOOL]: Object.freeze(new Set(["mutated_output"])),

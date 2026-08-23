@@ -100,7 +100,7 @@ export function classifyCallClass(tool: string | null, native?: Record<string, u
  * @property {Record<string, "covered"|"partial"|"uncovered"|"unknown">} COVERAGE per-{@link CallClass} hook-coverage status; must classify every {@link CALL_CLASSES} entry
  * @property {(native: any) => ToolCallEvent} parse
  * @property {(verdict: Verdict, event: ToolCallEvent, options?: { soleGate?: boolean }) => NativeResponse} render
- * @property {Record<string, ReadonlySet<string>>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. A kind absent from the map declares that every content field reaches a channel; the conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
+ * @property {Record<string, ReadonlySet<string>|undefined>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. An OMITTED kind declares that every content field reaches a channel there, so the value type carries `undefined` — a consumer must handle a missing row rather than index straight into `.has(...)`. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
  */
 /**
  * Build a normalized {@link ToolCallEvent}, stamping the schema version. Pure —
@@ -410,6 +410,14 @@ export const CoverageStatus: Readonly<{
  */
 export const VERDICT_CONTENT_FIELDS: readonly string[];
 /**
+ * The `UNRENDERED_FIELDS` row every adapter uses for {@link EventKind.UNKNOWN}.
+ * An event the adapter could not name is one whose host channels nobody
+ * established, so claiming any of them is the same fail-open `assertGatedKinds`
+ * refuses for the veto: the caller reads a mutation as applied while the host
+ * ignores the key it was written into.
+ */
+export const UNRENDERED_ON_UNKNOWN: Readonly<Set<string>>;
+/**
  * The translator for one agent's protocol. `parse` maps a native event to a
  * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the
  * integration mode / enforcement flags on `meta`); `render` maps a {@link Verdict}
@@ -427,9 +435,9 @@ export type Adapter = {
         soleGate?: boolean;
     }) => NativeResponse;
     /**
-     * per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. A kind absent from the map declares that every content field reaches a channel; the conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
+     * per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. An OMITTED kind declares that every content field reaches a channel there, so the value type carries `undefined` — a consumer must handle a missing row rather than index straight into `.has(...)`. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
      */
-    UNRENDERED_FIELDS: Record<string, ReadonlySet<string>>;
+    UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
 };
 export type CoverageStatusValue = "covered" | "partial" | "uncovered" | "unknown";
 /**

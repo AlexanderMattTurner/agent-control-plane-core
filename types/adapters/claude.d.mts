@@ -49,9 +49,16 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * replace anywhere else). `additionalContext` is the one channel every kind
  * carries. The conformance harness holds this to what `render` actually emits,
  * in both directions.
- * @type {Record<string, ReadonlySet<string>>}
+ *
+ * `additionalContext` on PreToolUse is inherited behaviour, not a checked claim:
+ * Claude Code documents the field for UserPromptSubmit, SessionStart and
+ * PostToolUse, and this adapter has emitted it on PreToolUse since before the
+ * declaration existed. Rule ⑩ can see that the value reaches the wire, never
+ * that the host reads the key — confirm it against the hook reference before
+ * relying on it.
+ * @type {Record<string, ReadonlySet<string>|undefined>}
  */
-export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string>>;
+export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
 /** Claude Code native hook event names (the `hook_event_name` field). */
 export const HookEvent: Readonly<{
     PRE_TOOL_USE: "PreToolUse";

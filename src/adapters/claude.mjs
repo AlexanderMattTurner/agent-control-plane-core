@@ -95,7 +95,7 @@ const CONTEXT_ONLY = Object.freeze(
  * declaration existed. Rule ⑩ can see that the value reaches the wire, never
  * that the host reads the key — confirm it against the hook reference before
  * relying on it.
- * @type {Record<string, ReadonlySet<string>>}
+ * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS = Object.freeze({
   [EventKind.PRE_TOOL]: Object.freeze(new Set(["mutated_output"])),

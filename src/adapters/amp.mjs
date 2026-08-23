@@ -73,7 +73,7 @@ assertGatedKinds(GATED_EVENTS, AGENT);
  * context, so ALL THREE are dropped on every kind, the same gap `reason` has
  * here (Amp surfaces the helper's own stderr instead). A guardrail that needs
  * any of them cannot use Amp as its only integration.
- * @type {Record<string, ReadonlySet<string>>}
+ * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS = Object.freeze({
   [EventKind.PRE_TOOL]: Object.freeze(new Set(VERDICT_CONTENT_FIELDS)),

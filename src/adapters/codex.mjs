@@ -77,7 +77,7 @@ assertGatedKinds(GATED_EVENTS, AGENT);
  * guardrail that must redact has to deny the call instead. Inventing a native
  * key would be worse than the visible gap, because the host ignores it and the
  * caller reads the render as a redaction applied.
- * @type {Record<string, ReadonlySet<string>>}
+ * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS = Object.freeze({
   [EventKind.PRE_TOOL]: Object.freeze(

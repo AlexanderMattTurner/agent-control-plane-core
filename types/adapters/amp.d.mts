@@ -37,9 +37,9 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * context, so ALL THREE are dropped on every kind, the same gap `reason` has
  * here (Amp surfaces the helper's own stderr instead). A guardrail that needs
  * any of them cannot use Amp as its only integration.
- * @type {Record<string, ReadonlySet<string>>}
+ * @type {Record<string, ReadonlySet<string>|undefined>}
  */
-export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string>>;
+export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
 /** @type {import("../control-plane.mjs").Adapter} */
 export const ampAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;

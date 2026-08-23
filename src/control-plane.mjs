@@ -423,7 +423,7 @@ export const UNRENDERED_ON_UNKNOWN = Object.freeze(
  * @property {Record<string, "covered"|"partial"|"uncovered"|"unknown">} COVERAGE per-{@link CallClass} hook-coverage status; must classify every {@link CALL_CLASSES} entry
  * @property {(native: any) => ToolCallEvent} parse
  * @property {(verdict: Verdict, event: ToolCallEvent, options?: { soleGate?: boolean }) => NativeResponse} render
- * @property {Record<string, ReadonlySet<string>>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. A kind absent from the map declares that every content field reaches a channel; the conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
+ * @property {Record<string, ReadonlySet<string>|undefined>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. An OMITTED kind declares that every content field reaches a channel there, so the value type carries `undefined` — a consumer must handle a missing row rather than index straight into `.has(...)`. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
  */
 
 /**

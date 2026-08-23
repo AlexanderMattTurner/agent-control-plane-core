@@ -97,13 +97,27 @@ export function assertAliasedInputsCanonical(fixturesList: any[], assert: any): 
  *      throwing away the objection entirely. The strongest honest signal a
  *      transport has left — an ask, an advisory body — must survive. An
  *      OBSERVE_ONLY render is exempt: it has no pre-emption channel to differ in.
+ *   9. drift honesty: `parse` must ANSWER an event name no host emits with
+ *      EventKind.UNKNOWN rather than throw, and a deny rendered on that answer
+ *      must not claim a block. Probed on a synthesized payload, since an adapter
+ *      whose parse can never emit UNKNOWN has no such fixture to write.
+ *  10. content-channel honesty: for every parsed event, each Verdict content
+ *      field (mutated_input, mutated_output, additional_context) either reaches
+ *      the host's wire or is DECLARED unreachable in the adapter's
+ *      UNRENDERED_FIELDS — and the render must agree with the declaration in
+ *      both directions. Without it an adapter with no channel for a field just
+ *      ignored it, so a redaction verdict rendered a bare allow and the
+ *      unredacted output reached the model with nothing saying so. The fields
+ *      that DID reach a wire come back as `contentFieldsSeen`; a suite covering
+ *      several adapters asserts their union to keep the positive half of the
+ *      rule non-vacuous, since no single host has a channel for all three.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }: {
     adapter: import("./control-plane.mjs").Adapter;
@@ -114,6 +128,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }: {
     renders: number;
     decisionsSeen: Set<string>;
     mutationSeen: boolean;
+    contentFieldsSeen: Set<string>;
     enforcedDenySeen: boolean;
     vetoableDenySeen: boolean;
     unknownKindSeen: boolean;

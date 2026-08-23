@@ -69,9 +69,9 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * guardrail that must redact has to deny the call instead. Inventing a native
  * key would be worse than the visible gap, because the host ignores it and the
  * caller reads the render as a redaction applied.
- * @type {Record<string, ReadonlySet<string>>}
+ * @type {Record<string, ReadonlySet<string>|undefined>}
  */
-export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string>>;
+export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION: readonly number[];
 export const DEFAULT_DENY_REASON: "blocked by monitor";

@@ -59,13 +59,15 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * `systemMessage` instead, so the model is told the output above it is
  * unredacted rather than left to read it as vetted. The raw output still reaches
  * the model; a guardrail that must actually redact has to deny.
- * @type {Record<string, ReadonlySet<string>>}
+ * @type {Record<string, ReadonlySet<string>|undefined>}
  */
-export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string>>;
+export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
 /**
  * What the model is told when a verdict redacts an AfterTool output Gemini has
- * no channel to replace. Exported because a caller that composes its own
- * `systemMessage` needs to recognize it, and because a test pins the text.
+ * no channel to replace. Exported so a caller composing its own `systemMessage`
+ * can recognize it; recognize it with `endsWith`, never equality, because a
+ * verdict carrying `additional_context` too puts that context first (see
+ * {@link decisionBody}).
  */
 export const POST_TOOL_REDACTION_UNSUPPORTED: string;
 /** Gemini CLI native hook event names (the `hook_event_name` field). */
