@@ -27,6 +27,7 @@ the prose from the release's commits.
 - `UNRENDERED_FIELDS` is REQUIRED on every adapter, so a third-party adapter needs one row per `EventKind` before it passes conformance — `UNRENDERED_ON_UNKNOWN` for a kind whose transport carries none, `readonlySet([])` for one that carries all three. The wire shapes are unchanged, so `CONTROL_PLANE_SCHEMA` stays `control-plane/v1`; the break is in the adapter interface, and the harness names the missing member rather than throwing from inside itself.
 - An optional `NATIVE_EVENT_FOR` on the adapter, naming the native event each `EventKind` uses. Conformance carries it on a probe for a kind no fixture produced, so a render that picks its output schema from the native name is exercised on the branch that kind really takes. A kind the adapter names none for — `unknown` always — is probed with a marker name that takes the unrecognized-event branch.
 - Conformance refuses an `UNRENDERED_FIELDS` row that is not a `ReadonlySet`. A `null` row answered nothing at every `has`, so the adapter claimed every channel, and a has-only stand-in passed while a consumer that iterates the row or reads its `size` failed at runtime.
+- A synthesized conformance probe for a kind no fixture produces now drops `meta.native_tool` on a kind that carries no tool, and seeds a tool kind from a tool-bearing event. Both were events no `parse` produces, so a renderer that reads either could be certified on the wrong branch.
 
 ## [0.3.0] - 2026-08-10
 

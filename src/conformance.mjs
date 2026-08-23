@@ -186,8 +186,12 @@ function coherentEvent(adapter, byKind, kind) {
       lookup(byKind, EventKind.POST_TOOL))
     : undefined;
   const seed = preferred ?? Object.values(byKind)[0];
+  // `native_tool` names the tool this event is about, so a kind that carries no
+  // tool must not carry it either — an event `parse` never produces.
+  const { native_tool, ...seedMeta } = seed.meta ?? {};
   const meta = {
-    ...(seed.meta ?? {}),
+    ...seedMeta,
+    ...(carriesTool && native_tool !== undefined ? { native_tool } : {}),
     native_event:
       lookup(adapter.NATIVE_EVENT_FOR ?? {}, kind) ?? PROBE_NATIVE_EVENT,
   };

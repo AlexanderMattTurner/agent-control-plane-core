@@ -344,14 +344,29 @@ describe("conformance harness self-tests (non-vacuity)", () => {
         return echoAdapter.render(verdict, event);
       },
     };
-    run(recording, fullFixtures());
-    for (const event of seen.filter((e) => e.event === "prompt_submit")) {
+    // The seed carries `native_tool`, so the assertion below is about a field
+    // that was really there — without it the probe would pass on a seed that
+    // never had one. Stamped on both sides of the fixture, since rule ① compares
+    // `parse` against the golden event.
+    const fixtures = fullFixtures();
+    for (const testCase of fixtures.cases) {
+      testCase.native.event.meta.native_tool = "Bash";
+      testCase.event.meta.native_tool = "Bash";
+    }
+    run(recording, fixtures);
+    const seeded = seen.filter((e) => e.event === "pre_tool");
+    assert.ok(seeded.length > 0);
+    for (const event of seeded) assert.equal(event.meta?.native_tool, "Bash");
+    const probes = seen.filter((e) => e.event === "prompt_submit");
+    assert.ok(probes.length > 0);
+    for (const event of probes) {
       assert.equal(event.tool, null);
       assert.equal(
         event.meta?.native_event,
         "acpc-conformance-synthesized-event",
       );
       assert.equal("response" in event, false);
+      assert.equal("native_tool" in (event.meta ?? {}), false);
     }
   });
 
