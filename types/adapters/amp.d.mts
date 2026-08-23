@@ -30,6 +30,16 @@ export const INTEGRATION_MODE: "external_hook";
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel, so `render`
+ * drops them. Amp's transport is the exit code and nothing else — there is no
+ * stdout body to carry a replacement input, a replacement output or extra
+ * context, so ALL THREE are dropped on every kind, the same gap `reason` has
+ * here (Amp surfaces the helper's own stderr instead). A guardrail that needs
+ * any of them cannot use Amp as its only integration.
+ * @type {Record<string, ReadonlySet<string>>}
+ */
+export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string>>;
 /** @type {import("../control-plane.mjs").Adapter} */
 export const ampAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;

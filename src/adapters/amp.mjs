@@ -25,6 +25,8 @@ import {
   makeEvent,
   normalizeVerdict,
   nativeResponse,
+  VERDICT_CONTENT_FIELDS,
+  UNRENDERED_ON_UNKNOWN,
   collectPassthrough,
   asObject,
   asStringOrNull,
@@ -63,6 +65,20 @@ export const COVERAGE = Object.freeze({
  */
 const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
 assertGatedKinds(GATED_EVENTS, AGENT);
+
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel, so `render`
+ * drops them. Amp's transport is the exit code and nothing else — there is no
+ * stdout body to carry a replacement input, a replacement output or extra
+ * context, so ALL THREE are dropped on every kind, the same gap `reason` has
+ * here (Amp surfaces the helper's own stderr instead). A guardrail that needs
+ * any of them cannot use Amp as its only integration.
+ * @type {Record<string, ReadonlySet<string>>}
+ */
+export const UNRENDERED_FIELDS = Object.freeze({
+  [EventKind.PRE_TOOL]: Object.freeze(new Set(VERDICT_CONTENT_FIELDS)),
+  [EventKind.UNKNOWN]: UNRENDERED_ON_UNKNOWN,
+});
 
 // Amp invokes the delegate for a tool call; the payload carries the tool name +
 // input and the session context. Pinned by fixtures/amp.json.
@@ -182,4 +198,11 @@ export function render(verdict, event) {
 }
 
 /** @type {import("../control-plane.mjs").Adapter} */
-export const ampAdapter = { AGENT, INTEGRATION_MODE, COVERAGE, parse, render };
+export const ampAdapter = {
+  AGENT,
+  INTEGRATION_MODE,
+  COVERAGE,
+  UNRENDERED_FIELDS,
+  parse,
+  render,
+};

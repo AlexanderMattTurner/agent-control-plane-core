@@ -388,6 +388,31 @@ export function classifyCallClass(tool, native) {
  */
 
 /**
+ * The {@link Verdict} fields that carry CONTENT into the agent's stream, as
+ * opposed to the decision itself. Every adapter either renders each one into a
+ * native channel or has no channel for it and drops it; `UNRENDERED_FIELDS`
+ * declares which, and the conformance harness holds each adapter to its own
+ * declaration. `reason` is not listed: it is only live on deny/ask, so it is not
+ * probeable from a single abstaining verdict the way these three are.
+ */
+export const VERDICT_CONTENT_FIELDS = Object.freeze([
+  "mutated_input",
+  "mutated_output",
+  "additional_context",
+]);
+
+/**
+ * The `UNRENDERED_FIELDS` row every adapter uses for {@link EventKind.UNKNOWN}.
+ * An event the adapter could not name is one whose host channels nobody
+ * established, so claiming any of them is the same fail-open `assertGatedKinds`
+ * refuses for the veto: the caller reads a mutation as applied while the host
+ * ignores the key it was written into.
+ */
+export const UNRENDERED_ON_UNKNOWN = Object.freeze(
+  new Set(VERDICT_CONTENT_FIELDS),
+);
+
+/**
  * The translator for one agent's protocol. `parse` maps a native event to a
  * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the
  * integration mode / enforcement flags on `meta`); `render` maps a {@link Verdict}
@@ -398,6 +423,7 @@ export function classifyCallClass(tool, native) {
  * @property {Record<string, "covered"|"partial"|"uncovered"|"unknown">} COVERAGE per-{@link CallClass} hook-coverage status; must classify every {@link CALL_CLASSES} entry
  * @property {(native: any) => ToolCallEvent} parse
  * @property {(verdict: Verdict, event: ToolCallEvent, options?: { soleGate?: boolean }) => NativeResponse} render
+ * @property {Record<string, ReadonlySet<string>>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. A kind absent from the map declares that every content field reaches a channel; the conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
  */
 
 /**

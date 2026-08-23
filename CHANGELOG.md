@@ -12,6 +12,16 @@ the prose from the release's commits.
 
 ## Unreleased
 
+### Fixed
+
+- A `mutated_output` redaction verdict on a Gemini CLI `AfterTool` event rendered a bare exit 0, so the UNREDACTED tool output reached the model with nothing saying so. Gemini documents no output-rewrite field, so the adapter now declares the drop and renders a `systemMessage` warning telling the model the output above it is unvetted. A guardrail that must actually redact has to deny the call on this host.
+- The Gemini adapter no longer emits `hookSpecificOutput.tool_input` on `AfterTool`, and the Claude adapter no longer emits `hookSpecificOutput.updatedToolOutput` on `UserPromptSubmit`/`SessionStart`. Both named a channel the host ignores, which read back to the caller as a mutation that was applied.
+- No adapter writes a verdict's content into an `EventKind.UNKNOWN` render any more. An event the adapter could not name has no established host channel, so Codex's `updatedInput`, Gemini's `systemMessage` and Claude's `additionalContext` are all dropped there. Codex routes every native event but `PreToolUse`/`PermissionRequest` into UNKNOWN, `PostToolUse` included, so this was its ordinary path rather than drift.
+
+### Added
+
+- `VERDICT_CONTENT_FIELDS` and `UNRENDERED_ON_UNKNOWN` on the contract, and `POST_TOOL_REDACTION_UNSUPPORTED` on the barrel. Every adapter exports `UNRENDERED_FIELDS`, declaring per event kind which `Verdict` content fields the host has no native channel for. Conformance rule ⑩ holds each adapter to its declaration in both directions, so a field that reaches no channel must be declared and a declared drop that still ships the value fails. The Codex adapter declares `mutated_output` and `additional_context` dropped; Amp declares all three.
+
 ## [0.3.0] - 2026-08-10
 
 ### Added

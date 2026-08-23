@@ -223,3 +223,43 @@ describe("codex: an unmodelled event is never vetoable, even on an enforcing ver
     );
   });
 });
+
+describe("codex render: an unmodelled event claims no content channel", () => {
+  // Codex routes every native event but PreToolUse/PermissionRequest into
+  // EventKind.UNKNOWN — PostToolUse included. `updatedInput` there names a key
+  // the host ignores while reading to the caller as a mutation applied.
+  const unknown = codexAdapter.parse({
+    hook_event_name: "PostToolUse",
+    version: "9999.0.0",
+    tool_name: "Bash",
+    tool_input: { command: "echo hi" },
+  });
+
+  it("parses PostToolUse as UNKNOWN", () => {
+    assert.equal(unknown.event, "unknown");
+  });
+
+  it("drops mutated_input there, but still carries it on PreToolUse", () => {
+    const dropped = codexAdapter.render(
+      { decision: "allow", mutated_input: { command: "echo safe" } },
+      unknown,
+    );
+    assert.equal(
+      Object.hasOwn(dropped.stdout.hookSpecificOutput, "updatedInput"),
+      false,
+    );
+    const preTool = codexAdapter.parse({
+      hook_event_name: "PreToolUse",
+      version: "9999.0.0",
+      tool_name: "Bash",
+      tool_input: { command: "echo hi" },
+    });
+    assert.deepEqual(
+      codexAdapter.render(
+        { decision: "allow", mutated_input: { command: "echo safe" } },
+        preTool,
+      ).stdout.hookSpecificOutput.updatedInput,
+      { command: "echo safe" },
+    );
+  });
+});

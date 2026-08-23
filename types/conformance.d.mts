@@ -103,7 +103,7 @@ export function assertAliasedInputsCanonical(fixturesList: any[], assert: any): 
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, vetoableDenySeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }: {
     adapter: import("./control-plane.mjs").Adapter;
@@ -116,6 +116,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }: {
     mutationSeen: boolean;
     enforcedDenySeen: boolean;
     vetoableDenySeen: boolean;
+    unknownKindSeen: boolean;
     coverageClassesChecked: Set<string>;
     unenforceableDenyChecks: number;
 };

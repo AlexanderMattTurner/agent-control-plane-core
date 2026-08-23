@@ -9,7 +9,11 @@ import {
   assertToolAliasesCovered,
   assertAliasedInputsCanonical,
 } from "../src/conformance.mjs";
-import { CallClass, coverageAllowsVeto } from "../src/control-plane.mjs";
+import {
+  CallClass,
+  coverageAllowsVeto,
+  VERDICT_CONTENT_FIELDS,
+} from "../src/control-plane.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
 import { codexAdapter } from "../src/adapters/codex.mjs";
 import { ampAdapter } from "../src/adapters/amp.mjs";
@@ -43,10 +47,20 @@ const echoEvent = (vetoable) => ({
   meta: {},
 });
 
+// The echo transport is exit-code only, like Amp's: no stdout body, so no
+// content field can reach the wire. Declaring that is what rule ⑩ asks of a real
+// adapter, and it keeps the self-tests below testing the rule they name.
+const echoUnrendered = {
+  pre_tool: new Set(VERDICT_CONTENT_FIELDS),
+  post_tool: new Set(VERDICT_CONTENT_FIELDS),
+  unknown: new Set(VERDICT_CONTENT_FIELDS),
+};
+
 const echoAdapter = {
   AGENT: "t",
   INTEGRATION_MODE: "external_hook",
   COVERAGE: fullCoverage,
+  UNRENDERED_FIELDS: echoUnrendered,
   // A payload the fixtures did not precompute is the DRIFT case rule ⑨ probes:
   // the adapter contract is that parse answers an unmodelled event with an
   // UNKNOWN kind rather than throwing.
@@ -240,6 +254,44 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     assert.match(String(err), /enforcement honesty is untested/);
   });
 
+  it("throws when a content field reaches no channel and is not declared", () => {
+    // The gap rule ⑩ exists for: an adapter with no channel for a field just
+    // ignored it, so a redaction verdict rendered a bare allow and the
+    // unredacted output reached the model with nothing saying so.
+    const undeclared = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: {
+        ...echoUnrendered,
+        pre_tool: new Set(["mutated_output", "additional_context"]),
+      },
+    };
+    assert.throws(
+      () => run(undeclared, fullFixtures()),
+      /mutated_input reaches no native channel on pre_tool and is not declared/,
+    );
+  });
+
+  it("throws when a DECLARED-unrendered field still reaches the wire", () => {
+    // The other direction, and the one that goes stale silently: the comment and
+    // the declaration say "dropped" while the channel is live, so a reviewer
+    // reading the declaration is told the opposite of what ships.
+    const leaking = {
+      ...echoAdapter,
+      render: (verdict, event) => {
+        const rendered = echoAdapter.render(verdict, event);
+        // Only when the field is present, so the fixtures' own goldens (which
+        // carry no additional_context) still match and rule ② stays silent —
+        // this test must fail on rule ⑩ or not at all.
+        if (verdict.additional_context === undefined) return rendered;
+        return { ...rendered, stdout: { context: verdict.additional_context } };
+      },
+    };
+    assert.throws(
+      () => run(leaking, fullFixtures()),
+      /declares additional_context has no channel on pre_tool, but the render carries its value/,
+    );
+  });
+
   it("throws when no enforced deny is rendered at all", () => {
     assert.throws(
       () => run(observerAdapter, observeOnlyFixtures()),
@@ -378,8 +430,12 @@ describe("conformance harness self-tests (deny must block, item \u2464)", () => 
       cases: [
         {
           name: "vetoable",
-          native: { event: { k: 1, this_call_vetoable: true } },
-          event: { k: 1, this_call_vetoable: true },
+          // post_tool, not pre_tool: a vetoable deny must block on either, and
+          // this suite isolates rule ⑤ from rule ⑧'s pre-tool-only probe.
+          native: {
+            event: { event: "post_tool", k: 1, this_call_vetoable: true },
+          },
+          event: { event: "post_tool", k: 1, this_call_vetoable: true },
           render: {
             allow: { verdict: { decision: "allow" }, native: deny(0, false) },
             deny: { verdict: { decision: "deny" }, native: nativeDeny },
@@ -664,4 +720,28 @@ describe("coverage-witness: an mcp class marked un-vetoable is proven by a fixtu
         );
     });
   }
+});
+
+describe("rule ⑩ non-vacuity: every content field is witnessed on some adapter", () => {
+  // Per-adapter the rule cannot demand all three — Codex documents exactly one
+  // content channel, and Amp none at all — so a shipped adapter that renders a
+  // field is the only thing that proves the POSITIVE half of rule ⑩ ever fires.
+  // Without this the whole rule could pass with every adapter declaring every
+  // field dropped, which is the vacuous suite it exists to prevent.
+  it("the four shipped adapters together render every Verdict content field", () => {
+    const seen = new Set();
+    for (const adapter of [
+      claudeAdapter,
+      codexAdapter,
+      ampAdapter,
+      geminiAdapter,
+    ])
+      for (const field of runAdapterConformance({
+        adapter,
+        fixtures: loadFixture(adapter.AGENT),
+        assert,
+      }).contentFieldsSeen)
+        seen.add(field);
+    assert.deepEqual([...seen].sort(), [...VERDICT_CONTENT_FIELDS].sort());
+  });
 });

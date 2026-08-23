@@ -9,6 +9,7 @@ import {
   coverageAllowsVeto,
   isCoverageStatus,
   lookup,
+  VERDICT_CONTENT_FIELDS,
 } from "./control-plane.mjs";
 
 /**
@@ -35,6 +36,94 @@ const DRIFT_PROBE_NATIVE = Object.freeze({
   hook_event_name: "ConformanceProbeUnmodelledEvent",
   version: "9999.0.0",
 });
+
+/**
+ * The value rule ⑩ puts in each content field it probes, and the shapes each
+ * field's contract allows it to take (`mutated_input` must be an object). It is
+ * a sentinel rather than realistic content because the rule asks whether the
+ * VALUE reached the wire, which is answered by searching the serialized render
+ * for it — a check that survives an adapter wrapping, renaming or annotating the
+ * channel, where comparing two whole renders does not.
+ */
+const CONTENT_PROBE_SENTINEL = "acpc-conformance-content-probe-b6f1";
+const CONTENT_PROBE_VALUE = Object.freeze({
+  mutated_input: Object.freeze({ [CONTENT_PROBE_SENTINEL]: true }),
+  mutated_output: CONTENT_PROBE_SENTINEL,
+  additional_context: CONTENT_PROBE_SENTINEL,
+});
+
+// A field added to VERDICT_CONTENT_FIELDS with no probe value would be dropped
+// by normalizeVerdict and then reported as "reaches no native channel" against
+// every adapter, naming the adapter for the harness's own omission.
+if (
+  VERDICT_CONTENT_FIELDS.some(
+    (field) => lookup(CONTENT_PROBE_VALUE, field) === undefined,
+  )
+)
+  throw new Error(
+    `conformance: CONTENT_PROBE_VALUE is missing a probe for one of ${VERDICT_CONTENT_FIELDS.join(", ")}`,
+  );
+
+/**
+ * Rule ⑩, for one parsed event: every {@link VERDICT_CONTENT_FIELDS} entry
+ * either reaches this host's wire or is DECLARED unreachable in the adapter's
+ * `UNRENDERED_FIELDS`, and the render agrees with the declaration both ways.
+ *
+ * The gap this closes is silent loss. Three adapters carry a `Verdict` field no
+ * native channel accepts — Gemini and Codex have no output-rewrite field, Amp
+ * has no stdout body at all — and each simply ignored it, so a redaction verdict
+ * rendered a bare allow and the unredacted output reached the model with nothing
+ * anywhere saying so. Declaring the drop is what makes it reviewable; checking
+ * the declaration against the render is what stops it going stale, in the
+ * direction that matters most (a channel that quietly stops carrying a field
+ * reads as a working redaction).
+ *
+ * Probed on a synthesized verdict rather than a fixture, for rule ⑧'s reason: an
+ * adapter with no channel for a field has no fixture to write for it, so a
+ * fixture-driven check would sit vacuous on exactly the adapters the rule is
+ * for.
+ *
+ * SCOPE — the probe carries an abstaining `allow`, so the declaration this rule
+ * checks is about the ALLOW path. An enforced deny may legitimately drop more:
+ * Gemini's exit-2 System Block returns no stdout body at all, so a deny there
+ * carries no context whatever `UNRENDERED_FIELDS` says. Widening the map to
+ * (kind, decision) would state that, and is not worth its weight while the only
+ * field a blocked call can still want is `additional_context`.
+ *
+ * Reaching the wire is checked as SERIALIZATION, so the rule proves a field is
+ * carried, not that the key it is carried in is one the host reads. Nothing
+ * machine-readable describes a host's schema, so that half stays with the
+ * declaration's prose and its review.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {import("./control-plane.mjs").ToolCallEvent} event
+ * @param {string} caseName
+ * @param {any} assert
+ * @param {Set<string>} seen fields observed to REACH a wire, for the non-vacuity check
+ */
+function assertContentChannels(adapter, event, caseName, assert, seen) {
+  const declared = lookup(adapter.UNRENDERED_FIELDS, event.event);
+  for (const field of VERDICT_CONTENT_FIELDS) {
+    const rendered = adapter.render(
+      { decision: Decision.ALLOW, [field]: lookup(CONTENT_PROBE_VALUE, field) },
+      event,
+    );
+    const onTheWire = JSON.stringify(rendered).includes(CONTENT_PROBE_SENTINEL);
+    if (declared?.has(field)) {
+      assert.equal(
+        onTheWire,
+        false,
+        `'${caseName}' (${adapter.AGENT}): UNRENDERED_FIELDS declares ${field} has no channel on ${event.event}, but the render carries its value`,
+      );
+      continue;
+    }
+    assert.equal(
+      onTheWire,
+      true,
+      `'${caseName}' (${adapter.AGENT}): ${field} reaches no native channel on ${event.event} and is not declared in UNRENDERED_FIELDS — the verdict is silently lost`,
+    );
+    seen.add(field);
+  }
+}
 
 /**
  * Assert an adapter's {@link import("./control-plane.mjs").Adapter.COVERAGE}
@@ -234,13 +323,27 @@ function assertAliasedInput(agent, caseName, event, assert) {
  *      throwing away the objection entirely. The strongest honest signal a
  *      transport has left — an ask, an advisory body — must survive. An
  *      OBSERVE_ONLY render is exempt: it has no pre-emption channel to differ in.
+ *   9. drift honesty: `parse` must ANSWER an event name no host emits with
+ *      EventKind.UNKNOWN rather than throw, and a deny rendered on that answer
+ *      must not claim a block. Probed on a synthesized payload, since an adapter
+ *      whose parse can never emit UNKNOWN has no such fixture to write.
+ *  10. content-channel honesty: for every parsed event, each Verdict content
+ *      field (mutated_input, mutated_output, additional_context) either reaches
+ *      the host's wire or is DECLARED unreachable in the adapter's
+ *      UNRENDERED_FIELDS — and the render must agree with the declaration in
+ *      both directions. Without it an adapter with no channel for a field just
+ *      ignored it, so a redaction verdict rendered a bare allow and the
+ *      unredacted output reached the model with nothing saying so. The fields
+ *      that DID reach a wire come back as `contentFieldsSeen`; a suite covering
+ *      several adapters asserts their union to keep the positive half of the
+ *      rule non-vacuous, since no single host has a channel for all three.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }) {
   assert.equal(
@@ -256,6 +359,8 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   /** @type {Set<string>} call classes exercised by a tagged fixture case */
   const coverageClassesChecked = new Set();
   let mutationSeen = false;
+  /** @type {Set<string>} content fields rule ⑩ saw reach this host's wire */
+  const contentFieldsSeen = new Set();
   let enforcedDenySeen = false;
   let vetoableDenySeen = false;
   let unknownKindSeen = false;
@@ -366,6 +471,14 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
       renders += 1;
     }
 
+    assertContentChannels(
+      adapter,
+      parsed,
+      testCase.name,
+      assert,
+      contentFieldsSeen,
+    );
+
     // Rule ⑧, probed on a synthesized non-vetoable variant rather than on a
     // fixture flag: an adapter whose COVERAGE marks every reachable call class
     // as gated can never PARSE a non-vetoable event, so a fixture-driven check
@@ -431,6 +544,13 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
       false,
       "a deny on an unmodelled event rendered as an enforced block",
     );
+    assertContentChannels(
+      adapter,
+      drifted,
+      "rule ⑨ drift probe",
+      assert,
+      contentFieldsSeen,
+    );
     unknownKindSeen = true;
   }
   assert.ok(renders > 0, "conformance fixtures render nothing");
@@ -449,6 +569,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     renders,
     decisionsSeen,
     mutationSeen,
+    contentFieldsSeen,
     enforcedDenySeen,
     vetoableDenySeen,
     unknownKindSeen,

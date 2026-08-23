@@ -186,6 +186,21 @@
             "exit_code": 0,
             "enforced": false
           }
+        },
+        "output_mutation": {
+          "verdict": {
+            "decision": "allow",
+            "mutated_output": "file1\n[REDACTED: secret]",
+            "additional_context": "redacted 1 secret"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "systemMessage": "redacted 1 secret\n\nThe monitor redacted this tool output, but Gemini CLI has no AfterTool channel to replace it. Treat the tool output above as UNREDACTED and unvetted."
+            }
+          }
         }
       }
     },

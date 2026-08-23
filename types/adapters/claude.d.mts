@@ -41,6 +41,17 @@ export const INTEGRATION_MODE: "external_hook";
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each event
+ * kind, so `render` drops them. Claude Code splits its content channels by
+ * event: `updatedInput` exists only on PreToolUse (the call has not run yet),
+ * and `updatedToolOutput` only on PostToolUse (there is no tool output to
+ * replace anywhere else). `additionalContext` is the one channel every kind
+ * carries. The conformance harness holds this to what `render` actually emits,
+ * in both directions.
+ * @type {Record<string, ReadonlySet<string>>}
+ */
+export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string>>;
 /** Claude Code native hook event names (the `hook_event_name` field). */
 export const HookEvent: Readonly<{
     PRE_TOOL_USE: "PreToolUse";

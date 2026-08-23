@@ -47,6 +47,28 @@ export function lookup<T>(map: Record<string, T>, key: string): T | undefined;
  */
 export function coverageAllowsVeto(status: string | undefined): boolean;
 /**
+ * Whether an event may be marked `this_call_vetoable`.
+ *
+ * INVARIANT: an event whose kind the adapter's `GATED_EVENTS` does not name is
+ * never vetoable, whatever its coverage says. Coverage answers whether the
+ * host's hook fires for a CLASS of call and says nothing about a kind the
+ * adapter could not model — so keying on coverage alone reported an enforced
+ * block for every unmodelled event, which is the one direction that lies to a
+ * guardrail: the transcript shows a block and the host runs the tool.
+ * @param {string} kind an {@link EventKind} value
+ * @param {Set<string>} gatedKinds the adapter's own gated set
+ * @param {string|undefined} coverage a {@link CoverageStatus} value
+ * @returns {boolean}
+ */
+export function vetoableFor(kind: string, gatedKinds: Set<string>, coverage: string | undefined): boolean;
+/**
+ * Refuse a gated-kind set naming a kind no host can gate. Called at module load
+ * by each adapter, so `EventKind.UNKNOWN` cannot be added to one by hand.
+ * @param {Set<string>} kinds an adapter's `GATED_EVENTS`
+ * @param {string} agent the adapter's agent id, for the message
+ */
+export function assertGatedKinds(kinds: Set<string>, agent: string): void;
+/**
  * True when `status` is a recognized {@link CoverageStatus} value.
  * @param {unknown} status
  * @returns {boolean}
@@ -68,50 +90,6 @@ export function isCoverageStatus(status: unknown): boolean;
  */
 export function classifyCallClass(tool: string | null, native?: Record<string, unknown>): string;
 /**
- * @typedef {object} EventMeta
- * @property {string} agent producing agent id ("claude", "codex", …)
- * @property {string} native_event original native event name, preserved verbatim
- * @property {string} [native_tool] original native tool name, preserved verbatim when `event.tool` was canonicalized (present iff the event carries a tool)
- * @property {"external_hook"|"in_process"|"observe_only"} integration_mode how the guardrail attaches
- * @property {boolean} primary_gate_present the agent's own native gate already ran (⇒ the monitor is a SECOND opinion; the LLM call can be skipped when the native gate already blocked)
- * @property {string} [session_id]
- * @property {string} [cwd]
- * @property {string} [permission_mode]
- * @property {string} [transcript_path]
- * @property {Record<string, unknown>} passthrough unmodelled native top-level fields, verbatim
- */
-/**
- * The result of rendering a {@link Verdict} for a specific agent's transport —
- * the ATTACH mechanism, not the decision. A caller applies whichever channels
- * are present: write `stdout`, exit with `exit_code`, or `throw`.
- * @typedef {object} NativeResponse
- * @property {"external_hook"|"in_process"|"observe_only"} transport
- * @property {number} exit_code process exit code carrying the decision (0 = proceed)
- * @property {boolean} enforced whether THIS render actually blocks (false ⇒ advisory only)
- * @property {unknown} [stdout] native JSON body to write to stdout, when the transport uses one
- * @property {string} [stderr] text the host reads from STDERR — the block reason on a transport (e.g. Gemini CLI's exit-2 System Block) that takes its rationale from stderr rather than the stdout body. The caller writes it to fd 2 before exiting.
- */
-/**
- * A normalized, agent-agnostic view of one agent event.
- * @typedef {object} ToolCallEvent
- * @property {number} schema_version stamped {@link SCHEMA_VERSION}
- * @property {"pre_tool"|"post_tool"|"prompt_submit"|"session_start"|"unknown"} event
- * @property {string|null} tool CANONICAL tool name — a native alias (e.g. Gemini's `run_shell_command`) is normalized to its {@link MODELED_TOOLS} canon (`Bash`); the raw native name is preserved on `meta.native_tool`. An unknown tool passes through verbatim. null for prompt/session events.
- * @property {Record<string, unknown>} input passthrough tool input; a submitted prompt is folded into `input.prompt`
- * @property {unknown} [response] tool output, post_tool only (string or structured), verbatim
- * @property {boolean} this_call_vetoable false ⇒ the guardrail cannot veto THIS call; a monitor must auto-degrade deny to notify, and any render of it stays advisory (never `enforced`)
- * @property {EventMeta} meta
- */
-/**
- * A normalized guardrail decision.
- * @typedef {object} Verdict
- * @property {"allow"|"deny"|"ask"} decision
- * @property {Record<string, unknown>} [mutated_input] replacement tool input (pre_tool)
- * @property {unknown} [mutated_output] replacement tool output (post_tool) — the normalized channel for a PostToolUse content transform (redaction/sanitize); a string or the tool's structured output, verbatim. An adapter renders it into whatever native output-mutation channel the host has, or drops it when the host has none (the same per-adapter fidelity gap `reason` has on Amp).
- * @property {string} [additional_context] extra context to splice into the agent's stream
- * @property {string} [reason] human-readable rationale (shown on deny/ask)
- */
-/**
  * The translator for one agent's protocol. `parse` maps a native event to a
  * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the
  * integration mode / enforcement flags on `meta`); `render` maps a {@link Verdict}
@@ -122,6 +100,7 @@ export function classifyCallClass(tool: string | null, native?: Record<string, u
  * @property {Record<string, "covered"|"partial"|"uncovered"|"unknown">} COVERAGE per-{@link CallClass} hook-coverage status; must classify every {@link CALL_CLASSES} entry
  * @property {(native: any) => ToolCallEvent} parse
  * @property {(verdict: Verdict, event: ToolCallEvent, options?: { soleGate?: boolean }) => NativeResponse} render
+ * @property {Record<string, ReadonlySet<string>>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. A kind absent from the map declares that every content field reaches a channel; the conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
  */
 /**
  * Build a normalized {@link ToolCallEvent}, stamping the schema version. Pure —
@@ -377,6 +356,86 @@ export const CoverageStatus: Readonly<{
     UNCOVERED: "uncovered";
     UNKNOWN: "unknown";
 }>;
+/**
+ * @typedef {object} EventMeta
+ * @property {string} agent producing agent id ("claude", "codex", …)
+ * @property {string} native_event original native event name, preserved verbatim
+ * @property {string} [native_tool] original native tool name, preserved verbatim when `event.tool` was canonicalized (present iff the event carries a tool)
+ * @property {"external_hook"|"in_process"|"observe_only"} integration_mode how the guardrail attaches
+ * @property {boolean} primary_gate_present the agent's own native gate already ran (⇒ the monitor is a SECOND opinion; the LLM call can be skipped when the native gate already blocked)
+ * @property {string} [session_id]
+ * @property {string} [cwd]
+ * @property {string} [permission_mode]
+ * @property {string} [transcript_path]
+ * @property {Record<string, unknown>} passthrough unmodelled native top-level fields, verbatim
+ */
+/**
+ * The result of rendering a {@link Verdict} for a specific agent's transport —
+ * the ATTACH mechanism, not the decision. A caller applies whichever channels
+ * are present: write `stdout`, exit with `exit_code`, or `throw`.
+ * @typedef {object} NativeResponse
+ * @property {"external_hook"|"in_process"|"observe_only"} transport
+ * @property {number} exit_code process exit code carrying the decision (0 = proceed)
+ * @property {boolean} enforced whether THIS render actually blocks (false ⇒ advisory only)
+ * @property {unknown} [stdout] native JSON body to write to stdout, when the transport uses one
+ * @property {string} [stderr] text the host reads from STDERR — the block reason on a transport (e.g. Gemini CLI's exit-2 System Block) that takes its rationale from stderr rather than the stdout body. The caller writes it to fd 2 before exiting.
+ */
+/**
+ * A normalized, agent-agnostic view of one agent event.
+ * @typedef {object} ToolCallEvent
+ * @property {number} schema_version stamped {@link SCHEMA_VERSION}
+ * @property {"pre_tool"|"post_tool"|"prompt_submit"|"session_start"|"unknown"} event
+ * @property {string|null} tool CANONICAL tool name — a native alias (e.g. Gemini's `run_shell_command`) is normalized to its {@link MODELED_TOOLS} canon (`Bash`); the raw native name is preserved on `meta.native_tool`. An unknown tool passes through verbatim. null for prompt/session events.
+ * @property {Record<string, unknown>} input passthrough tool input; a submitted prompt is folded into `input.prompt`
+ * @property {unknown} [response] tool output, post_tool only (string or structured), verbatim
+ * @property {boolean} this_call_vetoable false ⇒ the guardrail cannot veto THIS call; a monitor must auto-degrade deny to notify, and any render of it stays advisory (never `enforced`)
+ * @property {EventMeta} meta
+ */
+/**
+ * A normalized guardrail decision.
+ * @typedef {object} Verdict
+ * @property {"allow"|"deny"|"ask"} decision
+ * @property {Record<string, unknown>} [mutated_input] replacement tool input (pre_tool)
+ * @property {unknown} [mutated_output] replacement tool output (post_tool) — the normalized channel for a PostToolUse content transform (redaction/sanitize); a string or the tool's structured output, verbatim. An adapter renders it into whatever native output-mutation channel the host has, or drops it when the host has none (the same per-adapter fidelity gap `reason` has on Amp).
+ * @property {string} [additional_context] extra context to splice into the agent's stream
+ * @property {string} [reason] human-readable rationale (shown on deny/ask)
+ */
+/**
+ * The {@link Verdict} fields that carry CONTENT into the agent's stream, as
+ * opposed to the decision itself. Every adapter either renders each one into a
+ * native channel or has no channel for it and drops it; `UNRENDERED_FIELDS`
+ * declares which, and the conformance harness holds each adapter to its own
+ * declaration. `reason` is not listed: it is only live on deny/ask, so it is not
+ * probeable from a single abstaining verdict the way these three are.
+ */
+export const VERDICT_CONTENT_FIELDS: readonly string[];
+/**
+ * The translator for one agent's protocol. `parse` maps a native event to a
+ * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the
+ * integration mode / enforcement flags on `meta`); `render` maps a {@link Verdict}
+ * to that agent's native transport ({@link NativeResponse}), not just a JSON body.
+ */
+export type Adapter = {
+    AGENT: string;
+    INTEGRATION_MODE: "external_hook" | "in_process" | "observe_only";
+    /**
+     * per-{@link CallClass} hook-coverage status; must classify every {@link CALL_CLASSES} entry
+     */
+    COVERAGE: Record<string, "covered" | "partial" | "uncovered" | "unknown">;
+    parse: (native: any) => ToolCallEvent;
+    render: (verdict: Verdict, event: ToolCallEvent, options?: {
+        soleGate?: boolean;
+    }) => NativeResponse;
+    /**
+     * per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. A kind absent from the map declares that every content field reaches a channel; the conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
+     */
+    UNRENDERED_FIELDS: Record<string, ReadonlySet<string>>;
+};
+export type CoverageStatusValue = "covered" | "partial" | "uncovered" | "unknown";
+/**
+ * a per-{@link CallClass} coverage map (an adapter's `COVERAGE`)
+ */
+export type CoverageMap = Record<string, CoverageStatusValue>;
 export type EventMeta = {
     /**
      * producing agent id ("claude", "codex", …)
@@ -480,26 +539,3 @@ export type Verdict = {
      */
     reason?: string | undefined;
 };
-/**
- * The translator for one agent's protocol. `parse` maps a native event to a
- * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the
- * integration mode / enforcement flags on `meta`); `render` maps a {@link Verdict}
- * to that agent's native transport ({@link NativeResponse}), not just a JSON body.
- */
-export type Adapter = {
-    AGENT: string;
-    INTEGRATION_MODE: "external_hook" | "in_process" | "observe_only";
-    /**
-     * per-{@link CallClass} hook-coverage status; must classify every {@link CALL_CLASSES} entry
-     */
-    COVERAGE: Record<string, "covered" | "partial" | "uncovered" | "unknown">;
-    parse: (native: any) => ToolCallEvent;
-    render: (verdict: Verdict, event: ToolCallEvent, options?: {
-        soleGate?: boolean;
-    }) => NativeResponse;
-};
-export type CoverageStatusValue = "covered" | "partial" | "uncovered" | "unknown";
-/**
- * a per-{@link CallClass} coverage map (an adapter's `COVERAGE`)
- */
-export type CoverageMap = Record<string, CoverageStatusValue>;

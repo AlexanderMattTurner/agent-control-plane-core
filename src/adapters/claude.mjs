@@ -26,6 +26,7 @@ import {
   makeEvent,
   normalizeVerdict,
   nativeResponse,
+  UNRENDERED_ON_UNKNOWN,
   collectPassthrough,
   asObject,
   asString,
@@ -71,6 +72,38 @@ const GATED_EVENTS = Object.freeze(
   new Set([EventKind.PRE_TOOL, EventKind.POST_TOOL, EventKind.PROMPT_SUBMIT]),
 );
 assertGatedKinds(GATED_EVENTS, AGENT);
+
+// The kinds whose only content channel is context: the tool has already run
+// (or there is no tool), so neither an input nor an output replacement has
+// anywhere to go.
+const CONTEXT_ONLY = Object.freeze(
+  new Set(["mutated_input", "mutated_output"]),
+);
+
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each event
+ * kind, so `render` drops them. Claude Code splits its content channels by
+ * event: `updatedInput` exists only on PreToolUse (the call has not run yet),
+ * and `updatedToolOutput` only on PostToolUse (there is no tool output to
+ * replace anywhere else). `additionalContext` is the one channel every kind
+ * carries. The conformance harness holds this to what `render` actually emits,
+ * in both directions.
+ *
+ * `additionalContext` on PreToolUse is inherited behaviour, not a checked claim:
+ * Claude Code documents the field for UserPromptSubmit, SessionStart and
+ * PostToolUse, and this adapter has emitted it on PreToolUse since before the
+ * declaration existed. Rule ⑩ can see that the value reaches the wire, never
+ * that the host reads the key — confirm it against the hook reference before
+ * relying on it.
+ * @type {Record<string, ReadonlySet<string>>}
+ */
+export const UNRENDERED_FIELDS = Object.freeze({
+  [EventKind.PRE_TOOL]: Object.freeze(new Set(["mutated_output"])),
+  [EventKind.POST_TOOL]: Object.freeze(new Set(["mutated_input"])),
+  [EventKind.PROMPT_SUBMIT]: CONTEXT_ONLY,
+  [EventKind.SESSION_START]: CONTEXT_ONLY,
+  [EventKind.UNKNOWN]: UNRENDERED_ON_UNKNOWN,
+});
 
 /** Claude Code native hook event names (the `hook_event_name` field). */
 export const HookEvent = Object.freeze({
@@ -215,7 +248,7 @@ export function render(verdict, event, { soleGate = false } = {}) {
   const stdout =
     kind === EventKind.PRE_TOOL
       ? gatingBody(hookEventName, vd, soleGate)
-      : nonGatingBody(hookEventName, vd);
+      : nonGatingBody(hookEventName, kind, vd);
 
   return nativeResponse({
     transport: INTEGRATION_MODE,
@@ -253,18 +286,24 @@ function gatingBody(hookEventName, vd, soleGate) {
 
 /**
  * @param {string} hookEventName
+ * @param {string} kind the normalized {@link EventKind} being rendered
  * @param {Verdict} vd
  * @returns {Record<string, unknown>}
  */
-function nonGatingBody(hookEventName, vd) {
+function nonGatingBody(hookEventName, kind, vd) {
   /** @type {Record<string, unknown>} */
   const hookSpecificOutput = { hookEventName };
   // A PostToolUse content transform: `updatedToolOutput` replaces what the model
   // sees (the tool already ran, so this governs only the model's view). The
-  // native channel for the whole redaction/sanitize pipeline.
-  if (vd.mutated_output !== undefined)
+  // native channel for the whole redaction/sanitize pipeline. PostToolUse ONLY:
+  // a UserPromptSubmit or SessionStart carries no tool output, so the field is
+  // dropped there (declared in {@link UNRENDERED_FIELDS}) rather than emitted
+  // into a key the host ignores, which reads to a caller as a redaction applied.
+  if (kind === EventKind.POST_TOOL && vd.mutated_output !== undefined)
     hookSpecificOutput.updatedToolOutput = vd.mutated_output;
-  if (vd.additional_context !== undefined)
+  // Not on an UNKNOWN kind: `hookEventName` there is the unrecognized native
+  // event name, so the adapter has established no channel to write into.
+  if (kind !== EventKind.UNKNOWN && vd.additional_context !== undefined)
     hookSpecificOutput.additionalContext = vd.additional_context;
   /** @type {Record<string, unknown>} */
   const out = { hookSpecificOutput };
@@ -280,6 +319,7 @@ export const claudeAdapter = {
   AGENT,
   INTEGRATION_MODE,
   COVERAGE,
+  UNRENDERED_FIELDS,
   parse,
   render,
 };

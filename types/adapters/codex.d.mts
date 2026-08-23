@@ -59,6 +59,19 @@ export const INTEGRATION_MODE: "external_hook";
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel, so `render`
+ * drops them. Codex documents one content channel, `updatedInput` on
+ * PreToolUse. It documents no PostToolUse output-rewrite field and no context
+ * injection field at all, so `mutated_output` and `additional_context` are
+ * dropped on every kind — the same gap `reason` has on Amp. A redaction verdict
+ * therefore does NOT reach the model here: the unredacted output stands, and a
+ * guardrail that must redact has to deny the call instead. Inventing a native
+ * key would be worse than the visible gap, because the host ignores it and the
+ * caller reads the render as a redaction applied.
+ * @type {Record<string, ReadonlySet<string>>}
+ */
+export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string>>;
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION: readonly number[];
 export const DEFAULT_DENY_REASON: "blocked by monitor";

@@ -26,6 +26,7 @@ import {
   makeEvent,
   normalizeVerdict,
   nativeResponse,
+  UNRENDERED_ON_UNKNOWN,
   collectPassthrough,
   asObject,
   asString,
@@ -65,6 +66,25 @@ export const COVERAGE = Object.freeze({
  */
 const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
 assertGatedKinds(GATED_EVENTS, AGENT);
+
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel, so `render`
+ * drops them. Codex documents one content channel, `updatedInput` on
+ * PreToolUse. It documents no PostToolUse output-rewrite field and no context
+ * injection field at all, so `mutated_output` and `additional_context` are
+ * dropped on every kind — the same gap `reason` has on Amp. A redaction verdict
+ * therefore does NOT reach the model here: the unredacted output stands, and a
+ * guardrail that must redact has to deny the call instead. Inventing a native
+ * key would be worse than the visible gap, because the host ignores it and the
+ * caller reads the render as a redaction applied.
+ * @type {Record<string, ReadonlySet<string>>}
+ */
+export const UNRENDERED_FIELDS = Object.freeze({
+  [EventKind.PRE_TOOL]: Object.freeze(
+    new Set(["mutated_output", "additional_context"]),
+  ),
+  [EventKind.UNKNOWN]: UNRENDERED_ON_UNKNOWN,
+});
 
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION = Object.freeze([0, 135]);
@@ -205,7 +225,12 @@ export function render(verdict, event, { soleGate = false } = {}) {
   // deny, whatever the judge supplied.
   if (enforced && !body.permissionDecisionReason)
     body.permissionDecisionReason = DEFAULT_DENY_REASON;
-  if (vd.mutated_input !== undefined) body.updatedInput = vd.mutated_input;
+  // PreToolUse only. Codex routes every other native event — PostToolUse
+  // included — into EventKind.UNKNOWN, and an event the adapter cannot name has
+  // no channel it can claim: emitting `updatedInput` there names a key the host
+  // ignores while reading to the caller as a mutation applied.
+  if (event.event === EventKind.PRE_TOOL && vd.mutated_input !== undefined)
+    body.updatedInput = vd.mutated_input;
 
   return nativeResponse({
     transport: event.meta.integration_mode,
@@ -220,6 +245,7 @@ export const codexAdapter = {
   AGENT,
   INTEGRATION_MODE,
   COVERAGE,
+  UNRENDERED_FIELDS,
   parse,
   render,
 };

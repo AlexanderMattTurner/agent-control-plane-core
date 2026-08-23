@@ -224,6 +224,8 @@ is built to close.
 
 **Coverage is only one of the two axes, and the other one shipped broken.** A cell answers whether the hook fires for a CLASS of call; it says nothing about whether the host honours a deny on a given EVENT. `classifyCallClass` has no "I cannot tell" answer, so an event no adapter models fell through to `builtin` and inherited that class's ✅ — and Codex routes every non-`PreToolUse` event into `EventKind.UNKNOWN` today, so this was its ordinary path rather than hypothetical drift. Each adapter now declares a `GATED_EVENTS` set beside its `COVERAGE` map, `EventKind.UNKNOWN` is excluded from the gateable set by construction, and conformance rule ⑨ drifts each adapter with an event name no host emits and refuses a vetoable answer.
 
+**A third axis: whether a verdict's CONTENT reaches the model.** Both axes above are about stopping a call. A verdict also carries `mutated_input`, `mutated_output` and `additional_context`, and a host that has no native channel for one drops it — Gemini and Codex document no output-rewrite field, Amp has no stdout body at all. Dropped silently, a redaction verdict renders a bare allow and the unredacted output reaches the model. Each adapter now declares its drops per event kind in `UNRENDERED_FIELDS`, and conformance rule ⑩ holds the declaration to what `render` emits in both directions.
+
 ---
 
 **Confidence / provenance notes.** Claude Code, Amp, opencode-#2319, Gemini

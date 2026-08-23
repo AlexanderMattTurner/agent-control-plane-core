@@ -74,3 +74,43 @@ describe("claude adapter: allow = abstain by default, soleGate opt-in", () => {
     assert.deepEqual(denyDefault, denySoleGate);
   });
 });
+
+describe("claude render: updatedToolOutput is a PostToolUse-only channel", () => {
+  const postTool = claudeAdapter.parse({
+    hook_event_name: "PostToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "cat secrets" },
+    tool_response: "AKIA-not-a-real-key",
+  });
+  const promptSubmit = claudeAdapter.parse({
+    hook_event_name: "UserPromptSubmit",
+    prompt: "hello",
+  });
+  const redaction = { decision: "allow", mutated_output: "[REDACTED]" };
+
+  it("PostToolUse carries the replacement output", () => {
+    const out = claudeAdapter.render(redaction, postTool);
+    assert.equal(out.stdout.hookSpecificOutput.updatedToolOutput, "[REDACTED]");
+  });
+
+  it("UserPromptSubmit drops it — there is no tool output to replace", () => {
+    // Emitting it there names a key the host ignores, which reads back to the
+    // caller as a redaction that was applied.
+    const out = claudeAdapter.render(redaction, promptSubmit);
+    assert.equal(
+      Object.hasOwn(out.stdout.hookSpecificOutput, "updatedToolOutput"),
+      false,
+    );
+  });
+
+  it("additionalContext still reaches both", () => {
+    for (const event of [postTool, promptSubmit])
+      assert.equal(
+        claudeAdapter.render(
+          { decision: "allow", additional_context: "note" },
+          event,
+        ).stdout.hookSpecificOutput.additionalContext,
+        "note",
+      );
+  });
+});
