@@ -128,6 +128,26 @@ function assertEveryKindHasARow(adapter, assert) {
       ) && typeof (/** @type {any} */ (row)?.size) === "number",
       `${adapter.AGENT}: UNRENDERED_FIELDS row for '${kind}' is not a ReadonlySet — use readonlySet([...]), which carries ${SET_SURFACE.length} members plus size`,
     );
+    // The members are not the contract, the SEMANTICS are: a Map carries every
+    // one of them and hands a consumer `[key, value]` pairs. Iterating has to
+    // yield the declared field names themselves, agree with `has`, and count
+    // `size` — and each name has to be a field a Verdict actually carries, or a
+    // typo declares nothing while reading as a declaration.
+    const declared = [.../** @type {any} */ (row)];
+    assert.deepEqual(
+      declared.filter(
+        (field) =>
+          VERDICT_CONTENT_FIELDS.includes(field) &&
+          /** @type {any} */ (row).has(field),
+      ),
+      declared,
+      `${adapter.AGENT}: UNRENDERED_FIELDS row for '${kind}' does not iterate as a set of ${VERDICT_CONTENT_FIELDS.join("/")} — got ${JSON.stringify(declared)}`,
+    );
+    assert.equal(
+      declared.length,
+      /** @type {any} */ (row).size,
+      `${adapter.AGENT}: UNRENDERED_FIELDS row for '${kind}' iterates ${declared.length} entries but reports size ${/** @type {any} */ (row).size}`,
+    );
   }
 }
 

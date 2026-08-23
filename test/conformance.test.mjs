@@ -295,12 +295,20 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     // `null` answers nothing at every `has`, so the adapter claims every
     // channel; a has-only stand-in passes that check and then fails the first
     // consumer that iterates the row or reads its size.
-    for (const row of [null, { has: () => true }]) {
+    for (const row of [
+      null,
+      { has: () => true },
+      // Every member a Set has, and `[key, value]` pairs for a consumer that
+      // iterates it.
+      new Map([["mutated_output", true]]),
+      // A field name no Verdict carries: a typo that reads as a declaration.
+      new Set(["mutatedOutput"]),
+    ]) {
       const broken = { ...echoUnrendered, [EventKind.POST_TOOL]: row };
       assert.throws(
         () =>
           run({ ...echoAdapter, UNRENDERED_FIELDS: broken }, fullFixtures()),
-        /row for 'post_tool' is not a ReadonlySet/,
+        /row for 'post_tool' (is not a ReadonlySet|does not iterate as a set)/,
       );
     }
   });
