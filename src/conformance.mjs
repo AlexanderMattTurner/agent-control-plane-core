@@ -53,6 +53,20 @@ const CONTENT_PROBE_SENTINEL = "acpc-conformance-content-probe-b6f1";
  * unrecognized-event branch rather than a fallback naming a real one.
  */
 const PROBE_NATIVE_EVENT = "acpc-conformance-synthesized-event";
+
+/**
+ * The `ReadonlySet` members an `UNRENDERED_FIELDS` row must carry. A consumer
+ * reads a row every way a Set can be read, so a row that answers only `has` is
+ * a crash waiting for the first caller that iterates it.
+ */
+const SET_SURFACE = Object.freeze([
+  "has",
+  "forEach",
+  "keys",
+  "values",
+  "entries",
+  Symbol.iterator,
+]);
 const CONTENT_PROBE_VALUE = Object.freeze({
   // The sentinel is the VALUE, never a key: an adapter that forwards an input's
   // key set while dropping the values would serialize a sentinel KEY and pass,
@@ -103,14 +117,16 @@ function assertEveryKindHasARow(adapter, assert) {
       row !== undefined,
       `${adapter.AGENT}: UNRENDERED_FIELDS has no row for '${kind}' — every EventKind needs one, so an omission cannot read as full support`,
     );
-    // A row is only a declaration if it can answer. `null` (or any non-set)
-    // passes an existence check and then reads as "declares nothing" at every
-    // `has` call, so the adapter claims every channel while a consumer indexing
-    // straight into `.has(...)` crashes.
-    assert.equal(
-      typeof (/** @type {any} */ (row)?.has),
-      "function",
-      `${adapter.AGENT}: UNRENDERED_FIELDS row for '${kind}' is not a set — use readonlySet([...]) so the row can answer 'has'`,
+    // A row is only a declaration if it answers like the ReadonlySet the
+    // contract promises. `null` reads as "declares nothing" at every `has` call,
+    // so the adapter claims every channel; `{ has: () => true }` passes a
+    // has-only check while a consumer that iterates it, or reads `size`, fails
+    // at runtime.
+    assert.ok(
+      SET_SURFACE.every(
+        (member) => typeof (/** @type {any} */ (row)?.[member]) === "function",
+      ) && typeof (/** @type {any} */ (row)?.size) === "number",
+      `${adapter.AGENT}: UNRENDERED_FIELDS row for '${kind}' is not a ReadonlySet — use readonlySet([...]), which carries ${SET_SURFACE.length} members plus size`,
     );
   }
 }
@@ -160,9 +176,16 @@ function assertEveryKindRenders(adapter, byKind, assert, seen) {
  * @returns {import("./control-plane.mjs").ToolCallEvent}
  */
 function coherentEvent(adapter, byKind, kind) {
-  const [seed] = Object.values(byKind);
   const carriesTool =
     kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL;
+  // A tool kind seeded from a prompt/session event inherits `tool: null` and
+  // that event's input, which is an event no `parse` produces. Prefer a
+  // tool-bearing one; the first parsed event is the fallback.
+  const preferred = carriesTool
+    ? (lookup(byKind, EventKind.PRE_TOOL) ??
+      lookup(byKind, EventKind.POST_TOOL))
+    : undefined;
+  const seed = preferred ?? Object.values(byKind)[0];
   const meta = {
     ...(seed.meta ?? {}),
     native_event:

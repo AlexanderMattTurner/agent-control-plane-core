@@ -291,15 +291,18 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
   });
 
-  it("throws when an UNRENDERED_FIELDS row is not a set", () => {
-    // `null` passes an existence check and then answers nothing at every `has`,
-    // so the adapter claims every channel while a consumer indexing into
-    // `.has(...)` crashes.
-    const nulled = { ...echoUnrendered, [EventKind.POST_TOOL]: null };
-    assert.throws(
-      () => run({ ...echoAdapter, UNRENDERED_FIELDS: nulled }, fullFixtures()),
-      /row for 'post_tool' is not a set/,
-    );
+  it("throws when an UNRENDERED_FIELDS row is not a ReadonlySet", () => {
+    // `null` answers nothing at every `has`, so the adapter claims every
+    // channel; a has-only stand-in passes that check and then fails the first
+    // consumer that iterates the row or reads its size.
+    for (const row of [null, { has: () => true }]) {
+      const broken = { ...echoUnrendered, [EventKind.POST_TOOL]: row };
+      assert.throws(
+        () =>
+          run({ ...echoAdapter, UNRENDERED_FIELDS: broken }, fullFixtures()),
+        /row for 'post_tool' is not a ReadonlySet/,
+      );
+    }
   });
 
   it("throws when UNRENDERED_FIELDS has no row for a rendered kind", () => {
