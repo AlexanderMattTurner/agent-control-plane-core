@@ -154,6 +154,25 @@ function assertEveryKindHasARow(adapter, assert) {
 function assertRowReads(agent, kind, row, assert) {
   const where = `${agent}: UNRENDERED_FIELDS row for '${kind}'`;
   const declared = [...row];
+  assert.equal(
+    new Set(declared).size,
+    declared.length,
+    `${where} iterates a value twice — a set has each of its members once`,
+  );
+  // A row must be immutable, not merely read-only-looking. `Object.freeze` does
+  // NOT stop `new Set([...]).clear()`, so a certified row could be emptied
+  // afterwards and would then report channels `render` still drops — the stale
+  // declaration this whole rule exists to prevent. `readonlySet` exposes no
+  // mutator at all, which is what makes every call below throw.
+  for (const [mutator, argument] of [
+    ["add", "mutated_input"],
+    ["delete", declared[0]],
+    ["clear", undefined],
+  ])
+    assert.throws(
+      () => /** @type {any} */ (row)[mutator](argument),
+      `${where} exposes a working '${mutator}' — a consumer can rewrite the declaration after conformance certifies it; build the row with readonlySet`,
+    );
   assert.deepEqual(
     declared.filter((field) => VERDICT_CONTENT_FIELDS.includes(field)),
     declared,

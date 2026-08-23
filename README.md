@@ -112,7 +112,9 @@ UNRENDERED_FIELDS = {
 
 `readonlySet([])` is the row for a kind that carries all three;
 `UNRENDERED_ON_UNKNOWN` is the row for one that carries none. Both come from
-`agent-control-plane-core/contract`. A render that ships a field the row
+`agent-control-plane-core/contract`. Build every row with `readonlySet` — a
+plain `Set` exposes `clear()`, so a consumer could empty a declaration after
+conformance certified it, and `Object.freeze` does not stop that. A render that ships a field the row
 declares dropped fails conformance, and so does a row that declares a channel
 the render does not carry.
 

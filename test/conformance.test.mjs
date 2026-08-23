@@ -12,6 +12,7 @@ import {
 import {
   CallClass,
   EventKind,
+  readonlySet,
   coverageAllowsVeto,
   UNRENDERED_ON_UNKNOWN,
   VERDICT_CONTENT_FIELDS,
@@ -52,9 +53,28 @@ const echoEvent = (vetoable) => ({
 // The echo transport is exit-code only, like Amp's: no stdout body, so no
 // content field can reach the wire. Declaring that is what rule ⑩ asks of a real
 // adapter, and it keeps the self-tests below testing the rule they name.
+// A row with the read surface and no mutators, so a fixture below can break
+// exactly one thing about it. `readonlySet` itself is frozen, so it cannot be
+// overridden in place.
+const rowLike = (values, overrides = {}) => {
+  const inner = readonlySet(values);
+  return {
+    has: (v) => inner.has(v),
+    keys: () => inner.keys(),
+    values: () => inner.values(),
+    entries: () => inner.entries(),
+    forEach: (fn, thisArg) => inner.forEach(fn, thisArg),
+    [Symbol.iterator]: () => inner[Symbol.iterator](),
+    get size() {
+      return inner.size;
+    },
+    ...overrides,
+  };
+};
+
 const echoUnrendered = Object.fromEntries(
   ["pre_tool", "post_tool", "prompt_submit", "session_start", "unknown"].map(
-    (kind) => [kind, new Set(VERDICT_CONTENT_FIELDS)],
+    (kind) => [kind, readonlySet(VERDICT_CONTENT_FIELDS)],
   ),
 );
 
@@ -302,16 +322,25 @@ describe("conformance harness self-tests (non-vacuity)", () => {
       // iterates it.
       new Map([["mutated_output", true]]),
       // A field name no Verdict carries: a typo that reads as a declaration.
-      new Set(["mutatedOutput"]),
+      rowLike(["mutatedOutput"]),
       // Every reader present and callable, and one of them throws.
-      Object.assign(new Set(["mutated_output"]), {
+      rowLike(["mutated_output"], {
         forEach: () => {
           throw new Error("row reader is broken");
         },
       }),
       // Iterates one field while `has` says yes to all three: rule ⑩ reads one
       // declaration and a consumer that iterates the row reads another.
-      Object.assign(new Set(["mutated_output"]), { has: () => true }),
+      rowLike(["mutated_output"], { has: () => true }),
+      // A plain Set carries every reader and a working `clear`, so a consumer
+      // can empty the declaration after conformance certifies it.
+      new Set(["mutated_output"]),
+      // Iterates a value twice; a set has each member once.
+      rowLike(["mutated_output"], {
+        [Symbol.iterator]: () =>
+          ["mutated_output", "mutated_output"][Symbol.iterator](),
+        size: 2,
+      }),
       // Correct values, and a third argument that is not the row — a handle the
       // frozen facade exists to withhold.
       Object.assign(new Set(["mutated_output"]), {
@@ -429,7 +458,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
       ...echoAdapter,
       UNRENDERED_FIELDS: {
         ...echoUnrendered,
-        session_start: new Set(["mutated_output", "additional_context"]),
+        session_start: readonlySet(["mutated_output", "additional_context"]),
       },
     };
     assert.throws(
@@ -446,7 +475,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
       ...echoAdapter,
       UNRENDERED_FIELDS: {
         ...echoUnrendered,
-        pre_tool: new Set(["mutated_output", "additional_context"]),
+        pre_tool: readonlySet(["mutated_output", "additional_context"]),
       },
     };
     assert.throws(
