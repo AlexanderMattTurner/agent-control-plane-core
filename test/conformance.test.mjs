@@ -72,11 +72,18 @@ const rowLike = (values, overrides = {}) => {
   };
 };
 
-const echoUnrendered = Object.fromEntries(
-  ["pre_tool", "post_tool", "prompt_submit", "session_start", "unknown"].map(
-    (kind) => [kind, readonlySet(VERDICT_CONTENT_FIELDS)],
+const echoUnrendered = Object.freeze(
+  Object.fromEntries(
+    ["pre_tool", "post_tool", "prompt_submit", "session_start", "unknown"].map(
+      (kind) => [kind, readonlySet(VERDICT_CONTENT_FIELDS)],
+    ),
   ),
 );
+
+// Rule ⑩ requires the outer map to be frozen too, so a fixture that varies one
+// row must re-freeze rather than hand back a bare object literal.
+const rowMap = (/** @type {Record<string, unknown>} */ overrides) =>
+  Object.freeze({ ...echoUnrendered, ...overrides });
 
 const echoAdapter = {
   AGENT: "t",
@@ -348,7 +355,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
           fn("mutated_output", "mutated_output", null),
       }),
     ]) {
-      const broken = { ...echoUnrendered, [EventKind.POST_TOOL]: row };
+      const broken = rowMap({ [EventKind.POST_TOOL]: row });
       assert.throws(
         () =>
           run({ ...echoAdapter, UNRENDERED_FIELDS: broken }, fullFixtures()),
@@ -360,8 +367,9 @@ describe("conformance harness self-tests (non-vacuity)", () => {
   it("throws when UNRENDERED_FIELDS has no row for a rendered kind", () => {
     // Read as "every field reaches a channel", a missing row tells a consumer
     // the opposite of the truth on a transport that carries none.
-    const { pre_tool, ...missingRow } = echoUnrendered;
+    const { pre_tool, ...rest } = echoUnrendered;
     void pre_tool;
+    const missingRow = Object.freeze(rest);
     assert.throws(
       () =>
         run({ ...echoAdapter, UNRENDERED_FIELDS: missingRow }, fullFixtures()),
@@ -369,8 +377,9 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
     // The kind NO fixture produces is the one whose row goes missing, so the
     // check reads the EventKind SSOT rather than the events it happens to see.
-    const { session_start, ...noSessionRow } = echoUnrendered;
+    const { session_start, ...withoutSession } = echoUnrendered;
     void session_start;
+    const noSessionRow = Object.freeze(withoutSession);
     assert.throws(
       () =>
         run(
@@ -456,14 +465,51 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     // channel the render drops, and the per-fixture probes would never ask.
     const lying = {
       ...echoAdapter,
-      UNRENDERED_FIELDS: {
-        ...echoUnrendered,
+      UNRENDERED_FIELDS: rowMap({
         session_start: readonlySet(["mutated_output", "additional_context"]),
-      },
+      }),
     };
     assert.throws(
       () => run(lying, fullFixtures()),
       /mutated_input reaches no native channel on session_start/,
+    );
+  });
+
+  it("throws when the UNRENDERED_FIELDS map itself is mutable", () => {
+    // A frozen ROW stops a consumer editing one row's members. Only a frozen
+    // MAP stops it swapping a whole row for one that claims another channel,
+    // which conformance has already certified by then.
+    assert.throws(
+      () =>
+        run(
+          { ...echoAdapter, UNRENDERED_FIELDS: { ...echoUnrendered } },
+          fullFixtures(),
+        ),
+      /UNRENDERED_FIELDS is not frozen/,
+    );
+  });
+
+  it("throws when a render carries only some shapes of a content field", () => {
+    // `mutated_output` is a string, an object, or a LIST of blocks. An adapter
+    // forwarding the first two and dropping the third loses a whole redaction,
+    // so one probe shape per field would certify it.
+    const scalarsOnly = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        const carried =
+          event.event === "pre_tool" && !Array.isArray(verdict.mutated_output);
+        return carried && verdict.mutated_output !== undefined
+          ? { ...native, output: verdict.mutated_output }
+          : native;
+      },
+    };
+    assert.throws(
+      () => run(scalarsOnly, fullFixtures()),
+      /mutated_output shape 3.*mutated_output reaches no native channel/s,
     );
   });
 
@@ -473,10 +519,9 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     // unredacted output reached the model with nothing saying so.
     const undeclared = {
       ...echoAdapter,
-      UNRENDERED_FIELDS: {
-        ...echoUnrendered,
+      UNRENDERED_FIELDS: rowMap({
         pre_tool: readonlySet(["mutated_output", "additional_context"]),
-      },
+      }),
     };
     assert.throws(
       () => run(undeclared, fullFixtures()),

@@ -101,20 +101,22 @@ render(verdict, event) -> nativeResponse // the agent's native shape
 // kind. Every EventKind needs a row: an omission would read as "every field
 // reaches a channel here", which is the reverse of the truth on a transport
 // that carries none.
-UNRENDERED_FIELDS = {
+UNRENDERED_FIELDS = Object.freeze({
   [EventKind.PRE_TOOL]: readonlySet(["mutated_output"]),
   [EventKind.POST_TOOL]: readonlySet(["mutated_output"]),
   [EventKind.PROMPT_SUBMIT]: UNRENDERED_ON_UNKNOWN,
   [EventKind.SESSION_START]: UNRENDERED_ON_UNKNOWN,
   [EventKind.UNKNOWN]: UNRENDERED_ON_UNKNOWN,
-}
+})
 ```
 
 `readonlySet([])` is the row for a kind that carries all three;
 `UNRENDERED_ON_UNKNOWN` is the row for one that carries none. Both come from
 `agent-control-plane-core/contract`. Build every row with `readonlySet` — a
 plain `Set` exposes `clear()`, so a consumer could empty a declaration after
-conformance certified it, and `Object.freeze` does not stop that. A render that ships a field the row
+conformance certified it, and `Object.freeze` does not stop that. Freeze the map
+itself too: an immutable row still leaves a consumer free to swap a whole row
+for one claiming another channel. A render that ships a field the row
 declares dropped fails conformance, and so does a row that declares a channel
 the render does not carry.
 

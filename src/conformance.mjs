@@ -89,6 +89,7 @@ const CONTENT_PROBE_VALUES = Object.freeze({
   mutated_output: Object.freeze([
     sentinelFor("mutated_output"),
     Object.freeze({ content: sentinelFor("mutated_output") }),
+    Object.freeze([Object.freeze({ text: sentinelFor("mutated_output") })]),
   ]),
   additional_context: Object.freeze([sentinelFor("additional_context")]),
 });
@@ -126,6 +127,13 @@ function assertEveryKindHasARow(adapter, assert) {
     adapter.UNRENDERED_FIELDS !== null &&
       typeof adapter.UNRENDERED_FIELDS === "object",
     `${adapter.AGENT}: adapter declares no UNRENDERED_FIELDS — every adapter needs one row per EventKind naming the VERDICT_CONTENT_FIELDS this host has no channel for (UNRENDERED_ON_UNKNOWN for a kind that carries none, readonlySet([]) for one that carries all three)`,
+  );
+  // The MAP, not only its rows: a consumer that can swap the row for `pre_tool`
+  // rewrites the declaration after conformance certifies it, which is the same
+  // corruption immutable rows exist to prevent, one level out.
+  assert.ok(
+    Object.isFrozen(adapter.UNRENDERED_FIELDS),
+    `${adapter.AGENT}: UNRENDERED_FIELDS is not frozen — a consumer can replace a whole row after conformance certifies it; wrap the map in Object.freeze`,
   );
   for (const kind of Object.values(EventKind)) {
     const row = lookup(adapter.UNRENDERED_FIELDS, kind);
