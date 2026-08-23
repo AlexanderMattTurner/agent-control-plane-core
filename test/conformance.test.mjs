@@ -266,6 +266,13 @@ describe("conformance harness self-tests (non-vacuity)", () => {
       assert.throws(() => row.delete("mutated_output"));
       assert.throws(() => row.add("bogus"));
     }
+    // The callback's third argument is the SET, so forwarding to the private
+    // one would hand a consumer the mutable original through the read half.
+    UNRENDERED_ON_UNKNOWN.forEach((value, key, set) => {
+      assert.equal(value, key);
+      assert.throws(() => set.delete(value));
+      assert.throws(() => set.clear());
+    });
     assert.equal(UNRENDERED_ON_UNKNOWN.has("mutated_output"), true);
     assert.equal(UNRENDERED_ON_UNKNOWN.size, 3);
   });
@@ -291,6 +298,22 @@ describe("conformance harness self-tests (non-vacuity)", () => {
           fullFixtures(),
         ),
       /has no row for 'session_start'/,
+    );
+  });
+
+  it("probes a declared row for a kind no fixture produces", () => {
+    // Row existence is not agreement: a row for an unreached kind could claim a
+    // channel the render drops, and the per-fixture probes would never ask.
+    const lying = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: {
+        ...echoUnrendered,
+        session_start: new Set(["mutated_output", "additional_context"]),
+      },
+    };
+    assert.throws(
+      () => run(lying, fullFixtures()),
+      /mutated_input reaches no native channel on session_start/,
     );
   });
 

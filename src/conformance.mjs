@@ -69,7 +69,8 @@ if (
   );
 
 /**
- * Rule ⑩'s first half: the adapter declares a row for EVERY {@link EventKind}.
+ * Rule ⑩'s first half: the adapter declares a row for EVERY {@link EventKind},
+ * and every one of those rows agrees with what `render` emits.
  *
  * Iterated over the SSOT rather than over the fixtures, because a kind an
  * adapter's `parse` never emits is exactly the one whose row goes missing — and
@@ -78,14 +79,28 @@ if (
  * `session_start` and Amp's `unknown` are the live cases: no fixture produces
  * either, so a fixture-driven check certifies neither.
  * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {import("./control-plane.mjs").ToolCallEvent} event a parsed event to re-label
  * @param {any} assert
+ * @param {Set<string>} seen fields observed to REACH a wire
  */
-function assertEveryKindDeclared(adapter, assert) {
-  for (const kind of Object.values(EventKind))
+function assertEveryKindDeclared(adapter, event, assert, seen) {
+  for (const kind of Object.values(EventKind)) {
     assert.ok(
       lookup(adapter.UNRENDERED_FIELDS, kind) !== undefined,
       `${adapter.AGENT}: UNRENDERED_FIELDS has no row for '${kind}' — every EventKind needs one, so an omission cannot read as full support`,
     );
+    // Existence is not agreement. A row for a kind no fixture produces could
+    // claim a channel the render drops, and the per-fixture probes would never
+    // ask — so every row is probed, on a representative event re-labelled with
+    // that kind.
+    assertContentChannels(
+      adapter,
+      { ...event, event: kind },
+      `every-kind probe '${kind}'`,
+      assert,
+      seen,
+    );
+  }
 }
 
 /**
@@ -377,7 +392,6 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   );
 
   assertCoverageWellFormed(adapter, assert);
-  assertEveryKindDeclared(adapter, assert);
 
   /** @type {Set<string>} */
   const decisionsSeen = new Set();
@@ -389,6 +403,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   let enforcedDenySeen = false;
   let vetoableDenySeen = false;
   let unknownKindSeen = false;
+  let everyKindChecked = false;
   let preToolCases = 0;
   let unenforceableDenyChecks = 0;
   let renders = 0;
@@ -496,6 +511,10 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
       renders += 1;
     }
 
+    if (!everyKindChecked) {
+      assertEveryKindDeclared(adapter, parsed, assert, contentFieldsSeen);
+      everyKindChecked = true;
+    }
     assertContentChannels(
       adapter,
       parsed,
@@ -579,6 +598,10 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     unknownKindSeen = true;
   }
   assert.ok(renders > 0, "conformance fixtures render nothing");
+  assert.ok(
+    everyKindChecked,
+    "the every-EventKind declaration sweep never ran — no fixture case parsed",
+  );
   // EVERY pre-tool case, not merely one: the count is what catches rule ⑧ being
   // skipped by a stray `continue` rather than merely present somewhere. A suite
   // with no pre-tool case has no veto surface to lose, and rule ⑤'s own

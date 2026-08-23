@@ -413,19 +413,32 @@ export const VERDICT_CONTENT_FIELDS = Object.freeze([
  */
 export function readonlySet(values) {
   const inner = new Set(values);
-  return Object.freeze(
-    /** @type {ReadonlySet<string>} */ ({
+  /** @type {ReadonlySet<string>} */
+  const facade = Object.freeze(
+    /** @type {any} */ ({
+      /** @param {string} value */
       has: (value) => inner.has(value),
       keys: () => inner.keys(),
       values: () => inner.values(),
       entries: () => inner.entries(),
-      forEach: (fn, thisArg) => inner.forEach(fn, thisArg),
+      // The callback's third argument is the SET, and forwarding to
+      // `inner.forEach` hands the private mutable one straight to a consumer —
+      // `row.forEach((v, k, set) => set.clear())` would empty a row several
+      // adapters share. The shim passes the facade, so there is no reference to
+      // the inner Set anywhere a caller can reach.
+      /**
+       * @param {(value: string, key: string, set: ReadonlySet<string>) => void} fn
+       * @param {unknown} [thisArg]
+       */
+      forEach: (fn, thisArg) =>
+        inner.forEach((value) => fn.call(thisArg, value, value, facade)),
       [Symbol.iterator]: () => inner[Symbol.iterator](),
       get size() {
         return inner.size;
       },
     }),
   );
+  return facade;
 }
 
 /**
