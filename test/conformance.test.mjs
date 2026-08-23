@@ -513,6 +513,58 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
   });
 
+  it("throws when a render drops a shape only alongside another field", () => {
+    // The combined probe pinned to one shape tests that shape and no other, so
+    // an adapter losing the array replacement exactly when `additional_context`
+    // shares the channel passes every single-field probe.
+    const losesArrayWhenCrowded = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        const crowded =
+          Array.isArray(verdict.mutated_output) &&
+          verdict.additional_context !== undefined;
+        return event.event === "pre_tool" &&
+          verdict.mutated_output !== undefined &&
+          !crowded
+          ? { ...native, output: verdict.mutated_output }
+          : native;
+      },
+    };
+    assert.throws(
+      () => run(losesArrayWhenCrowded, fullFixtures()),
+      /all fields together, shape 3.*mutated_output reaches no native channel/s,
+    );
+  });
+
+  it("throws when a render drops a PRIMITIVE content value", () => {
+    // `mutated_output` is the tool's output verbatim, so a tool returning a
+    // bare number is a replacement an adapter must forward. A render that
+    // type-switches on string and object carries every other probe.
+    const objectsOnly = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        const carried =
+          typeof verdict.mutated_output === "string" ||
+          typeof verdict.mutated_output === "object";
+        return event.event === "pre_tool" && carried
+          ? { ...native, output: verdict.mutated_output }
+          : native;
+      },
+    };
+    assert.throws(
+      () => run(objectsOnly, fullFixtures()),
+      /mutated_output shape 4.*mutated_output reaches no native channel/s,
+    );
+  });
+
   it("throws when a content field reaches no channel and is not declared", () => {
     // The gap rule ⑩ exists for: an adapter with no channel for a field just
     // ignored it, so a redaction verdict rendered a bare allow and the

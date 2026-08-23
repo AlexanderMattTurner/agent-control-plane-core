@@ -72,6 +72,19 @@ const SET_SURFACE = Object.freeze([
 const sentinelFor = (/** @type {string} */ field) =>
   `${CONTENT_PROBE_SENTINEL}-${field}`;
 
+// The marker for a probe value that cannot hold a string one. Long enough that
+// no exit code, length or count a render computes collides with it.
+const NUMERIC_PROBE_SENTINEL = 908172635441;
+
+/** The text a render must contain to have carried VALUE for FIELD. */
+const markerFor = (
+  /** @type {unknown} */ value,
+  /** @type {string} */ field,
+) =>
+  value === NUMERIC_PROBE_SENTINEL
+    ? String(NUMERIC_PROBE_SENTINEL)
+    : sentinelFor(field);
+
 /**
  * The value each content field is probed with, in each shape its contract
  * allows. `mutated_output` gets two: the `Verdict` permits a structured tool
@@ -86,10 +99,19 @@ const CONTENT_PROBE_VALUES = Object.freeze({
   mutated_input: Object.freeze([
     Object.freeze({ command: sentinelFor("mutated_input") }),
   ]),
+  // `mutated_output` is a tool's output verbatim, so every JSON shape a tool
+  // can return is a shape an adapter must forward. A render that type-switches
+  // passes every shape it happens to handle and drops the rest.
+  //
+  // A probe value must carry a marker the render can be searched for, so a
+  // BOOLEAN and `null` are not probeable this way — they hold no room for one,
+  // and `JSON.stringify` gives them no form a render could not produce anyway.
+  // The numeric marker is long enough that no exit code or count collides.
   mutated_output: Object.freeze([
     sentinelFor("mutated_output"),
     Object.freeze({ content: sentinelFor("mutated_output") }),
     Object.freeze([Object.freeze({ text: sentinelFor("mutated_output") })]),
+    NUMERIC_PROBE_SENTINEL,
   ]),
   additional_context: Object.freeze([sentinelFor("additional_context")]),
 });
@@ -375,7 +397,9 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
       { decision: Decision.ALLOW, ...content },
       event,
     );
-    const onTheWire = JSON.stringify(rendered).includes(sentinelFor(field));
+    const onTheWire = JSON.stringify(rendered).includes(
+      markerFor(content[field], field),
+    );
     const where = `'${caseName}' (${adapter.AGENT}), ${shape}`;
     if (declared?.has(field)) {
       assert.equal(
@@ -399,17 +423,26 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
     ).entries())
       probe({ [field]: value }, field, `${field} shape ${index + 1}`);
 
-  // One verdict carrying every field at once. A `Verdict` permits that, and an
+  // Verdicts carrying every field at once. A `Verdict` permits that, and an
   // adapter can drop one field only when another shares its native channel —
-  // a state no single-field probe reaches.
-  const together = Object.fromEntries(
-    VERDICT_CONTENT_FIELDS.map((field) => [
-      field,
-      (lookup(CONTENT_PROBE_VALUES, field) ?? [])[0],
-    ]),
+  // a state no single-field probe reaches. Every shape gets its turn: an
+  // adapter can equally drop one SHAPE only when another field is present, so
+  // pinning the combination to shape 1 tests the string and nothing else.
+  const shapes = (/** @type {string} */ field) =>
+    lookup(CONTENT_PROBE_VALUES, field) ?? [];
+  const rounds = Math.max(
+    ...VERDICT_CONTENT_FIELDS.map((f) => shapes(f).length),
   );
-  for (const field of VERDICT_CONTENT_FIELDS)
-    probe(together, field, "all fields together");
+  for (let round = 0; round < rounds; round++) {
+    const together = Object.fromEntries(
+      VERDICT_CONTENT_FIELDS.map((field) => [
+        field,
+        shapes(field)[Math.min(round, shapes(field).length - 1)],
+      ]),
+    );
+    for (const field of VERDICT_CONTENT_FIELDS)
+      probe(together, field, `all fields together, shape ${round + 1}`);
+  }
 }
 
 /**
