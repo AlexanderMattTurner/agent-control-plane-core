@@ -133,22 +133,52 @@ function assertEveryKindHasARow(adapter, assert) {
     // yield the declared field names themselves, agree with `has`, and count
     // `size` — and each name has to be a field a Verdict actually carries, or a
     // typo declares nothing while reading as a declaration.
-    const declared = [.../** @type {any} */ (row)];
-    assert.deepEqual(
-      declared.filter(
-        (field) =>
-          VERDICT_CONTENT_FIELDS.includes(field) &&
-          /** @type {any} */ (row).has(field),
-      ),
-      declared,
-      `${adapter.AGENT}: UNRENDERED_FIELDS row for '${kind}' does not iterate as a set of ${VERDICT_CONTENT_FIELDS.join("/")} — got ${JSON.stringify(declared)}`,
-    );
-    assert.equal(
-      declared.length,
-      /** @type {any} */ (row).size,
-      `${adapter.AGENT}: UNRENDERED_FIELDS row for '${kind}' iterates ${declared.length} entries but reports size ${/** @type {any} */ (row).size}`,
-    );
+    assertRowReads(adapter.AGENT, kind, row, assert);
   }
+}
+
+/**
+ * One `UNRENDERED_FIELDS` row, read every way a `ReadonlySet` can be read.
+ *
+ * The members are not the contract, the semantics are: a `Map` carries all of
+ * them and hands a consumer `[key, value]` pairs, and a row whose `forEach`
+ * throws passes any check that only asks whether it is callable. Every reader
+ * has to answer the same field names, each name has to be a field a `Verdict`
+ * carries, and `size` has to count them — a typo like `mutatedOutput` otherwise
+ * declares nothing while reading as a declaration.
+ * @param {string} agent
+ * @param {string} kind
+ * @param {any} row
+ * @param {any} assert
+ */
+function assertRowReads(agent, kind, row, assert) {
+  const where = `${agent}: UNRENDERED_FIELDS row for '${kind}'`;
+  const declared = [...row];
+  assert.deepEqual(
+    declared.filter(
+      (field) => VERDICT_CONTENT_FIELDS.includes(field) && row.has(field),
+    ),
+    declared,
+    `${where} does not iterate as a set of ${VERDICT_CONTENT_FIELDS.join("/")} — got ${JSON.stringify(declared)}`,
+  );
+  assert.equal(declared.length, row.size, `${where} miscounts its own size`);
+  assert.deepEqual([...row.keys()], declared, `${where}: keys() disagrees`);
+  assert.deepEqual([...row.values()], declared, `${where}: values() disagrees`);
+  assert.deepEqual(
+    [...row.entries()],
+    declared.map((field) => [field, field]),
+    `${where}: entries() is not a set's [value, value]`,
+  );
+  /** @type {string[][]} */
+  const walked = [];
+  row.forEach((/** @type {string} */ value, /** @type {string} */ key) =>
+    walked.push([value, key]),
+  );
+  assert.deepEqual(
+    walked,
+    declared.map((field) => [field, field]),
+    `${where}: forEach does not pass (value, value)`,
+  );
 }
 
 /**
@@ -220,6 +250,11 @@ function coherentEvent(adapter, byKind, kind) {
   return {
     ...rest,
     event: /** @type {any} */ (kind),
+    // `makeEvent` refuses a vetoable UNKNOWN: an event the adapter could not
+    // name reports a block the host never performs. A seed from a vetoable tool
+    // event would carry the flag straight into that state.
+    this_call_vetoable:
+      kind === EventKind.UNKNOWN ? false : seed.this_call_vetoable,
     tool: carriesTool ? seed.tool : null,
     input: carriesTool ? seed.input : {},
     ...(kind === EventKind.POST_TOOL && "response" in seed

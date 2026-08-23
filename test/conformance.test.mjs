@@ -303,12 +303,18 @@ describe("conformance harness self-tests (non-vacuity)", () => {
       new Map([["mutated_output", true]]),
       // A field name no Verdict carries: a typo that reads as a declaration.
       new Set(["mutatedOutput"]),
+      // Every reader present and callable, and one of them throws.
+      Object.assign(new Set(["mutated_output"]), {
+        forEach: () => {
+          throw new Error("row reader is broken");
+        },
+      }),
     ]) {
       const broken = { ...echoUnrendered, [EventKind.POST_TOOL]: row };
       assert.throws(
         () =>
           run({ ...echoAdapter, UNRENDERED_FIELDS: broken }, fullFixtures()),
-        /row for 'post_tool' (is not a ReadonlySet|does not iterate as a set)/,
+        /row for 'post_tool'|row reader is broken/,
       );
     }
   });
@@ -376,6 +382,11 @@ describe("conformance harness self-tests (non-vacuity)", () => {
       assert.equal("response" in event, false);
       assert.equal("native_tool" in (event.meta ?? {}), false);
     }
+    // `makeEvent` refuses a vetoable UNKNOWN, and the seed here IS vetoable, so
+    // spreading it whole would build the state the contract rejects.
+    const unknowns = seen.filter((e) => e.event === EventKind.UNKNOWN);
+    assert.ok(unknowns.length > 0);
+    for (const event of unknowns) assert.equal(event.this_call_vetoable, false);
   });
 
   it("probes with the adapter's own native event when it names one", () => {
