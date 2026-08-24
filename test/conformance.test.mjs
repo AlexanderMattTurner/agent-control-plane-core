@@ -883,6 +883,28 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
   });
 
+  it("throws when a render forwards only SHELL-shaped input replacements", () => {
+    // `mutated_input` is any record, not a Bash call. An adapter gated on
+    // `command` drops a Read/Edit replacement and an empty one.
+    const commandOnly = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_output", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        const value = verdict.mutated_input;
+        return event.event === "pre_tool" && value?.command !== undefined
+          ? { ...native, input: value }
+          : native;
+      },
+    };
+    assert.throws(
+      () => run(commandOnly, fullFixtures()),
+      /no native path carries mutated_input verbatim/s,
+    );
+  });
+
   it("throws when a content field reaches no channel and is not declared", () => {
     // The gap rule ⑩ exists for: an adapter with no channel for a field just
     // ignored it, so a redaction verdict rendered a bare allow and the
