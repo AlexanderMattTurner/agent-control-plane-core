@@ -33,6 +33,14 @@
  * field, a new modeled tool, a new tool alias) is backward-compatible and stays
  * at v1; RENAMING or REMOVING a field, or changing a decision/event vocabulary,
  * is breaking and bumps the version.
+ *
+ * That version covers the WIRE shapes an event or verdict carries, not the
+ * {@link Adapter} interface an integrator implements. A new REQUIRED adapter
+ * member breaks every third-party adapter while every event on the wire stays
+ * byte-identical, so it is a package-semver break and leaves
+ * {@link CONTROL_PLANE_SCHEMA} alone. `UNRENDERED_FIELDS` is one: adding it is
+ * a one-line change per adapter, and the conformance harness names the member
+ * and the migration rather than throwing from inside itself.
  */
 
 /** Wire identifier for this schema version; bump on a breaking shape change. */
@@ -388,6 +396,69 @@ export function classifyCallClass(tool, native) {
  */
 
 /**
+ * The {@link Verdict} fields that carry CONTENT into the agent's stream, as
+ * opposed to the decision itself. Every adapter either renders each one into a
+ * native channel or has no channel for it and drops it; `UNRENDERED_FIELDS`
+ * declares which, and the conformance harness holds each adapter to its own
+ * declaration. `reason` is not listed: it is only live on deny/ask, so it is not
+ * probeable from a single abstaining verdict the way these three are.
+ */
+export const VERDICT_CONTENT_FIELDS = Object.freeze([
+  "mutated_input",
+  "mutated_output",
+  "additional_context",
+]);
+
+/**
+ * A genuinely immutable set of `values`, for a row a consumer can reach.
+ *
+ * `Object.freeze` does not freeze a Set's CONTENTS — `frozen.delete(x)` still
+ * succeeds — and these rows are shared between adapters, so one `delete` would
+ * make several declarations report a channel their renders still discard. The
+ * wrapper holds the Set privately and exposes only the read half, frozen.
+ * @param {Iterable<string>} values
+ * @returns {ReadonlySet<string>}
+ */
+export function readonlySet(values) {
+  const inner = new Set(values);
+  /** @type {ReadonlySet<string>} */
+  const facade = Object.freeze(
+    /** @type {any} */ ({
+      /** @param {string} value */
+      has: (value) => inner.has(value),
+      keys: () => inner.keys(),
+      values: () => inner.values(),
+      entries: () => inner.entries(),
+      // The callback's third argument is the SET, and forwarding to
+      // `inner.forEach` hands the private mutable one straight to a consumer —
+      // `row.forEach((v, k, set) => set.clear())` would empty a row several
+      // adapters share. The shim passes the facade, so there is no reference to
+      // the inner Set anywhere a caller can reach.
+      /**
+       * @param {(value: string, key: string, set: ReadonlySet<string>) => void} fn
+       * @param {unknown} [thisArg]
+       */
+      forEach: (fn, thisArg) =>
+        inner.forEach((value) => fn.call(thisArg, value, value, facade)),
+      [Symbol.iterator]: () => inner[Symbol.iterator](),
+      get size() {
+        return inner.size;
+      },
+    }),
+  );
+  return facade;
+}
+
+/**
+ * The `UNRENDERED_FIELDS` row every adapter uses for {@link EventKind.UNKNOWN}.
+ * An event the adapter could not name is one whose host channels nobody
+ * established, so claiming any of them is the same fail-open `assertGatedKinds`
+ * refuses for the veto: the caller reads a mutation as applied while the host
+ * ignores the key it was written into.
+ */
+export const UNRENDERED_ON_UNKNOWN = readonlySet(VERDICT_CONTENT_FIELDS);
+
+/**
  * The translator for one agent's protocol. `parse` maps a native event to a
  * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the
  * integration mode / enforcement flags on `meta`); `render` maps a {@link Verdict}
@@ -398,6 +469,8 @@ export function classifyCallClass(tool, native) {
  * @property {Record<string, "covered"|"partial"|"uncovered"|"unknown">} COVERAGE per-{@link CallClass} hook-coverage status; must classify every {@link CALL_CLASSES} entry
  * @property {(native: any) => ToolCallEvent} parse
  * @property {(verdict: Verdict, event: ToolCallEvent, options?: { soleGate?: boolean }) => NativeResponse} render
+ * @property {Record<string, string|undefined>} [NATIVE_EVENT_FOR] the native event name this host uses for each {@link EventKind}, for a conformance probe of a kind no fixture produced. Optional: a kind absent here (`unknown` always, plus any kind this transport does not carry) is probed with a marker name, which takes the adapter's unrecognized-event branch. Never read at runtime — `parse` stamps the real name on `meta.native_event`.
+ * @property {Record<string, ReadonlySet<string>|undefined>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. SCOPE — a row describes the ALLOW path only. An enforceable deny may drop more: Gemini's exit-2 System Block returns no stdout at all, so a deny there carries no `additional_context` whatever the row says. Do not read this map to infer what a deny delivers. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
  */
 
 /**

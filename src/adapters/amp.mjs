@@ -25,6 +25,8 @@ import {
   makeEvent,
   normalizeVerdict,
   nativeResponse,
+  readonlySet,
+  VERDICT_CONTENT_FIELDS,
   collectPassthrough,
   asObject,
   asStringOrNull,
@@ -62,7 +64,38 @@ export const COVERAGE = Object.freeze({
  * after `assertGatedKinds` has already run.
  */
 const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
+
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. Amp's observer names every event `delegate` and reaches no
+ * other kind.
+ * @type {Record<string, string|undefined>}
+ */
+export const NATIVE_EVENT_FOR = Object.freeze({
+  [EventKind.PRE_TOOL]: "delegate",
+});
 assertGatedKinds(GATED_EVENTS, AGENT);
+
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel, so `render`
+ * drops them. Amp's transport is the exit code and nothing else — there is no
+ * stdout body to carry a replacement input, a replacement output or extra
+ * context, so ALL THREE are dropped on every kind, the same gap `reason` has
+ * here (Amp surfaces the helper's own stderr instead). A guardrail that needs
+ * any of them cannot use Amp as its only integration. Built over every
+ * {@link EventKind} rather than the one `parse` emits: a row this adapter cannot
+ * reach is still the honest answer for a caller that asks.
+ * @type {Record<string, ReadonlySet<string>|undefined>}
+ */
+export const UNRENDERED_FIELDS = Object.freeze(
+  Object.fromEntries(
+    Object.values(EventKind).map((kind) => [
+      kind,
+      readonlySet(VERDICT_CONTENT_FIELDS),
+    ]),
+  ),
+);
 
 // Amp invokes the delegate for a tool call; the payload carries the tool name +
 // input and the session context. Pinned by fixtures/amp.json.
@@ -182,4 +215,12 @@ export function render(verdict, event) {
 }
 
 /** @type {import("../control-plane.mjs").Adapter} */
-export const ampAdapter = { AGENT, INTEGRATION_MODE, COVERAGE, parse, render };
+export const ampAdapter = {
+  AGENT,
+  INTEGRATION_MODE,
+  COVERAGE,
+  UNRENDERED_FIELDS,
+  NATIVE_EVENT_FOR,
+  parse,
+  render,
+};

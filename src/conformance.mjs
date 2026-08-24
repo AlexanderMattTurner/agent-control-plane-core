@@ -9,6 +9,7 @@ import {
   coverageAllowsVeto,
   isCoverageStatus,
   lookup,
+  VERDICT_CONTENT_FIELDS,
 } from "./control-plane.mjs";
 
 /**
@@ -35,6 +36,577 @@ const DRIFT_PROBE_NATIVE = Object.freeze({
   hook_event_name: "ConformanceProbeUnmodelledEvent",
   version: "9999.0.0",
 });
+
+/**
+ * The value rule ⑩ puts in each content field it probes, and the shapes each
+ * field's contract allows it to take (`mutated_input` must be an object). It is
+ * a sentinel rather than realistic content because the rule asks whether the
+ * VALUE reached the wire, which is answered by searching the serialized render
+ * for it — a check that survives an adapter wrapping, renaming or annotating the
+ * channel, where comparing two whole renders does not.
+ */
+const CONTENT_PROBE_SENTINEL = "acpc-conformance-content-probe-b6f1";
+
+/**
+ * `meta.native_event` on a synthesized probe event — a name no host uses, so an
+ * adapter that selects its output schema from that field takes its
+ * unrecognized-event branch rather than a fallback naming a real one.
+ */
+const PROBE_NATIVE_EVENT = "acpc-conformance-synthesized-event";
+
+/**
+ * The `ReadonlySet` members an `UNRENDERED_FIELDS` row must carry. A consumer
+ * reads a row every way a Set can be read, so a row that answers only `has` is
+ * a crash waiting for the first caller that iterates it.
+ */
+const SET_SURFACE = Object.freeze([
+  "has",
+  "forEach",
+  "keys",
+  "values",
+  "entries",
+  Symbol.iterator,
+]);
+/** One field's sentinel — distinct per field, so a probe carrying several can
+ * say WHICH of them reached the wire. */
+const sentinelFor = (/** @type {string} */ field) =>
+  `${CONTENT_PROBE_SENTINEL}-${field}`;
+
+/** JSON-shaped deep equality, for comparing one render against another. */
+const same = (/** @type {unknown} */ a, /** @type {unknown} */ b) =>
+  JSON.stringify(a) === JSON.stringify(b);
+
+const isBranch = (/** @type {unknown} */ v) =>
+  v !== null && typeof v === "object";
+
+/**
+ * Every path at which RENDERS do not all agree, outermost first.
+ *
+ * A path that varies with the value is a position the field could be reaching;
+ * one that does not vary cannot be, which is what drops a warning keyed on the
+ * field's presence out of the comparison.
+ *
+ * ANCESTORS are included, not only the innermost disagreements: a structured
+ * value sits at the path whose CHILDREN differ, so returning the children alone
+ * would never offer the position holding the whole value.
+ */
+/**
+ * @param {unknown[]} renders
+ * @param {string[]} path
+ * @returns {string[][]}
+ */
+const divergences = (renders, path = []) => {
+  const [first, ...rest] = renders;
+  if (rest.every((r) => same(r, first))) return [];
+  const alike =
+    renders.every(isBranch) &&
+    renders.every((r) => Array.isArray(r) === Array.isArray(first));
+  if (!alike) return [path];
+  const keys = [
+    ...new Set(renders.flatMap((r) => Object.keys(/** @type {any} */ (r)))),
+  ];
+  return [
+    path,
+    ...keys.flatMap((key) =>
+      divergences(
+        renders.map((r) => /** @type {any} */ (r)[key]),
+        [...path, key],
+      ),
+    ),
+  ];
+};
+
+/** What RENDER holds at PATH. */
+const at = (/** @type {unknown} */ render, /** @type {string[]} */ path) =>
+  path.reduce((node, key) => /** @type {any} */ (node)?.[key], render);
+
+/**
+ * The values each content field is probed with — every shape its contract
+ * allows, and at least TWO per field, because the rule reads a field's channel
+ * off the positions that VARY as the value changes.
+ *
+ * A sentinel rides in the VALUE, never a key: an adapter forwarding an input's
+ * key set while dropping the values would serialize a sentinel KEY and pass,
+ * which is the self-consistent broken render this rule exists to catch
+ * independently of the golden fixtures. The values that hold no sentinel at all
+ * are carried by the same structural comparison.
+ */
+// Fields the contract carries VERBATIM, so a native path must hold the value
+// itself. `additional_context` is not one: it is prose for the model, and a
+// host with one message channel may legitimately COMPOSE it with its own text —
+// gemini joins it with the post-tool warning. That field only has to reach the
+// wire intact somewhere inside a varying path.
+const CARRIED_VERBATIM = Object.freeze(["mutated_input", "mutated_output"]);
+
+const CONTENT_PROBE_VALUES = Object.freeze({
+  // A `Verdict`'s `mutated_input` is any `Record<string, unknown>`, not a Bash
+  // call: a Read/Edit/Write replacement carries `file_path` and no `command`,
+  // and an EMPTY record is a legitimate replacement too. An adapter that
+  // forwards only what looks like a shell invocation drops the rest.
+  mutated_input: Object.freeze([
+    Object.freeze({ command: sentinelFor("mutated_input") }),
+    Object.freeze({ command: `${sentinelFor("mutated_input")}-2`, argv: [] }),
+    Object.freeze({ file_path: sentinelFor("mutated_input") }),
+    Object.freeze({}),
+    // FALSY members. A render that keeps only what `Boolean(value)` admits
+    // turns this into `{}`, dropping `enabled: false` and `retries: 0` from a
+    // replacement the caller meant.
+    Object.freeze({
+      command: sentinelFor("mutated_input"),
+      enabled: false,
+      retries: 0,
+      note: "",
+      parent: null,
+    }),
+    // POPULATED NESTED members. Every other probe's members are primitives or
+    // empty, so a render that replaces a nested value with a placeholder — or
+    // keeps only the members it can flatten — carries them all intact.
+    Object.freeze({
+      command: sentinelFor("mutated_input"),
+      options: Object.freeze({
+        cwd: "/tmp",
+        retries: 2,
+        env: Object.freeze({ PATH: "/usr/bin" }),
+      }),
+      argv: Object.freeze(["--flag", `${sentinelFor("mutated_input")}-arg`]),
+      steps: Object.freeze([Object.freeze({ id: 1 })]),
+    }),
+  ]),
+  // `mutated_output` is a tool's output verbatim, so every JSON shape a tool
+  // can return is one an adapter must forward. A render that type-switches
+  // passes the shapes it happens to handle and drops the rest, and the EMPTY
+  // ones are what an `if (verdict.mutated_output)` render loses — an empty
+  // output being how a redaction removes all content.
+  mutated_output: Object.freeze([
+    sentinelFor("mutated_output"),
+    Object.freeze({ content: sentinelFor("mutated_output") }),
+    Object.freeze([Object.freeze({ text: sentinelFor("mutated_output") })]),
+    null,
+    true,
+    false,
+    "",
+    0,
+    Object.freeze({}),
+    Object.freeze([]),
+    908172635441,
+  ]),
+  // A context string is prose, so it carries newlines and punctuation a render
+  // may strip, escape or truncate on its way to a native field. An EMPTY string
+  // is deliberately absent: this field is checked by containment, and every
+  // string contains the empty one, so the probe could not tell a dropped empty
+  // context from a carried one.
+  additional_context: Object.freeze([
+    sentinelFor("additional_context"),
+    `${sentinelFor("additional_context")}-2`,
+    `${sentinelFor("additional_context")}\nsecond line\twith <&>"' punctuation`,
+  ]),
+});
+
+// A field added to VERDICT_CONTENT_FIELDS with no probe value would be dropped
+// by normalizeVerdict and then reported as "reaches no native channel" against
+// every adapter, naming the adapter for the harness's own omission.
+if (
+  VERDICT_CONTENT_FIELDS.some(
+    (field) => (lookup(CONTENT_PROBE_VALUES, field) ?? []).length < 2,
+  )
+)
+  throw new Error(
+    `conformance: CONTENT_PROBE_VALUES needs two or more values for each of ${VERDICT_CONTENT_FIELDS.join(", ")}`,
+  );
+
+/**
+ * Rule ⑩'s first half: the adapter declares a row for EVERY {@link EventKind}.
+ *
+ * Iterated over the SSOT rather than over the fixtures, because a kind an
+ * adapter's `parse` never emits is exactly the one whose row goes missing — and
+ * an absent row reads as "every content field reaches a channel here", which is
+ * the reverse of the truth on a transport that carries none. Gemini's
+ * `session_start` and Amp's `unknown` are the live cases: no fixture produces
+ * either, so a fixture-driven check certifies neither.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {any} assert
+ */
+function assertEveryKindHasARow(adapter, assert) {
+  // An adapter written against the earlier contract has no map at all, and
+  // `lookup` would throw a bare TypeError on it. Name the missing member and its
+  // one-line migration instead — a third-party adapter's author is who reads
+  // this, and a stack trace into the harness tells them nothing.
+  assert.ok(
+    adapter.UNRENDERED_FIELDS !== null &&
+      typeof adapter.UNRENDERED_FIELDS === "object",
+    `${adapter.AGENT}: adapter declares no UNRENDERED_FIELDS — every adapter needs one row per EventKind naming the VERDICT_CONTENT_FIELDS this host has no channel for (UNRENDERED_ON_UNKNOWN for a kind that carries none, readonlySet([]) for one that carries all three)`,
+  );
+  // The MAP, not only its rows: a consumer that can swap the row for `pre_tool`
+  // rewrites the declaration after conformance certifies it, which is the same
+  // corruption immutable rows exist to prevent, one level out.
+  assert.ok(
+    Object.isFrozen(adapter.UNRENDERED_FIELDS),
+    `${adapter.AGENT}: UNRENDERED_FIELDS is not frozen — a consumer can replace a whole row after conformance certifies it; wrap the map in Object.freeze`,
+  );
+  for (const kind of Object.values(EventKind)) {
+    const row = lookup(adapter.UNRENDERED_FIELDS, kind);
+    assert.ok(
+      row !== undefined,
+      `${adapter.AGENT}: UNRENDERED_FIELDS has no row for '${kind}' — every EventKind needs one, so an omission cannot read as full support`,
+    );
+    // A row is only a declaration if it answers like the ReadonlySet the
+    // contract promises. `null` reads as "declares nothing" at every `has` call,
+    // so the adapter claims every channel; `{ has: () => true }` passes a
+    // has-only check while a consumer that iterates it, or reads `size`, fails
+    // at runtime.
+    assert.ok(
+      SET_SURFACE.every(
+        (member) => typeof (/** @type {any} */ (row)?.[member]) === "function",
+      ) && typeof (/** @type {any} */ (row)?.size) === "number",
+      `${adapter.AGENT}: UNRENDERED_FIELDS row for '${kind}' is not a ReadonlySet — use readonlySet([...]), which carries ${SET_SURFACE.length} members plus size`,
+    );
+    // The members are not the contract, the SEMANTICS are: a Map carries every
+    // one of them and hands a consumer `[key, value]` pairs. Iterating has to
+    // yield the declared field names themselves, agree with `has`, and count
+    // `size` — and each name has to be a field a Verdict actually carries, or a
+    // typo declares nothing while reading as a declaration.
+    assertRowReads(adapter.AGENT, kind, row, assert);
+  }
+}
+
+/**
+ * One `UNRENDERED_FIELDS` row, read every way a `ReadonlySet` can be read.
+ *
+ * The members are not the contract, the semantics are: a `Map` carries all of
+ * them and hands a consumer `[key, value]` pairs, and a row whose `forEach`
+ * throws passes any check that only asks whether it is callable. Every reader
+ * has to answer the same field names, each name has to be a field a `Verdict`
+ * carries, and `size` has to count them — a typo like `mutatedOutput` otherwise
+ * declares nothing while reading as a declaration.
+ * @param {string} agent
+ * @param {string} kind
+ * @param {any} row
+ * @param {any} assert
+ */
+function assertRowReads(agent, kind, row, assert) {
+  const where = `${agent}: UNRENDERED_FIELDS row for '${kind}'`;
+  const declared = [...row];
+  assert.equal(
+    new Set(declared).size,
+    declared.length,
+    `${where} iterates a value twice — a set has each of its members once`,
+  );
+  // A row must be immutable, not merely read-only-looking. `Object.freeze` does
+  // NOT stop `new Set([...]).clear()`, so a certified row could be emptied
+  // afterwards and would then report channels `render` still drops — the stale
+  // declaration this whole rule exists to prevent. `readonlySet` exposes no
+  // mutator at all, which is what makes every call below throw.
+  //
+  // Throwing is not enough on its own: a mutator that inserts and THEN throws
+  // has already changed the row, and a caller who catches it observes the new
+  // contents. So the members are compared across every attempt.
+  for (const [mutator, argument] of [
+    ["add", "mutated_input"],
+    ["delete", declared[0]],
+    ["clear", undefined],
+  ]) {
+    assert.throws(
+      () => /** @type {any} */ (row)[mutator](argument),
+      `${where} exposes a working '${mutator}' — a consumer can rewrite the declaration after conformance certifies it; build the row with readonlySet`,
+    );
+    assert.deepEqual(
+      [...row],
+      declared,
+      `${where}: '${mutator}' changed the row before it threw — a caller that catches it reads the new declaration`,
+    );
+  }
+  assert.deepEqual(
+    declared.filter((field) => VERDICT_CONTENT_FIELDS.includes(field)),
+    declared,
+    `${where} does not iterate as a set of ${VERDICT_CONTENT_FIELDS.join("/")} — got ${JSON.stringify(declared)}`,
+  );
+  // `has` has to answer for EVERY content field, not only the iterated ones:
+  // a row that iterates one field while `has` says yes to all three tells rule
+  // ⑩ one declaration and a consumer that iterates it another.
+  assert.deepEqual(
+    VERDICT_CONTENT_FIELDS.filter((field) => row.has(field)),
+    VERDICT_CONTENT_FIELDS.filter((field) => declared.includes(field)),
+    `${where}: has() and iteration disagree about ${VERDICT_CONTENT_FIELDS.join("/")}`,
+  );
+  assert.equal(declared.length, row.size, `${where} miscounts its own size`);
+  assert.deepEqual([...row.keys()], declared, `${where}: keys() disagrees`);
+  assert.deepEqual([...row.values()], declared, `${where}: values() disagrees`);
+  assert.deepEqual(
+    [...row.entries()],
+    declared.map((field) => [field, field]),
+    `${where}: entries() is not a set's [value, value]`,
+  );
+  /** @type {string[][]} */
+  const walked = [];
+  /** @type {unknown[]} */
+  const handed = [];
+  row.forEach(
+    (
+      /** @type {string} */ value,
+      /** @type {string} */ key,
+      /** @type {any} */ set,
+    ) => {
+      walked.push([value, key]);
+      handed.push(set);
+    },
+  );
+  assert.deepEqual(
+    walked,
+    declared.map((field) => [field, field]),
+    `${where}: forEach does not pass (value, value)`,
+  );
+  // The third argument is the row ITSELF, by identity. A row that hands the
+  // callback its private inner collection gives a consumer a handle the frozen
+  // facade exists to withhold, and a look-alike carrying the same readers
+  // compares equal while hiding its own mutable state — so `===`, not equality.
+  assert.equal(
+    handed.length,
+    declared.length,
+    `${where}: forEach called its callback ${handed.length} times for ${declared.length} members`,
+  );
+  assert.ok(
+    handed.every((set) => set === row),
+    `${where}: forEach does not pass the row itself as its third argument`,
+  );
+}
+
+/**
+ * Rule ⑩'s other half: every declared row agrees with what `render` emits.
+ *
+ * Existence is not agreement. A row for a kind no fixture produces could claim
+ * a channel the render drops, and the per-fixture probes would never ask.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {Record<string, import("./control-plane.mjs").ToolCallEvent>} byKind one parsed event per kind a fixture produced
+ * @param {any} assert
+ * @param {Set<string>} seen fields observed to REACH a wire
+ */
+function assertEveryKindRenders(adapter, byKind, assert, seen) {
+  for (const kind of Object.values(EventKind))
+    assertContentChannels(
+      adapter,
+      lookup(byKind, kind) ?? coherentEvent(adapter, byKind, kind),
+      `every-kind probe '${kind}'`,
+      assert,
+      seen,
+    );
+}
+
+/**
+ * A representative event OF `kind`, preferring one a fixture actually produced.
+ *
+ * Re-labelling a parsed event is not enough: a `pre_tool` event relabelled
+ * `prompt_submit` still carries a `tool` the contract says is null there, and
+ * still names `PreToolUse` on `meta.native_event` — so an adapter that picks its
+ * native schema from that field would be probed about the wrong channel. The
+ * synthesized event drops what the kind cannot carry, and names
+ * {@link PROBE_NATIVE_EVENT} rather than a real native event it is not.
+ *
+ * `NATIVE_EVENT_FOR` is the adapter's own answer for that field, so a render
+ * that selects its output schema from the native name takes the branch this
+ * kind really takes. {@link PROBE_NATIVE_EVENT} is the fallback for a kind the
+ * adapter names no native event for — `unknown` by definition, and any kind its
+ * transport does not carry. The marker is a value rather than an absence
+ * because `parse` always stamps this field: reading `undefined` sends a
+ * renderer down a fallback no real event reaches, and Codex's names
+ * `PreToolUse`.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {Record<string, import("./control-plane.mjs").ToolCallEvent>} byKind
+ * @param {string} kind
+ * @returns {import("./control-plane.mjs").ToolCallEvent}
+ */
+function coherentEvent(adapter, byKind, kind) {
+  const carriesTool =
+    kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL;
+  // A tool kind seeded from a prompt/session event inherits `tool: null` and
+  // that event's input, which is an event no `parse` produces. Prefer a
+  // tool-bearing one; the first parsed event is the fallback.
+  const preferred = carriesTool
+    ? (lookup(byKind, EventKind.PRE_TOOL) ??
+      lookup(byKind, EventKind.POST_TOOL))
+    : undefined;
+  const seed = preferred ?? Object.values(byKind)[0];
+  // `native_tool` names the tool this event is about, so a kind that carries no
+  // tool must not carry it either — an event `parse` never produces.
+  const { native_tool, ...seedMeta } = seed.meta ?? {};
+  const meta = {
+    ...seedMeta,
+    ...(carriesTool && native_tool !== undefined ? { native_tool } : {}),
+    native_event:
+      lookup(adapter.NATIVE_EVENT_FOR ?? {}, kind) ?? PROBE_NATIVE_EVENT,
+  };
+  const { response, ...rest } = seed;
+  void response;
+  return {
+    ...rest,
+    event: /** @type {any} */ (kind),
+    // A synthesized event is one no fixture produced, so nothing here says this
+    // adapter gates this kind — Amp seeds every other kind from its vetoable
+    // `pre_tool` fixture and can gate none of them. Claiming enforcement would
+    // report a block the host never performs, which `makeEvent` refuses outright
+    // for UNKNOWN. Rule ⑧ probes the non-vetoable deny path on its own.
+    this_call_vetoable: false,
+    tool: carriesTool ? seed.tool : null,
+    input: carriesTool ? seed.input : {},
+    ...(kind === EventKind.POST_TOOL && "response" in seed
+      ? { response: seed.response }
+      : {}),
+    meta: /** @type {any} */ (meta),
+  };
+}
+
+/**
+ * Rule ⑩, for one parsed event: every {@link VERDICT_CONTENT_FIELDS} entry
+ * either reaches this host's wire or is DECLARED unreachable in the adapter's
+ * `UNRENDERED_FIELDS`, and the render agrees with the declaration both ways.
+ *
+ * The gap this closes is silent loss. Three adapters carry a `Verdict` field no
+ * native channel accepts — Gemini and Codex have no output-rewrite field, Amp
+ * has no stdout body at all — and each simply ignored it, so a redaction verdict
+ * rendered a bare allow and the unredacted output reached the model with nothing
+ * anywhere saying so. Declaring the drop is what makes it reviewable; checking
+ * the declaration against the render is what stops it going stale, in the
+ * direction that matters most (a channel that quietly stops carrying a field
+ * reads as a working redaction).
+ *
+ * Probed on a synthesized verdict rather than a fixture, for rule ⑧'s reason: an
+ * adapter with no channel for a field has no fixture to write for it, so a
+ * fixture-driven check would sit vacuous on exactly the adapters the rule is
+ * for.
+ *
+ * SCOPE — the probe carries an abstaining `allow`, so the declaration this rule
+ * checks is about the ALLOW path. An enforced deny may legitimately drop more:
+ * Gemini's exit-2 System Block returns no stdout body at all, so a deny there
+ * carries no context whatever `UNRENDERED_FIELDS` says. Widening the map to
+ * (kind, decision) would state that, and is not worth its weight while the only
+ * field a blocked call can still want is `additional_context`.
+ *
+ * Reaching the wire is checked as SERIALIZATION, so the rule proves a field is
+ * carried, not that the key it is carried in is one the host reads. Nothing
+ * machine-readable describes a host's schema, so that half stays with the
+ * declaration's prose and its review.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {import("./control-plane.mjs").ToolCallEvent} event
+ * @param {string} caseName
+ * @param {any} assert
+ * @param {Set<string>} seen fields observed to REACH a wire, for the non-vacuity check
+ */
+function assertContentChannels(adapter, event, caseName, assert, seen) {
+  const declared = lookup(adapter.UNRENDERED_FIELDS, event.event);
+
+  // Every value of a field is rendered and the renders compared to EACH OTHER.
+  // A path that varies with the value is a position the field reaches, and ONE
+  // such path must hold every value VERBATIM — same type, same structure, not
+  // merely a marker somewhere inside it.
+  //
+  // ONE path, not all of them: a native schema may annotate the output it
+  // carries with a type discriminator or a length, and that metadata varies
+  // with the value while equalling none of them. Requiring every varying path
+  // to hold the value would reject the adapter for describing what it carried.
+  //
+  // Comparing values to each other is what drops behaviour keyed on the field's
+  // PRESENCE — gemini's post-tool warning — out of the comparison: it is
+  // identical at every value, so no path varies with it. A diff against the
+  // field-absent render would score that declared drop as "carried".
+  //
+  // HELD carries the other content fields, constant across the renders, so an
+  // adapter that loses this one only when another shares the channel has
+  // nowhere to hide.
+  /** @param {string} field @param {Record<string, unknown>} held @param {string} shape */
+  const carries = (field, held, shape) => {
+    const values = lookup(CONTENT_PROBE_VALUES, field) ?? [];
+    if (values.length < 2) return;
+    const renders = values.map((value) =>
+      adapter.render(
+        { decision: Decision.ALLOW, ...held, [field]: value },
+        event,
+      ),
+    );
+    const paths = divergences(renders);
+    const where = `'${caseName}' (${adapter.AGENT}), ${field} ${shape}`;
+    if (declared?.has(field)) {
+      assert.deepEqual(
+        paths,
+        [],
+        `${where}: UNRENDERED_FIELDS declares ${field} has no channel on ${event.event}, but the render changes with its value`,
+      );
+      return;
+    }
+    assert.ok(
+      paths.length,
+      `${where}: ${field} reaches no native channel on ${event.event}, though the row declares one — the verdict is silently lost`,
+    );
+    const verbatim = CARRIED_VERBATIM.includes(field);
+    /** Does PATH hold the value the verdict set for probe INDEX? */
+    const holdsAt = (
+      /** @type {string[]} */ path,
+      /** @type {number} */ index,
+    ) => {
+      const found = at(renders[index], path);
+      const value = values[index];
+      if (verbatim) return same(found, value);
+      return (
+        typeof found === "string" &&
+        typeof value === "string" &&
+        found.includes(value)
+      );
+    };
+    // A host may split its channels by SHAPE — text at one native key,
+    // structured results at another — so the values need not share one path.
+    // Each path must carry at least TWO of them, which is what stops an
+    // unrelated varying key from claiming a single value by coincidence: a
+    // render that drops the output while emitting `has_output: false` holds the
+    // `false` probe there and nothing else.
+    const channels = paths
+      .map((path) => values.map((_, index) => holdsAt(path, index)))
+      .filter(
+        (held) => held.filter(Boolean).length >= Math.min(2, values.length),
+      );
+    const missing = values.findIndex(
+      (_, index) => !channels.some((held) => held[index]),
+    );
+    if (missing === -1) {
+      seen.add(field);
+      return;
+    }
+    // One value reached no channel. Name it at the INNERMOST varying position,
+    // which is the one a reader can act on.
+    const path = paths[paths.length - 1];
+    const index = missing;
+    assert.fail(
+      `${where}: no native path carries ${field} ${verbatim ? "verbatim" : "intact"} on ${event.event}. At ${path.join(".") || "the render root"} the render holds ${JSON.stringify(at(renders[index], path))} where the verdict set ${JSON.stringify(values[index])}`,
+    );
+  };
+
+  for (const field of VERDICT_CONTENT_FIELDS) {
+    carries(field, {}, "alone");
+    // The HELD fields take every COMBINATION of their shapes, because an
+    // adapter can lose one channel only for a particular pairing of the other
+    // two — dropping the context exactly when the input is a record and the
+    // output an object. Zipping the held lists by index reaches each held
+    // field's every shape but only one pairing of them.
+    //
+    // The cross-product is 594 renders per case over three fields today, and
+    // `render` is a pure call. A fourth content
+    // field would multiply that, and is the point to reconsider.
+    const others = VERDICT_CONTENT_FIELDS.filter((name) => name !== field);
+    const held = others.reduce(
+      (combinations, name) =>
+        combinations.flatMap((carried) =>
+          (lookup(CONTENT_PROBE_VALUES, name) ?? []).map((value) => ({
+            ...carried,
+            [name]: value,
+          })),
+        ),
+      /** @type {Record<string, unknown>[]} */ ([{}]),
+    );
+    for (const [index, carried] of held.entries())
+      carries(
+        field,
+        carried,
+        `with the other fields, combination ${index + 1}`,
+      );
+  }
+}
 
 /**
  * Assert an adapter's {@link import("./control-plane.mjs").Adapter.COVERAGE}
@@ -234,13 +806,27 @@ function assertAliasedInput(agent, caseName, event, assert) {
  *      throwing away the objection entirely. The strongest honest signal a
  *      transport has left — an ask, an advisory body — must survive. An
  *      OBSERVE_ONLY render is exempt: it has no pre-emption channel to differ in.
+ *   9. drift honesty: `parse` must ANSWER an event name no host emits with
+ *      EventKind.UNKNOWN rather than throw, and a deny rendered on that answer
+ *      must not claim a block. Probed on a synthesized payload, since an adapter
+ *      whose parse can never emit UNKNOWN has no such fixture to write.
+ *  10. content-channel honesty: for every parsed event, each Verdict content
+ *      field (mutated_input, mutated_output, additional_context) either reaches
+ *      the host's wire or is DECLARED unreachable in the adapter's
+ *      UNRENDERED_FIELDS — and the render must agree with the declaration in
+ *      both directions. Without it an adapter with no channel for a field just
+ *      ignored it, so a redaction verdict rendered a bare allow and the
+ *      unredacted output reached the model with nothing saying so. The fields
+ *      that DID reach a wire come back as `contentFieldsSeen`; a suite covering
+ *      several adapters asserts their union to keep the positive half of the
+ *      rule non-vacuous, since no single host has a channel for all three.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }) {
   assert.equal(
@@ -250,15 +836,20 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   );
 
   assertCoverageWellFormed(adapter, assert);
+  assertEveryKindHasARow(adapter, assert);
 
   /** @type {Set<string>} */
   const decisionsSeen = new Set();
   /** @type {Set<string>} call classes exercised by a tagged fixture case */
   const coverageClassesChecked = new Set();
   let mutationSeen = false;
+  /** @type {Set<string>} content fields rule ⑩ saw reach this host's wire */
+  const contentFieldsSeen = new Set();
   let enforcedDenySeen = false;
   let vetoableDenySeen = false;
   let unknownKindSeen = false;
+  /** @type {Record<string, import("./control-plane.mjs").ToolCallEvent>} */
+  const parsedByKind = {};
   let preToolCases = 0;
   let unenforceableDenyChecks = 0;
   let renders = 0;
@@ -366,6 +957,15 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
       renders += 1;
     }
 
+    parsedByKind[parsed.event] ??= parsed;
+    assertContentChannels(
+      adapter,
+      parsed,
+      testCase.name,
+      assert,
+      contentFieldsSeen,
+    );
+
     // Rule ⑧, probed on a synthesized non-vetoable variant rather than on a
     // fixture flag: an adapter whose COVERAGE marks every reachable call class
     // as gated can never PARSE a non-vetoable event, so a fixture-driven check
@@ -431,9 +1031,21 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
       false,
       "a deny on an unmodelled event rendered as an enforced block",
     );
+    assertContentChannels(
+      adapter,
+      drifted,
+      "rule ⑨ drift probe",
+      assert,
+      contentFieldsSeen,
+    );
     unknownKindSeen = true;
   }
   assert.ok(renders > 0, "conformance fixtures render nothing");
+  assert.ok(
+    Object.keys(parsedByKind).length > 0,
+    "the every-EventKind declaration sweep has no parsed event to build from",
+  );
+  assertEveryKindRenders(adapter, parsedByKind, assert, contentFieldsSeen);
   // EVERY pre-tool case, not merely one: the count is what catches rule ⑧ being
   // skipped by a stray `continue` rather than merely present somewhere. A suite
   // with no pre-tool case has no veto surface to lose, and rule ⑤'s own
@@ -449,6 +1061,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     renders,
     decisionsSeen,
     mutationSeen,
+    contentFieldsSeen,
     enforcedDenySeen,
     vetoableDenySeen,
     unknownKindSeen,

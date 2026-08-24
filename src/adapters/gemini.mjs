@@ -43,6 +43,8 @@ import {
   makeEvent,
   normalizeVerdict,
   nativeResponse,
+  UNRENDERED_ON_UNKNOWN,
+  readonlySet,
   collectPassthrough,
   asObject,
   asString,
@@ -85,6 +87,54 @@ const GATED_EVENTS = Object.freeze(
 );
 assertGatedKinds(GATED_EVENTS, AGENT);
 
+// The kinds whose only content channel is context: the tool has already run
+// (or there is no tool), so neither an input nor an output replacement has
+// anywhere to go.
+const CONTEXT_ONLY = readonlySet(["mutated_input", "mutated_output"]);
+
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each event
+ * kind, so `render` drops them. Gemini CLI documents
+ * `hookSpecificOutput.tool_input` on BeforeTool, `systemMessage` on the tool
+ * events and `hookSpecificOutput.additionalContext` on BeforeAgent. It documents
+ * NO AfterTool output-rewrite field, so `mutated_output` is dropped on every
+ * kind — the same gap `reason` has on Amp. `mutated_input` is dropped everywhere
+ * but BeforeTool: the tool has already run by AfterTool, and BeforeAgent has no
+ * tool input at all, so emitting `tool_input` there names a channel the host
+ * ignores while reading to the caller as a mutation applied.
+ *
+ * ALLOW path only. The enforced-deny branch of `render` returns no stdout at
+ * all, so a deny drops `additional_context` too, on every kind — these rows do
+ * not describe it.
+ *
+ * AfterTool is GATED here, so a redaction verdict does reach this adapter and
+ * cannot be honoured. It renders {@link POST_TOOL_REDACTION_UNSUPPORTED} on
+ * `systemMessage` instead, so the model is told the output above it is
+ * unredacted rather than left to read it as vetted. The raw output still reaches
+ * the model; a guardrail that must actually redact has to deny.
+ * @type {Record<string, ReadonlySet<string>|undefined>}
+ */
+export const UNRENDERED_FIELDS = Object.freeze({
+  ...Object.fromEntries(
+    Object.values(EventKind).map((kind) => [kind, UNRENDERED_ON_UNKNOWN]),
+  ),
+  [EventKind.PRE_TOOL]: readonlySet(["mutated_output"]),
+  [EventKind.POST_TOOL]: CONTEXT_ONLY,
+  [EventKind.PROMPT_SUBMIT]: CONTEXT_ONLY,
+});
+
+/**
+ * What the model is told when a verdict redacts an AfterTool output Gemini has
+ * no channel to replace. Exported so a caller composing its own `systemMessage`
+ * can recognize it; recognize it with `endsWith`, never equality, because a
+ * verdict carrying `additional_context` too puts that context first (see
+ * {@link decisionBody}).
+ */
+export const POST_TOOL_REDACTION_UNSUPPORTED =
+  "The monitor redacted this tool output, but Gemini CLI has no AfterTool " +
+  "channel to replace it. Treat the tool output above as UNREDACTED and " +
+  "unvetted.";
+
 /** Gemini CLI native hook event names (the `hook_event_name` field). */
 export const HookEvent = Object.freeze({
   BEFORE_TOOL: "BeforeTool",
@@ -97,6 +147,19 @@ const NATIVE_TO_KIND = Object.freeze({
   [HookEvent.AFTER_TOOL]: EventKind.POST_TOOL,
   [HookEvent.BEFORE_AGENT]: EventKind.PROMPT_SUBMIT,
 });
+
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. `session_start` and `unknown` have no Gemini event and are
+ * absent.
+ * @type {Record<string, string|undefined>}
+ */
+export const NATIVE_EVENT_FOR = Object.freeze(
+  Object.fromEntries(
+    Object.entries(NATIVE_TO_KIND).map(([native, kind]) => [kind, native]),
+  ),
+);
 
 // Only the fields the adapter maps are consumed; everything else (timestamp,
 // mcp_context, original_request_name, …) survives verbatim in meta.passthrough.
@@ -275,6 +338,10 @@ export function render(verdict, event, { soleGate = false } = {}) {
   // reads its block rationale from stderr, not the ignored stdout body). Carry it
   // on NativeResponse.stderr so `emit` writes it to fd 2 — a genuine block is
   // never surfaced to the user/model with no explanation.
+  // No stdout body at all on this path, so EVERY content field is dropped here,
+  // whatever UNRENDERED_FIELDS says for the kind — that map describes the allow
+  // path. Nothing is lost that a blocked call could still use: the tool never
+  // runs, so only `additional_context` had anywhere to go.
   if (enforced)
     return nativeResponse({
       transport: INTEGRATION_MODE,
@@ -286,7 +353,7 @@ export function render(verdict, event, { soleGate = false } = {}) {
   const body =
     event.event === EventKind.PROMPT_SUBMIT
       ? promptSubmitBody(vd)
-      : decisionBody(vd, soleGate);
+      : decisionBody(vd, event.event, soleGate);
   return nativeResponse({
     transport: INTEGRATION_MODE,
     exit_code: 0,
@@ -296,30 +363,52 @@ export function render(verdict, event, { soleGate = false } = {}) {
 }
 
 /**
+ * Write Gemini's advisory `decision: "deny"` (plus any reason) onto `out` for a
+ * deny or an ask — Gemini has no native ask tier, so both surface the same way.
+ * Shared by both body builders so the two cannot drift apart.
+ * @param {Record<string, unknown>} out
+ * @param {Verdict} vd
+ * @returns {boolean} whether a decision was written
+ */
+function applyAdvisoryDeny(out, vd) {
+  if (vd.decision !== Decision.DENY && vd.decision !== Decision.ASK)
+    return false;
+  out.decision = "deny";
+  if (vd.reason !== undefined) out.reason = vd.reason;
+  return true;
+}
+
+/**
  * Build the exit-0 stdout decision body. `allow` abstains — no `decision` key,
  * so Gemini runs its normal flow — unless `soleGate` opts into the real
  * `decision: "allow"`. `deny`/`ask` both surface an advisory `decision: "deny"`
  * (Gemini has no native ask tier). `mutated_input` rides along as
- * `hookSpecificOutput.tool_input` and `additional_context` as Gemini's native
- * `systemMessage`. Returns undefined when there is nothing to emit (a pure
- * abstaining allow).
+ * `hookSpecificOutput.tool_input` on BeforeTool only, and `additional_context`
+ * as Gemini's native `systemMessage`. A `mutated_output` has no channel at all:
+ * on AfterTool it becomes the {@link POST_TOOL_REDACTION_UNSUPPORTED} warning on
+ * that same `systemMessage`, joined after any context the verdict also carries.
+ * Returns undefined when there is nothing to emit (a pure abstaining allow).
  * @param {Verdict} vd
+ * @param {string} kind the normalized {@link EventKind} being rendered
  * @param {boolean} soleGate
  * @returns {Record<string, unknown>|undefined}
  */
-function decisionBody(vd, soleGate) {
+function decisionBody(vd, kind, soleGate) {
   /** @type {Record<string, unknown>} */
   const out = {};
-  if (vd.decision === Decision.DENY || vd.decision === Decision.ASK) {
-    out.decision = "deny";
-    if (vd.reason !== undefined) out.reason = vd.reason;
-  } else if (soleGate) {
-    out.decision = "allow";
-  }
-  if (vd.mutated_input !== undefined)
+  if (!applyAdvisoryDeny(out, vd) && soleGate) out.decision = "allow";
+  if (kind === EventKind.PRE_TOOL && vd.mutated_input !== undefined)
     out.hookSpecificOutput = { tool_input: vd.mutated_input };
-  if (vd.additional_context !== undefined)
-    out.systemMessage = vd.additional_context;
+  // `systemMessage` is documented on the TOOL events. An UNKNOWN kind is an
+  // event this adapter could not name, so it has no established channel and
+  // carries nothing.
+  const toolEvent = kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL;
+  const messages = [];
+  if (toolEvent && vd.additional_context !== undefined)
+    messages.push(vd.additional_context);
+  if (kind === EventKind.POST_TOOL && vd.mutated_output !== undefined)
+    messages.push(POST_TOOL_REDACTION_UNSUPPORTED);
+  if (messages.length > 0) out.systemMessage = messages.join("\n\n");
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
@@ -339,10 +428,7 @@ function decisionBody(vd, soleGate) {
 function promptSubmitBody(vd) {
   /** @type {Record<string, unknown>} */
   const out = {};
-  if (vd.decision === Decision.DENY || vd.decision === Decision.ASK) {
-    out.decision = "deny";
-    if (vd.reason !== undefined) out.reason = vd.reason;
-  }
+  applyAdvisoryDeny(out, vd);
   if (vd.additional_context !== undefined)
     out.hookSpecificOutput = { additionalContext: vd.additional_context };
   return Object.keys(out).length > 0 ? out : undefined;
@@ -353,6 +439,8 @@ export const geminiAdapter = {
   AGENT,
   INTEGRATION_MODE,
   COVERAGE,
+  UNRENDERED_FIELDS,
+  NATIVE_EVENT_FOR,
   parse,
   render,
 };

@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { geminiAdapter, GEMINI_TOOL_ALIASES } from "../src/adapters/gemini.mjs";
+import {
+  geminiAdapter,
+  GEMINI_TOOL_ALIASES,
+  POST_TOOL_REDACTION_UNSUPPORTED,
+} from "../src/adapters/gemini.mjs";
 import { runAdapterConformance } from "../src/conformance.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -85,6 +89,65 @@ describe("gemini render: BeforeTool decision channel", () => {
       hookSpecificOutput: { tool_input: { command: "echo safe" } },
       systemMessage: "note",
     });
+  });
+});
+
+describe("gemini render: AfterTool has no output-mutation channel", () => {
+  const event = geminiAdapter.parse({
+    hook_event_name: "AfterTool",
+    tool_name: "run_shell_command",
+    tool_input: { command: "cat secrets" },
+    tool_response: "AKIA-not-a-real-key",
+  });
+
+  it("a redaction verdict warns the model instead of rendering a bare allow", () => {
+    // AfterTool is gated, so a redaction verdict reaches this adapter, and
+    // Gemini documents no field to replace the output with. An empty exit 0
+    // here hands the model the raw output with nothing marking it unvetted.
+    const out = geminiAdapter.render(
+      { decision: "allow", mutated_output: "cat secrets\n[REDACTED]" },
+      event,
+    );
+    assert.equal(out.exit_code, 0);
+    assert.equal(out.enforced, false);
+    assert.deepEqual(out.stdout, {
+      systemMessage: POST_TOOL_REDACTION_UNSUPPORTED,
+    });
+  });
+
+  it("the replacement output itself never reaches the wire", () => {
+    const out = geminiAdapter.render(
+      { decision: "allow", mutated_output: "the-redacted-replacement" },
+      event,
+    );
+    assert.equal(
+      JSON.stringify(out).includes("the-redacted-replacement"),
+      false,
+    );
+  });
+
+  it("the warning follows any context the same verdict carries", () => {
+    const out = geminiAdapter.render(
+      {
+        decision: "allow",
+        mutated_output: "redacted",
+        additional_context: "removed 1 secret",
+      },
+      event,
+    );
+    assert.deepEqual(out.stdout, {
+      systemMessage: `removed 1 secret\n\n${POST_TOOL_REDACTION_UNSUPPORTED}`,
+    });
+  });
+
+  it("mutated_input is dropped after the tool has already run", () => {
+    // tool_input is a BeforeTool channel; emitting it on AfterTool names a key
+    // the host ignores while reading to the caller as a mutation applied.
+    const out = geminiAdapter.render(
+      { decision: "allow", mutated_input: { command: "echo safe" } },
+      event,
+    );
+    assert.equal(out.stdout, undefined);
   });
 });
 

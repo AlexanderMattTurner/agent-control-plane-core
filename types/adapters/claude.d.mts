@@ -41,6 +41,24 @@ export const INTEGRATION_MODE: "external_hook";
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each event
+ * kind, so `render` drops them. Claude Code splits its content channels by
+ * event: `updatedInput` exists only on PreToolUse (the call has not run yet),
+ * and `updatedToolOutput` only on PostToolUse (there is no tool output to
+ * replace anywhere else). `additionalContext` is the one channel every kind
+ * carries. The conformance harness holds this to what `render` actually emits,
+ * in both directions.
+ *
+ * `additionalContext` on PreToolUse is inherited behaviour, not a checked claim:
+ * Claude Code documents the field for UserPromptSubmit, SessionStart and
+ * PostToolUse, and this adapter has emitted it on PreToolUse since before the
+ * declaration existed. Rule ⑩ can see that the value reaches the wire, never
+ * that the host reads the key — confirm it against the hook reference before
+ * relying on it.
+ * @type {Record<string, ReadonlySet<string>|undefined>}
+ */
+export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
 /** Claude Code native hook event names (the `hook_event_name` field). */
 export const HookEvent: Readonly<{
     PRE_TOOL_USE: "PreToolUse";
@@ -48,6 +66,13 @@ export const HookEvent: Readonly<{
     USER_PROMPT_SUBMIT: "UserPromptSubmit";
     SESSION_START: "SessionStart";
 }>;
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. `unknown` has no native name by definition and is absent.
+ * @type {Record<string, string|undefined>}
+ */
+export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
 /** @type {import("../control-plane.mjs").Adapter} */
 export const claudeAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;

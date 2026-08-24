@@ -53,6 +53,38 @@
             }
           }
         },
+        "output_mutation": {
+          "verdict": {
+            "decision": "allow",
+            "mutated_output": "file1\n[REDACTED: secret]"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse"
+              }
+            }
+          }
+        },
+        "context": {
+          "verdict": {
+            "decision": "allow",
+            "additional_context": "redacted 1 secret"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse"
+              }
+            }
+          }
+        },
         "deny": {
           "verdict": {
             "decision": "deny",

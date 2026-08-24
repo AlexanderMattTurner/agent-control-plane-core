@@ -43,12 +43,51 @@ export const INTEGRATION_MODE: "external_hook";
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each event
+ * kind, so `render` drops them. Gemini CLI documents
+ * `hookSpecificOutput.tool_input` on BeforeTool, `systemMessage` on the tool
+ * events and `hookSpecificOutput.additionalContext` on BeforeAgent. It documents
+ * NO AfterTool output-rewrite field, so `mutated_output` is dropped on every
+ * kind — the same gap `reason` has on Amp. `mutated_input` is dropped everywhere
+ * but BeforeTool: the tool has already run by AfterTool, and BeforeAgent has no
+ * tool input at all, so emitting `tool_input` there names a channel the host
+ * ignores while reading to the caller as a mutation applied.
+ *
+ * ALLOW path only. The enforced-deny branch of `render` returns no stdout at
+ * all, so a deny drops `additional_context` too, on every kind — these rows do
+ * not describe it.
+ *
+ * AfterTool is GATED here, so a redaction verdict does reach this adapter and
+ * cannot be honoured. It renders {@link POST_TOOL_REDACTION_UNSUPPORTED} on
+ * `systemMessage` instead, so the model is told the output above it is
+ * unredacted rather than left to read it as vetted. The raw output still reaches
+ * the model; a guardrail that must actually redact has to deny.
+ * @type {Record<string, ReadonlySet<string>|undefined>}
+ */
+export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
+/**
+ * What the model is told when a verdict redacts an AfterTool output Gemini has
+ * no channel to replace. Exported so a caller composing its own `systemMessage`
+ * can recognize it; recognize it with `endsWith`, never equality, because a
+ * verdict carrying `additional_context` too puts that context first (see
+ * {@link decisionBody}).
+ */
+export const POST_TOOL_REDACTION_UNSUPPORTED: string;
 /** Gemini CLI native hook event names (the `hook_event_name` field). */
 export const HookEvent: Readonly<{
     BEFORE_TOOL: "BeforeTool";
     AFTER_TOOL: "AfterTool";
     BEFORE_AGENT: "BeforeAgent";
 }>;
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. `session_start` and `unknown` have no Gemini event and are
+ * absent.
+ * @type {Record<string, string|undefined>}
+ */
+export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
 /**
  * Adapter-scoped native-builtin → canonical tool aliases, applied ONLY when a
  * call classifies as BUILTIN. These names are too generic for the global
