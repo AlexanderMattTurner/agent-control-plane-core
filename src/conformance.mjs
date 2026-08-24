@@ -177,9 +177,15 @@ const CONTENT_PROBE_VALUES = Object.freeze({
     Object.freeze([]),
     908172635441,
   ]),
+  // A context string is prose, so it carries newlines and punctuation a render
+  // may strip, escape or truncate on its way to a native field. An EMPTY string
+  // is deliberately absent: this field is checked by containment, and every
+  // string contains the empty one, so the probe could not tell a dropped empty
+  // context from a carried one.
   additional_context: Object.freeze([
     sentinelFor("additional_context"),
     `${sentinelFor("additional_context")}-2`,
+    `${sentinelFor("additional_context")}\nsecond line\twith <&>"' punctuation`,
   ]),
 });
 
@@ -566,7 +572,7 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
     // output an object. Zipping the held lists by index reaches each held
     // field's every shape but only one pairing of them.
     //
-    // The cross-product is 330 renders per case over three fields today, and
+    // The cross-product is 495 renders per case over three fields today, and
     // `render` is a pure call. A fourth content
     // field would multiply that, and is the point to reconsider.
     const others = VERDICT_CONTENT_FIELDS.filter((name) => name !== field);

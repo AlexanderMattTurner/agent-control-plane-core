@@ -939,6 +939,29 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
   });
 
+  it("throws when a render FLATTENS newlines out of the context", () => {
+    // A context string is prose. A render that folds it onto one line to fit a
+    // single-line native field delivers something the caller did not write, and
+    // two plain sentinel strings could never show it.
+    const oneLine = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "mutated_output"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        const value = verdict.additional_context;
+        return event.event === "pre_tool" && typeof value === "string"
+          ? { ...native, context: value.replace(/\s+/g, " ") }
+          : native;
+      },
+    };
+    assert.throws(
+      () => run(oneLine, fullFixtures()),
+      /no native path carries additional_context intact/s,
+    );
+  });
+
   it("throws when a content field reaches no channel and is not declared", () => {
     // The gap rule ⑩ exists for: an adapter with no channel for a field just
     // ignored it, so a redaction verdict rendered a bare allow and the
