@@ -72,6 +72,16 @@ const rowLike = (values, overrides = {}) => {
   };
 };
 
+// A row whose `forEach` hands back a spread COPY of itself. The copy shares
+// every reader by reference, so it deep-equals the row and only `===` sees it.
+const lookAlikeRow = () => {
+  const row = { ...rowLike(["mutated_output"]) };
+  // Spread at CALL time, so the copy carries this same `forEach` reference and
+  // the two compare equal on every own property.
+  row.forEach = (fn) => fn("mutated_output", "mutated_output", { ...row });
+  return row;
+};
+
 const echoUnrendered = Object.freeze(
   Object.fromEntries(
     ["pre_tool", "post_tool", "prompt_submit", "session_start", "unknown"].map(
@@ -354,6 +364,11 @@ describe("conformance harness self-tests (non-vacuity)", () => {
         forEach: (/** @type {any} */ fn) =>
           fn("mutated_output", "mutated_output", null),
       }),
+      // A third argument that DEEP-EQUALS the row — a spread copy shares every
+      // reader by reference — but is a different object. A consumer relying on
+      // `set === row` sees the contract broken, and the stand-in is free to
+      // carry mutable state of its own.
+      lookAlikeRow(),
     ]) {
       const broken = rowMap({ [EventKind.POST_TOOL]: row });
       assert.throws(
@@ -540,7 +555,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
   });
 
-  it("throws when a render drops a PRIMITIVE content value", () => {
+  it("throws when a render TYPE-SWITCHES on the content value", () => {
     // `mutated_output` is the tool's output verbatim, so a tool returning a
     // bare number is a replacement an adapter must forward. A render that
     // type-switches on string and object carries every other probe.
@@ -561,11 +576,11 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     };
     assert.throws(
       () => run(objectsOnly, fullFixtures()),
-      /mutated_output shape 4.*mutated_output reaches no native channel/s,
+      /mutated_output alone: the render carries .* where the verdict set/s,
     );
   });
 
-  it("throws when a render drops an UNMARKABLE content value", () => {
+  it("throws when a render drops a FALSY content value", () => {
     // `null` and a boolean carry no marker, so the containment probes cannot
     // ask about them. This adapter forwards every marked shape and `true`, and
     // treats `null` and `false` as nothing to send.
@@ -583,7 +598,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     };
     assert.throws(
       () => run(dropsFalsy, fullFixtures()),
-      /mutated_output as null\/true\/false.*reaches no native channel/s,
+      /mutated_output alone: the render carries .* where the verdict set/s,
     );
   });
 
@@ -602,6 +617,60 @@ describe("conformance harness self-tests (non-vacuity)", () => {
       },
     };
     assert.doesNotThrow(() => run(warnsOnly, fullFixtures()));
+  });
+
+  it("throws when a render STRINGIFIES the content value", () => {
+    // Three distinct values give three distinct renders whether or not the
+    // value survives its trip, so counting renders certifies a channel that
+    // hands the consumer `"true"` where the verdict set `true`.
+    const stringifies = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        return event.event === "pre_tool" &&
+          verdict.mutated_output !== undefined
+          ? { ...native, output: JSON.stringify(verdict.mutated_output) }
+          : native;
+      },
+    };
+    assert.throws(
+      () => run(stringifies, fullFixtures()),
+      /the render carries .* where the verdict set/s,
+    );
+  });
+
+  it("throws when a render drops a verbatim value only alongside another", () => {
+    // Probing the field alone answers "does this channel carry it", never
+    // "does it still carry it when the others are there" — the state a shared
+    // native channel breaks.
+    const losesWhenCrowded = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        // Only the values a marker cannot ride on are lost when crowded, so
+        // the marker-based combined probe still passes and this fixture
+        // isolates the verbatim one.
+        const marked = JSON.stringify(verdict.mutated_output ?? null).includes(
+          "conformance-content-probe",
+        );
+        const crowded = verdict.additional_context !== undefined && !marked;
+        return event.event === "pre_tool" &&
+          verdict.mutated_output !== undefined &&
+          !crowded
+          ? { ...native, output: verdict.mutated_output }
+          : native;
+      },
+    };
+    assert.throws(
+      () => run(losesWhenCrowded, fullFixtures()),
+      /mutated_output with the other fields: mutated_output reaches no native channel/s,
+    );
   });
 
   it("throws when a content field reaches no channel and is not declared", () => {

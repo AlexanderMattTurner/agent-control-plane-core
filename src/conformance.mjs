@@ -72,18 +72,46 @@ const SET_SURFACE = Object.freeze([
 const sentinelFor = (/** @type {string} */ field) =>
   `${CONTENT_PROBE_SENTINEL}-${field}`;
 
-// The marker for a probe value that cannot hold a string one. Long enough that
-// no exit code, length or count a render computes collides with it.
-const NUMERIC_PROBE_SENTINEL = 908172635441;
+/** JSON-shaped deep equality, for comparing one render against another. */
+const same = (/** @type {unknown} */ a, /** @type {unknown} */ b) =>
+  JSON.stringify(a) === JSON.stringify(b);
 
-/** The text a render must contain to have carried VALUE for FIELD. */
-const markerFor = (
-  /** @type {unknown} */ value,
-  /** @type {string} */ field,
-) =>
-  value === NUMERIC_PROBE_SENTINEL
-    ? String(NUMERIC_PROBE_SENTINEL)
-    : sentinelFor(field);
+const isBranch = (/** @type {unknown} */ v) =>
+  v !== null && typeof v === "object";
+
+/**
+ * The shallowest paths at which RENDERS do not all agree.
+ *
+ * Every probe value differs, so a path that varies with them is a position the
+ * field reaches. A path that does NOT vary cannot be carrying the value, which
+ * is what drops a warning keyed on the field's presence out of the comparison.
+ */
+/**
+ * @param {unknown[]} renders
+ * @param {string[]} path
+ * @returns {string[][]}
+ */
+const divergences = (renders, path = []) => {
+  const [first, ...rest] = renders;
+  if (rest.every((r) => same(r, first))) return [];
+  const alike =
+    renders.every(isBranch) &&
+    renders.every((r) => Array.isArray(r) === Array.isArray(first));
+  if (!alike) return [path];
+  const keys = [
+    ...new Set(renders.flatMap((r) => Object.keys(/** @type {any} */ (r)))),
+  ];
+  return keys.flatMap((key) =>
+    divergences(
+      renders.map((r) => /** @type {any} */ (r)[key]),
+      [...path, key],
+    ),
+  );
+};
+
+/** What RENDER holds at PATH. */
+const at = (/** @type {unknown} */ render, /** @type {string[]} */ path) =>
+  path.reduce((node, key) => /** @type {any} */ (node)?.[key], render);
 
 /**
  * The value each content field is probed with, in each shape its contract
@@ -103,25 +131,32 @@ const CONTENT_PROBE_VALUES = Object.freeze({
   // can return is a shape an adapter must forward. A render that type-switches
   // passes every shape it happens to handle and drops the rest.
   //
-  // A probe value must carry a marker the render can be searched for, so a
-  // BOOLEAN and `null` are not probeable this way — they hold no room for one,
-  // and `JSON.stringify` gives them no form a render could not produce anyway.
-  // The numeric marker is long enough that no exit code or count collides.
+  // A probe value must carry a marker the render can be searched for. The
+  // shapes that cannot hold one are in VERBATIM_PROBE_VALUES below.
   mutated_output: Object.freeze([
     sentinelFor("mutated_output"),
     Object.freeze({ content: sentinelFor("mutated_output") }),
     Object.freeze([Object.freeze({ text: sentinelFor("mutated_output") })]),
-    NUMERIC_PROBE_SENTINEL,
   ]),
   additional_context: Object.freeze([sentinelFor("additional_context")]),
 });
 
-// The values that hold no marker at all. Containment cannot ask about them, so
-// they are probed by DIFFERENCE instead: see {@link assertUnmarkableValues}.
-// Only `mutated_output` is typed `unknown` and carried verbatim, so only it can
-// legitimately be one of these.
-const UNMARKABLE_PROBE_VALUES = Object.freeze({
-  mutated_output: Object.freeze([null, true, false]),
+// Values a marker cannot ride on, so containment cannot ask about them. They
+// are probed for VERBATIM carriage instead — see the `verbatim` closure below.
+// The empty ones are the redaction an `if (verdict.mutated_output)` render
+// drops; only `mutated_output` is typed `unknown` and carried verbatim, so only
+// it can legitimately be any of these.
+const VERBATIM_PROBE_VALUES = Object.freeze({
+  mutated_output: Object.freeze([
+    null,
+    true,
+    false,
+    "",
+    0,
+    Object.freeze({}),
+    Object.freeze([]),
+    908172635441,
+  ]),
 });
 
 // A field added to VERDICT_CONTENT_FIELDS with no probe value would be dropped
@@ -267,13 +302,18 @@ function assertRowReads(agent, kind, row, assert) {
     declared.map((field) => [field, field]),
     `${where}: forEach does not pass (value, value)`,
   );
-  // The third argument is the row itself. A row that hands the callback its
-  // private inner collection instead gives a consumer a handle the frozen
-  // facade exists to withhold.
-  assert.deepEqual(
-    handed,
-    declared.map(() => row),
-    `${where}: forEach does not pass the row as its third argument`,
+  // The third argument is the row ITSELF, by identity. A row that hands the
+  // callback its private inner collection gives a consumer a handle the frozen
+  // facade exists to withhold, and a look-alike carrying the same readers
+  // compares equal while hiding its own mutable state — so `===`, not equality.
+  assert.equal(
+    handed.length,
+    declared.length,
+    `${where}: forEach called its callback ${handed.length} times for ${declared.length} members`,
+  );
+  assert.ok(
+    handed.every((set) => set === row),
+    `${where}: forEach does not pass the row itself as its third argument`,
   );
 }
 
@@ -405,9 +445,7 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
       { decision: Decision.ALLOW, ...content },
       event,
     );
-    const onTheWire = JSON.stringify(rendered).includes(
-      markerFor(content[field], field),
-    );
+    const onTheWire = JSON.stringify(rendered).includes(sentinelFor(field));
     const where = `'${caseName}' (${adapter.AGENT}), ${shape}`;
     if (declared?.has(field)) {
       assert.equal(
@@ -425,38 +463,51 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
     seen.add(field);
   };
 
-  // The values a marker cannot ride on — `null` and the booleans. Containment
-  // cannot ask about them, so they are probed by DIFFERENCE: a channel carrying
-  // the value verbatim gives one render per value, and a render that drops it
-  // collapses them onto each other. Behaviour keyed on the field's PRESENCE —
-  // gemini's post-tool warning — is identical across all three, so it cancels
-  // instead of reading as "carried". A diff against the field-absent render
-  // could not do that, which is why this rule compares the values to each other.
-  /** @param {string} field */
-  const unmarkable = (field) => {
-    const values = lookup(UNMARKABLE_PROBE_VALUES, field) ?? [];
+  // The values a marker cannot ride on. Containment cannot ask about them, so
+  // each is rendered and the renders compared to EACH OTHER: a path that varies
+  // with the value is a position the field reaches, and at every such path the
+  // render must hold the value VERBATIM. Cardinality alone would pass a render
+  // that stringifies, since three distinct strings are still three renders.
+  //
+  // Comparing the values to each other is also what drops behaviour keyed on
+  // the field's PRESENCE — gemini's post-tool warning — out of the comparison:
+  // it is identical at every value, so no path varies with it. A diff against
+  // the field-absent render would score that declared drop as "carried".
+  //
+  // HELD carries the other content fields, constant across the renders, so an
+  // adapter that loses one of these only when another field shares the channel
+  // has nowhere to hide.
+  /** @param {string} field @param {Record<string, unknown>} held @param {string} shape */
+  const verbatim = (field, held, shape) => {
+    const values = lookup(VERBATIM_PROBE_VALUES, field) ?? [];
     if (!values.length) return;
-    const renders = new Set(
-      values.map((value) =>
-        JSON.stringify(
-          adapter.render({ decision: Decision.ALLOW, [field]: value }, event),
-        ),
+    const renders = values.map((value) =>
+      adapter.render(
+        { decision: Decision.ALLOW, ...held, [field]: value },
+        event,
       ),
     );
-    const where = `'${caseName}' (${adapter.AGENT}), ${field} as null/true/false`;
+    const paths = divergences(renders);
+    const where = `'${caseName}' (${adapter.AGENT}), ${field} ${shape}`;
     if (declared?.has(field)) {
-      assert.equal(
-        renders.size,
-        1,
+      assert.deepEqual(
+        paths,
+        [],
         `${where}: UNRENDERED_FIELDS declares ${field} has no channel on ${event.event}, but the render changes with its value`,
       );
       return;
     }
-    assert.equal(
-      renders.size,
-      values.length,
-      `${where}: ${field} reaches no native channel on ${event.event} for at least one of these values, though the row declares a channel — a null or boolean tool result is lost`,
+    assert.ok(
+      paths.length,
+      `${where}: ${field} reaches no native channel on ${event.event} for these values, though the row declares a channel — an empty, null or boolean tool result is lost`,
     );
+    for (const path of paths)
+      for (const [index, value] of values.entries())
+        assert.deepEqual(
+          at(renders[index], path),
+          value,
+          `${where}: the render carries ${JSON.stringify(at(renders[index], path))} at ${path.join(".")} where the verdict set ${JSON.stringify(value)} — ${field} is the tool's output verbatim`,
+        );
     seen.add(field);
   };
 
@@ -487,7 +538,19 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
       probe(together, field, `all fields together, shape ${round + 1}`);
   }
 
-  for (const field of VERDICT_CONTENT_FIELDS) unmarkable(field);
+  const firstShapes = Object.fromEntries(
+    VERDICT_CONTENT_FIELDS.map((f) => [
+      f,
+      (lookup(CONTENT_PROBE_VALUES, f) ?? [])[0],
+    ]),
+  );
+  for (const field of VERDICT_CONTENT_FIELDS) {
+    verbatim(field, {}, "alone");
+    const others = Object.fromEntries(
+      Object.entries(firstShapes).filter(([name]) => name !== field),
+    );
+    verbatim(field, others, "with the other fields");
+  }
 }
 
 /**
