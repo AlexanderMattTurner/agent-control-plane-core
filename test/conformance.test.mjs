@@ -565,6 +565,45 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
   });
 
+  it("throws when a render drops an UNMARKABLE content value", () => {
+    // `null` and a boolean carry no marker, so the containment probes cannot
+    // ask about them. This adapter forwards every marked shape and `true`, and
+    // treats `null` and `false` as nothing to send.
+    const dropsFalsy = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        return event.event === "pre_tool" && verdict.mutated_output
+          ? { ...native, output: verdict.mutated_output }
+          : native;
+      },
+    };
+    assert.throws(
+      () => run(dropsFalsy, fullFixtures()),
+      /mutated_output as null\/true\/false.*reaches no native channel/s,
+    );
+  });
+
+  it("does not read a presence-keyed warning as carrying the value", () => {
+    // Gemini declares `mutated_output` dropped AND warns the model that the
+    // output is unvetted, so its render differs from the abstaining one. The
+    // warning is the same for every value, so comparing the values to each
+    // other cancels it — a diff against the field-absent render would not.
+    const warnsOnly = {
+      ...echoAdapter,
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        return verdict.mutated_output !== undefined
+          ? { ...native, warning: "output is unvetted" }
+          : native;
+      },
+    };
+    assert.doesNotThrow(() => run(warnsOnly, fullFixtures()));
+  });
+
   it("throws when a content field reaches no channel and is not declared", () => {
     // The gap rule ⑩ exists for: an adapter with no channel for a field just
     // ignored it, so a redaction verdict rendered a bare allow and the

@@ -116,6 +116,14 @@ const CONTENT_PROBE_VALUES = Object.freeze({
   additional_context: Object.freeze([sentinelFor("additional_context")]),
 });
 
+// The values that hold no marker at all. Containment cannot ask about them, so
+// they are probed by DIFFERENCE instead: see {@link assertUnmarkableValues}.
+// Only `mutated_output` is typed `unknown` and carried verbatim, so only it can
+// legitimately be one of these.
+const UNMARKABLE_PROBE_VALUES = Object.freeze({
+  mutated_output: Object.freeze([null, true, false]),
+});
+
 // A field added to VERDICT_CONTENT_FIELDS with no probe value would be dropped
 // by normalizeVerdict and then reported as "reaches no native channel" against
 // every adapter, naming the adapter for the harness's own omission.
@@ -417,6 +425,41 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
     seen.add(field);
   };
 
+  // The values a marker cannot ride on — `null` and the booleans. Containment
+  // cannot ask about them, so they are probed by DIFFERENCE: a channel carrying
+  // the value verbatim gives one render per value, and a render that drops it
+  // collapses them onto each other. Behaviour keyed on the field's PRESENCE —
+  // gemini's post-tool warning — is identical across all three, so it cancels
+  // instead of reading as "carried". A diff against the field-absent render
+  // could not do that, which is why this rule compares the values to each other.
+  /** @param {string} field */
+  const unmarkable = (field) => {
+    const values = lookup(UNMARKABLE_PROBE_VALUES, field) ?? [];
+    if (!values.length) return;
+    const renders = new Set(
+      values.map((value) =>
+        JSON.stringify(
+          adapter.render({ decision: Decision.ALLOW, [field]: value }, event),
+        ),
+      ),
+    );
+    const where = `'${caseName}' (${adapter.AGENT}), ${field} as null/true/false`;
+    if (declared?.has(field)) {
+      assert.equal(
+        renders.size,
+        1,
+        `${where}: UNRENDERED_FIELDS declares ${field} has no channel on ${event.event}, but the render changes with its value`,
+      );
+      return;
+    }
+    assert.equal(
+      renders.size,
+      values.length,
+      `${where}: ${field} reaches no native channel on ${event.event} for at least one of these values, though the row declares a channel — a null or boolean tool result is lost`,
+    );
+    seen.add(field);
+  };
+
   for (const field of VERDICT_CONTENT_FIELDS)
     for (const [index, value] of (
       lookup(CONTENT_PROBE_VALUES, field) ?? []
@@ -443,6 +486,8 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
     for (const field of VERDICT_CONTENT_FIELDS)
       probe(together, field, `all fields together, shape ${round + 1}`);
   }
+
+  for (const field of VERDICT_CONTENT_FIELDS) unmarkable(field);
 }
 
 /**
