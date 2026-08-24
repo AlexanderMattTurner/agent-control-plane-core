@@ -792,8 +792,13 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     // when the input carries no `argv` AND the output is an object survives.
     // `probeInput` keeps the golden fixture's own `mutated_input` untouched, so
     // only the synthesized probes exercise this render.
+    // Every synthesized `mutated_input` probe, and nothing the golden fixtures
+    // set, so only the probes exercise this render.
     const probeInput = (/** @type {any} */ v) =>
-      v !== null && typeof v === "object" && "command" in v;
+      v !== null &&
+      typeof v === "object" &&
+      (JSON.stringify(v).includes("conformance-content-probe") ||
+        JSON.stringify(v) === "{}");
     const losesContextOnOnePairing = {
       ...echoAdapter,
       UNRENDERED_FIELDS: rowMap({ pre_tool: readonlySet([]) }),
@@ -811,6 +816,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
         };
         const pairing =
           probeInput(verdict.mutated_input) &&
+          verdict.mutated_input.command !== undefined &&
           verdict.mutated_input.argv === undefined &&
           verdict.mutated_output !== null &&
           typeof verdict.mutated_output === "object" &&
@@ -823,6 +829,57 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     assert.throws(
       () => run(losesContextOnOnePairing, fullFixtures()),
       /additional_context with the other fields.*additional_context reaches no native channel/s,
+    );
+  });
+
+  it("accepts a render that splits its channels by SHAPE", () => {
+    // A host may carry text on one native key and structured results on
+    // another. Requiring one path to hold every shape rejects that adapter
+    // although it delivers every value intact.
+    const twoChannels = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        const value = verdict.mutated_output;
+        if (event.event !== "pre_tool" || value === undefined) return native;
+        return typeof value === "string"
+          ? { ...native, text: value }
+          : { ...native, structured: value };
+      },
+    };
+    assert.doesNotThrow(() => run(twoChannels, fullFixtures()));
+  });
+
+  it("throws when only a coincidental key matches a dropped value", () => {
+    // This render carries every output EXCEPT the number 0, and reports the key
+    // count beside it. For the `0` probe that count is itself 0, so a rule that
+    // accepted any single-value path would read the coincidence as a channel
+    // and certify an adapter that drops a valid replacement.
+    const dropsZero = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        const value = verdict.mutated_output;
+        if (event.event !== "pre_tool" || value === undefined) return native;
+        const counted = {
+          ...native,
+          count:
+            typeof value === "object" && value !== null
+              ? Object.keys(value).length
+              : 0,
+        };
+        return value === 0 ? counted : { ...counted, output: value };
+      },
+    };
+    assert.throws(
+      () => run(dropsZero, fullFixtures()),
+      /no native path carries mutated_output verbatim/s,
     );
   });
 

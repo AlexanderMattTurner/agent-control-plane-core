@@ -139,9 +139,15 @@ const at = (/** @type {unknown} */ render, /** @type {string[]} */ path) =>
 const CARRIED_VERBATIM = Object.freeze(["mutated_input", "mutated_output"]);
 
 const CONTENT_PROBE_VALUES = Object.freeze({
+  // A `Verdict`'s `mutated_input` is any `Record<string, unknown>`, not a Bash
+  // call: a Read/Edit/Write replacement carries `file_path` and no `command`,
+  // and an EMPTY record is a legitimate replacement too. An adapter that
+  // forwards only what looks like a shell invocation drops the rest.
   mutated_input: Object.freeze([
     Object.freeze({ command: sentinelFor("mutated_input") }),
     Object.freeze({ command: `${sentinelFor("mutated_input")}-2`, argv: [] }),
+    Object.freeze({ file_path: sentinelFor("mutated_input") }),
+    Object.freeze({}),
   ]),
   // `mutated_output` is a tool's output verbatim, so every JSON shape a tool
   // can return is one an adapter must forward. A render that type-switches
@@ -501,27 +507,42 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
       `${where}: ${field} reaches no native channel on ${event.event}, though the row declares one — the verdict is silently lost`,
     );
     const verbatim = CARRIED_VERBATIM.includes(field);
-    const holds = (/** @type {string[]} */ path) =>
-      values.every((value, index) => {
-        const found = at(renders[index], path);
-        if (verbatim) return same(found, value);
-        return (
-          typeof found === "string" &&
-          typeof value === "string" &&
-          found.includes(value)
-        );
-      });
-    const carried = paths.find(holds);
-    if (carried) {
+    /** Does PATH hold the value the verdict set for probe INDEX? */
+    const holdsAt = (
+      /** @type {string[]} */ path,
+      /** @type {number} */ index,
+    ) => {
+      const found = at(renders[index], path);
+      const value = values[index];
+      if (verbatim) return same(found, value);
+      return (
+        typeof found === "string" &&
+        typeof value === "string" &&
+        found.includes(value)
+      );
+    };
+    // A host may split its channels by SHAPE — text at one native key,
+    // structured results at another — so the values need not share one path.
+    // Each path must carry at least TWO of them, which is what stops an
+    // unrelated varying key from claiming a single value by coincidence: a
+    // render that drops the output while emitting `has_output: false` holds the
+    // `false` probe there and nothing else.
+    const channels = paths
+      .map((path) => values.map((_, index) => holdsAt(path, index)))
+      .filter(
+        (held) => held.filter(Boolean).length >= Math.min(2, values.length),
+      );
+    const missing = values.findIndex(
+      (_, index) => !channels.some((held) => held[index]),
+    );
+    if (missing === -1) {
       seen.add(field);
       return;
     }
-    // No path carried every value. Name the mismatch at the INNERMOST varying
-    // position, which is the one a reader can act on.
+    // One value reached no channel. Name it at the INNERMOST varying position,
+    // which is the one a reader can act on.
     const path = paths[paths.length - 1];
-    const index = values.findIndex(
-      (value, i) => !same(at(renders[i], path), value),
-    );
+    const index = missing;
     assert.fail(
       `${where}: no native path carries ${field} ${verbatim ? "verbatim" : "intact"} on ${event.event}. At ${path.join(".") || "the render root"} the render holds ${JSON.stringify(at(renders[index], path))} where the verdict set ${JSON.stringify(values[index])}`,
     );
@@ -535,8 +556,8 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
     // output an object. Zipping the held lists by index reaches each held
     // field's every shape but only one pairing of them.
     //
-    // The cross-product is 22 combinations per field over three fields today,
-    // so 132 renders per case, and `render` is a pure call. A fourth content
+    // The cross-product is 264 renders per case over three fields today, and
+    // `render` is a pure call. A fourth content
     // field would multiply that, and is the point to reconsider.
     const others = VERDICT_CONTENT_FIELDS.filter((name) => name !== field);
     const held = others.reduce(
