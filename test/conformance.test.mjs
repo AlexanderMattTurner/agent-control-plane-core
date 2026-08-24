@@ -524,7 +524,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     };
     assert.throws(
       () => run(scalarsOnly, fullFixtures()),
-      /mutated_output shape 3.*mutated_output reaches no native channel/s,
+      /mutated_output alone: no native path carries mutated_output verbatim/s,
     );
   });
 
@@ -551,7 +551,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     };
     assert.throws(
       () => run(losesArrayWhenCrowded, fullFixtures()),
-      /all fields together, shape 3.*mutated_output reaches no native channel/s,
+      /mutated_output with the other fields: no native path carries mutated_output verbatim/s,
     );
   });
 
@@ -576,7 +576,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     };
     assert.throws(
       () => run(objectsOnly, fullFixtures()),
-      /mutated_output alone: the render carries .* where the verdict set/s,
+      /mutated_output alone: no native path carries mutated_output verbatim/s,
     );
   });
 
@@ -598,7 +598,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     };
     assert.throws(
       () => run(dropsFalsy, fullFixtures()),
-      /mutated_output alone: the render carries .* where the verdict set/s,
+      /mutated_output alone: no native path carries mutated_output verbatim/s,
     );
   });
 
@@ -638,7 +638,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     };
     assert.throws(
       () => run(stringifies, fullFixtures()),
-      /the render carries .* where the verdict set/s,
+      /no native path carries mutated_output verbatim/s,
     );
   });
 
@@ -669,8 +669,53 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     };
     assert.throws(
       () => run(losesWhenCrowded, fullFixtures()),
-      /mutated_output with the other fields: mutated_output reaches no native channel/s,
+      /mutated_output with the other fields: no native path carries mutated_output verbatim/s,
     );
+  });
+
+  it("throws when a render FLATTENS a structured content value", () => {
+    // Marker containment asks only whether the sentinel reached the wire, so a
+    // render that unwraps `{ content: X }` to `X` carries the marker while
+    // corrupting every real structured tool result.
+    const flattens = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        const value = verdict.mutated_output;
+        const flat =
+          value && typeof value === "object" ? Object.values(value)[0] : value;
+        return event.event === "pre_tool" && value !== undefined
+          ? { ...native, output: flat }
+          : native;
+      },
+    };
+    assert.throws(
+      () => run(flattens, fullFixtures()),
+      /no native path carries mutated_output verbatim/s,
+    );
+  });
+
+  it("accepts a render that annotates the value it carries", () => {
+    // A native schema may describe the output beside it. That metadata varies
+    // with the value and equals none of them, so requiring EVERY varying path
+    // to hold the value would reject an adapter that carried it intact.
+    const annotates = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        const value = verdict.mutated_output;
+        return event.event === "pre_tool" && value !== undefined
+          ? { ...native, output: value, output_type: typeof value }
+          : native;
+      },
+    };
+    assert.doesNotThrow(() => run(annotates, fullFixtures()));
   });
 
   it("throws when a content field reaches no channel and is not declared", () => {
@@ -685,7 +730,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     };
     assert.throws(
       () => run(undeclared, fullFixtures()),
-      /mutated_input reaches no native channel on pre_tool and is not declared/,
+      /mutated_input reaches no native channel on pre_tool, though the row declares one/,
     );
   });
 
@@ -706,7 +751,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     };
     assert.throws(
       () => run(leaking, fullFixtures()),
-      /declares additional_context has no channel on pre_tool, but the render carries its value/,
+      /declares additional_context has no channel on pre_tool, but the render changes with its value/,
     );
   });
 

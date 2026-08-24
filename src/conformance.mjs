@@ -80,11 +80,15 @@ const isBranch = (/** @type {unknown} */ v) =>
   v !== null && typeof v === "object";
 
 /**
- * The shallowest paths at which RENDERS do not all agree.
+ * Every path at which RENDERS do not all agree, outermost first.
  *
- * Every probe value differs, so a path that varies with them is a position the
- * field reaches. A path that does NOT vary cannot be carrying the value, which
- * is what drops a warning keyed on the field's presence out of the comparison.
+ * A path that varies with the value is a position the field could be reaching;
+ * one that does not vary cannot be, which is what drops a warning keyed on the
+ * field's presence out of the comparison.
+ *
+ * ANCESTORS are included, not only the innermost disagreements: a structured
+ * value sits at the path whose CHILDREN differ, so returning the children alone
+ * would never offer the position holding the whole value.
  */
 /**
  * @param {unknown[]} renders
@@ -101,12 +105,15 @@ const divergences = (renders, path = []) => {
   const keys = [
     ...new Set(renders.flatMap((r) => Object.keys(/** @type {any} */ (r)))),
   ];
-  return keys.flatMap((key) =>
-    divergences(
-      renders.map((r) => /** @type {any} */ (r)[key]),
-      [...path, key],
+  return [
+    path,
+    ...keys.flatMap((key) =>
+      divergences(
+        renders.map((r) => /** @type {any} */ (r)[key]),
+        [...path, key],
+      ),
     ),
-  );
+  ];
 };
 
 /** What RENDER holds at PATH. */
@@ -114,40 +121,37 @@ const at = (/** @type {unknown} */ render, /** @type {string[]} */ path) =>
   path.reduce((node, key) => /** @type {any} */ (node)?.[key], render);
 
 /**
- * The value each content field is probed with, in each shape its contract
- * allows. `mutated_output` gets two: the `Verdict` permits a structured tool
- * result as well as a string, and an adapter that forwards one while dropping
- * the other is a redaction that silently does not happen.
+ * The values each content field is probed with — every shape its contract
+ * allows, and at least TWO per field, because the rule reads a field's channel
+ * off the positions that VARY as the value changes.
+ *
+ * A sentinel rides in the VALUE, never a key: an adapter forwarding an input's
+ * key set while dropping the values would serialize a sentinel KEY and pass,
+ * which is the self-consistent broken render this rule exists to catch
+ * independently of the golden fixtures. The values that hold no sentinel at all
+ * are carried by the same structural comparison.
  */
+// Fields the contract carries VERBATIM, so a native path must hold the value
+// itself. `additional_context` is not one: it is prose for the model, and a
+// host with one message channel may legitimately COMPOSE it with its own text —
+// gemini joins it with the post-tool warning. That field only has to reach the
+// wire intact somewhere inside a varying path.
+const CARRIED_VERBATIM = Object.freeze(["mutated_input", "mutated_output"]);
+
 const CONTENT_PROBE_VALUES = Object.freeze({
-  // The sentinel is the VALUE, never a key: an adapter that forwards an input's
-  // key set while dropping the values would serialize a sentinel KEY and pass,
-  // which is exactly the self-consistent broken render this rule exists to
-  // catch independently of the golden fixtures.
   mutated_input: Object.freeze([
     Object.freeze({ command: sentinelFor("mutated_input") }),
+    Object.freeze({ command: `${sentinelFor("mutated_input")}-2`, argv: [] }),
   ]),
   // `mutated_output` is a tool's output verbatim, so every JSON shape a tool
-  // can return is a shape an adapter must forward. A render that type-switches
-  // passes every shape it happens to handle and drops the rest.
-  //
-  // A probe value must carry a marker the render can be searched for. The
-  // shapes that cannot hold one are in VERBATIM_PROBE_VALUES below.
+  // can return is one an adapter must forward. A render that type-switches
+  // passes the shapes it happens to handle and drops the rest, and the EMPTY
+  // ones are what an `if (verdict.mutated_output)` render loses — an empty
+  // output being how a redaction removes all content.
   mutated_output: Object.freeze([
     sentinelFor("mutated_output"),
     Object.freeze({ content: sentinelFor("mutated_output") }),
     Object.freeze([Object.freeze({ text: sentinelFor("mutated_output") })]),
-  ]),
-  additional_context: Object.freeze([sentinelFor("additional_context")]),
-});
-
-// Values a marker cannot ride on, so containment cannot ask about them. They
-// are probed for VERBATIM carriage instead — see the `verbatim` closure below.
-// The empty ones are the redaction an `if (verdict.mutated_output)` render
-// drops; only `mutated_output` is typed `unknown` and carried verbatim, so only
-// it can legitimately be any of these.
-const VERBATIM_PROBE_VALUES = Object.freeze({
-  mutated_output: Object.freeze([
     null,
     true,
     false,
@@ -157,6 +161,10 @@ const VERBATIM_PROBE_VALUES = Object.freeze({
     Object.freeze([]),
     908172635441,
   ]),
+  additional_context: Object.freeze([
+    sentinelFor("additional_context"),
+    `${sentinelFor("additional_context")}-2`,
+  ]),
 });
 
 // A field added to VERDICT_CONTENT_FIELDS with no probe value would be dropped
@@ -164,11 +172,11 @@ const VERBATIM_PROBE_VALUES = Object.freeze({
 // every adapter, naming the adapter for the harness's own omission.
 if (
   VERDICT_CONTENT_FIELDS.some(
-    (field) => (lookup(CONTENT_PROBE_VALUES, field) ?? []).length === 0,
+    (field) => (lookup(CONTENT_PROBE_VALUES, field) ?? []).length < 2,
   )
 )
   throw new Error(
-    `conformance: CONTENT_PROBE_VALUES is missing a probe for one of ${VERDICT_CONTENT_FIELDS.join(", ")}`,
+    `conformance: CONTENT_PROBE_VALUES needs two or more values for each of ${VERDICT_CONTENT_FIELDS.join(", ")}`,
   );
 
 /**
@@ -439,48 +447,29 @@ function coherentEvent(adapter, byKind, kind) {
  */
 function assertContentChannels(adapter, event, caseName, assert, seen) {
   const declared = lookup(adapter.UNRENDERED_FIELDS, event.event);
-  /** @param {Record<string, unknown>} content @param {string} field @param {string} shape */
-  const probe = (content, field, shape) => {
-    const rendered = adapter.render(
-      { decision: Decision.ALLOW, ...content },
-      event,
-    );
-    const onTheWire = JSON.stringify(rendered).includes(sentinelFor(field));
-    const where = `'${caseName}' (${adapter.AGENT}), ${shape}`;
-    if (declared?.has(field)) {
-      assert.equal(
-        onTheWire,
-        false,
-        `${where}: UNRENDERED_FIELDS declares ${field} has no channel on ${event.event}, but the render carries its value`,
-      );
-      return;
-    }
-    assert.equal(
-      onTheWire,
-      true,
-      `${where}: ${field} reaches no native channel on ${event.event} and is not declared in UNRENDERED_FIELDS — the verdict is silently lost`,
-    );
-    seen.add(field);
-  };
 
-  // The values a marker cannot ride on. Containment cannot ask about them, so
-  // each is rendered and the renders compared to EACH OTHER: a path that varies
-  // with the value is a position the field reaches, and at every such path the
-  // render must hold the value VERBATIM. Cardinality alone would pass a render
-  // that stringifies, since three distinct strings are still three renders.
+  // Every value of a field is rendered and the renders compared to EACH OTHER.
+  // A path that varies with the value is a position the field reaches, and ONE
+  // such path must hold every value VERBATIM — same type, same structure, not
+  // merely a marker somewhere inside it.
   //
-  // Comparing the values to each other is also what drops behaviour keyed on
-  // the field's PRESENCE — gemini's post-tool warning — out of the comparison:
-  // it is identical at every value, so no path varies with it. A diff against
-  // the field-absent render would score that declared drop as "carried".
+  // ONE path, not all of them: a native schema may annotate the output it
+  // carries with a type discriminator or a length, and that metadata varies
+  // with the value while equalling none of them. Requiring every varying path
+  // to hold the value would reject the adapter for describing what it carried.
+  //
+  // Comparing values to each other is what drops behaviour keyed on the field's
+  // PRESENCE — gemini's post-tool warning — out of the comparison: it is
+  // identical at every value, so no path varies with it. A diff against the
+  // field-absent render would score that declared drop as "carried".
   //
   // HELD carries the other content fields, constant across the renders, so an
-  // adapter that loses one of these only when another field shares the channel
-  // has nowhere to hide.
+  // adapter that loses this one only when another shares the channel has
+  // nowhere to hide.
   /** @param {string} field @param {Record<string, unknown>} held @param {string} shape */
-  const verbatim = (field, held, shape) => {
-    const values = lookup(VERBATIM_PROBE_VALUES, field) ?? [];
-    if (!values.length) return;
+  const carries = (field, held, shape) => {
+    const values = lookup(CONTENT_PROBE_VALUES, field) ?? [];
+    if (values.length < 2) return;
     const renders = values.map((value) =>
       adapter.render(
         { decision: Decision.ALLOW, ...held, [field]: value },
@@ -499,57 +488,44 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
     }
     assert.ok(
       paths.length,
-      `${where}: ${field} reaches no native channel on ${event.event} for these values, though the row declares a channel — an empty, null or boolean tool result is lost`,
+      `${where}: ${field} reaches no native channel on ${event.event}, though the row declares one — the verdict is silently lost`,
     );
-    for (const path of paths)
-      for (const [index, value] of values.entries())
-        assert.deepEqual(
-          at(renders[index], path),
-          value,
-          `${where}: the render carries ${JSON.stringify(at(renders[index], path))} at ${path.join(".")} where the verdict set ${JSON.stringify(value)} — ${field} is the tool's output verbatim`,
+    const verbatim = CARRIED_VERBATIM.includes(field);
+    const holds = (/** @type {string[]} */ path) =>
+      values.every((value, index) => {
+        const found = at(renders[index], path);
+        if (verbatim) return same(found, value);
+        return (
+          typeof found === "string" &&
+          typeof value === "string" &&
+          found.includes(value)
         );
-    seen.add(field);
+      });
+    const carried = paths.find(holds);
+    if (carried) {
+      seen.add(field);
+      return;
+    }
+    // No path carried every value. Name the mismatch at the INNERMOST varying
+    // position, which is the one a reader can act on.
+    const path = paths[paths.length - 1];
+    const index = values.findIndex(
+      (value, i) => !same(at(renders[i], path), value),
+    );
+    assert.fail(
+      `${where}: no native path carries ${field} ${verbatim ? "verbatim" : "intact"} on ${event.event}. At ${path.join(".") || "the render root"} the render holds ${JSON.stringify(at(renders[index], path))} where the verdict set ${JSON.stringify(values[index])}`,
+    );
   };
 
-  for (const field of VERDICT_CONTENT_FIELDS)
-    for (const [index, value] of (
-      lookup(CONTENT_PROBE_VALUES, field) ?? []
-    ).entries())
-      probe({ [field]: value }, field, `${field} shape ${index + 1}`);
-
-  // Verdicts carrying every field at once. A `Verdict` permits that, and an
-  // adapter can drop one field only when another shares its native channel —
-  // a state no single-field probe reaches. Every shape gets its turn: an
-  // adapter can equally drop one SHAPE only when another field is present, so
-  // pinning the combination to shape 1 tests the string and nothing else.
-  const shapes = (/** @type {string} */ field) =>
-    lookup(CONTENT_PROBE_VALUES, field) ?? [];
-  const rounds = Math.max(
-    ...VERDICT_CONTENT_FIELDS.map((f) => shapes(f).length),
-  );
-  for (let round = 0; round < rounds; round++) {
-    const together = Object.fromEntries(
-      VERDICT_CONTENT_FIELDS.map((field) => [
-        field,
-        shapes(field)[Math.min(round, shapes(field).length - 1)],
+  for (const field of VERDICT_CONTENT_FIELDS) {
+    carries(field, {}, "alone");
+    const others = Object.fromEntries(
+      VERDICT_CONTENT_FIELDS.filter((name) => name !== field).map((name) => [
+        name,
+        (lookup(CONTENT_PROBE_VALUES, name) ?? [])[0],
       ]),
     );
-    for (const field of VERDICT_CONTENT_FIELDS)
-      probe(together, field, `all fields together, shape ${round + 1}`);
-  }
-
-  const firstShapes = Object.fromEntries(
-    VERDICT_CONTENT_FIELDS.map((f) => [
-      f,
-      (lookup(CONTENT_PROBE_VALUES, f) ?? [])[0],
-    ]),
-  );
-  for (const field of VERDICT_CONTENT_FIELDS) {
-    verbatim(field, {}, "alone");
-    const others = Object.fromEntries(
-      Object.entries(firstShapes).filter(([name]) => name !== field),
-    );
-    verbatim(field, others, "with the other fields");
+    carries(field, others, "with the other fields");
   }
 }
 
