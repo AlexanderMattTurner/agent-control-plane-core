@@ -158,6 +158,14 @@ const CONTENT_PROBE_VALUES = Object.freeze({
       note: "",
       parent: null,
     }),
+    // POPULATED NESTED members. Every other probe's members are primitives or
+    // empty, so a render that replaces a nested value with a placeholder — or
+    // keeps only the members it can flatten — carries them all intact.
+    Object.freeze({
+      command: sentinelFor("mutated_input"),
+      options: Object.freeze({ cwd: "/tmp", retries: 2 }),
+      argv: Object.freeze(["--flag", `${sentinelFor("mutated_input")}-arg`]),
+    }),
   ]),
   // `mutated_output` is a tool's output verbatim, so every JSON shape a tool
   // can return is one an adapter must forward. A render that type-switches
@@ -572,7 +580,7 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
     // output an object. Zipping the held lists by index reaches each held
     // field's every shape but only one pairing of them.
     //
-    // The cross-product is 495 renders per case over three fields today, and
+    // The cross-product is 594 renders per case over three fields today, and
     // `render` is a pure call. A fourth content
     // field would multiply that, and is the point to reconsider.
     const others = VERDICT_CONTENT_FIELDS.filter((name) => name !== field);

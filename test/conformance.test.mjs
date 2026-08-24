@@ -939,6 +939,46 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
   });
 
+  it("throws when a render REPLACES populated nested members", () => {
+    // A replacement's members are arbitrary JSON: `{ options: { cwd } }` and a
+    // non-empty `argv` are both legitimate. A render that keeps primitives and
+    // swaps every populated nested value for a placeholder passes when the only
+    // nested probe member is an EMPTY array.
+    const placeholderNested = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_output", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        const value = verdict.mutated_input;
+        // The synthesized probes only, so the golden fixtures' own
+        // `mutated_input` is untouched.
+        const probed =
+          value !== null &&
+          typeof value === "object" &&
+          (JSON.stringify(value).includes("conformance-content-probe") ||
+            JSON.stringify(value) === "{}");
+        if (event.event !== "pre_tool" || !probed) return native;
+        const flat = Object.fromEntries(
+          Object.entries(value).map(([key, entry]) => [
+            key,
+            entry !== null &&
+            typeof entry === "object" &&
+            Object.keys(entry).length > 0
+              ? "[flattened]"
+              : entry,
+          ]),
+        );
+        return { ...native, input: flat };
+      },
+    };
+    assert.throws(
+      () => run(placeholderNested, fullFixtures()),
+      /no native path carries mutated_input verbatim/s,
+    );
+  });
+
   it("throws when a render FLATTENS newlines out of the context", () => {
     // A context string is prose. A render that folds it onto one line to fit a
     // single-line native field delivers something the caller did not write, and
