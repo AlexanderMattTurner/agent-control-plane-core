@@ -529,24 +529,31 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
 
   for (const field of VERDICT_CONTENT_FIELDS) {
     carries(field, {}, "alone");
-    // The HELD fields take a different shape each round, because an adapter can
-    // lose one channel only for a particular shape of ANOTHER field — dropping
-    // `additional_context` exactly when `mutated_output` is an array. Pinning
-    // the held values to one shape tests that combination and no other.
+    // The HELD fields take every COMBINATION of their shapes, because an
+    // adapter can lose one channel only for a particular pairing of the other
+    // two — dropping the context exactly when the input is a record and the
+    // output an object. Zipping the held lists by index reaches each held
+    // field's every shape but only one pairing of them.
+    //
+    // The cross-product is 22 combinations per field over three fields today,
+    // so 132 renders per case, and `render` is a pure call. A fourth content
+    // field would multiply that, and is the point to reconsider.
     const others = VERDICT_CONTENT_FIELDS.filter((name) => name !== field);
-    const shapesOf = (/** @type {string} */ name) =>
-      lookup(CONTENT_PROBE_VALUES, name) ?? [];
-    const rounds = Math.max(...others.map((name) => shapesOf(name).length));
-    for (let round = 0; round < rounds; round++)
+    const held = others.reduce(
+      (combinations, name) =>
+        combinations.flatMap((carried) =>
+          (lookup(CONTENT_PROBE_VALUES, name) ?? []).map((value) => ({
+            ...carried,
+            [name]: value,
+          })),
+        ),
+      /** @type {Record<string, unknown>[]} */ ([{}]),
+    );
+    for (const [index, carried] of held.entries())
       carries(
         field,
-        Object.fromEntries(
-          others.map((name) => [
-            name,
-            shapesOf(name)[Math.min(round, shapesOf(name).length - 1)],
-          ]),
-        ),
-        `with the other fields, round ${round + 1}`,
+        carried,
+        `with the other fields, combination ${index + 1}`,
       );
   }
 }

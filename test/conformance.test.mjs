@@ -786,6 +786,46 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
   });
 
+  it("throws when a render loses a field for a PAIRING of the others", () => {
+    // Zipping the held lists by index reaches each held field's every shape but
+    // only one pairing of them, so an adapter that drops the context exactly
+    // when the input carries no `argv` AND the output is an object survives.
+    // `probeInput` keeps the golden fixture's own `mutated_input` untouched, so
+    // only the synthesized probes exercise this render.
+    const probeInput = (/** @type {any} */ v) =>
+      v !== null && typeof v === "object" && "command" in v;
+    const losesContextOnOnePairing = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({ pre_tool: readonlySet([]) }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        if (event.event !== "pre_tool") return native;
+        const carried = {
+          ...native,
+          ...(probeInput(verdict.mutated_input) && {
+            input: verdict.mutated_input,
+          }),
+          ...(verdict.mutated_output !== undefined && {
+            output: verdict.mutated_output,
+          }),
+        };
+        const pairing =
+          probeInput(verdict.mutated_input) &&
+          verdict.mutated_input.argv === undefined &&
+          verdict.mutated_output !== null &&
+          typeof verdict.mutated_output === "object" &&
+          !Array.isArray(verdict.mutated_output);
+        return verdict.additional_context !== undefined && !pairing
+          ? { ...carried, context: verdict.additional_context }
+          : carried;
+      },
+    };
+    assert.throws(
+      () => run(losesContextOnOnePairing, fullFixtures()),
+      /additional_context with the other fields.*additional_context reaches no native channel/s,
+    );
+  });
+
   it("throws when a content field reaches no channel and is not declared", () => {
     // The gap rule ⑩ exists for: an adapter with no channel for a field just
     // ignored it, so a redaction verdict rendered a bare allow and the
