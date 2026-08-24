@@ -551,7 +551,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     };
     assert.throws(
       () => run(losesArrayWhenCrowded, fullFixtures()),
-      /mutated_output with the other fields: no native path carries mutated_output verbatim/s,
+      /mutated_output with the other fields.*no native path carries mutated_output verbatim/s,
     );
   });
 
@@ -669,7 +669,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     };
     assert.throws(
       () => run(losesWhenCrowded, fullFixtures()),
-      /mutated_output with the other fields: no native path carries mutated_output verbatim/s,
+      /mutated_output with the other fields.*no native path carries mutated_output verbatim/s,
     );
   });
 
@@ -716,6 +716,74 @@ describe("conformance harness self-tests (non-vacuity)", () => {
       },
     };
     assert.doesNotThrow(() => run(annotates, fullFixtures()));
+  });
+
+  it("throws when a render loses one field for a SHAPE of another", () => {
+    // Holding the other fields at one shape tests that combination and no
+    // other, so an adapter that drops the context exactly when the output is
+    // an array passes every probe that pins the output to a string.
+    const losesContextOnArrays = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        if (event.event !== "pre_tool") return native;
+        const withOutput =
+          verdict.mutated_output !== undefined
+            ? { ...native, output: verdict.mutated_output }
+            : native;
+        return verdict.additional_context !== undefined &&
+          !Array.isArray(verdict.mutated_output)
+          ? { ...withOutput, context: verdict.additional_context }
+          : withOutput;
+      },
+    };
+    assert.throws(
+      () => run(losesContextOnArrays, fullFixtures()),
+      /additional_context with the other fields.*additional_context reaches no native channel/s,
+    );
+  });
+
+  it("throws when a row's mutator changes it before throwing", () => {
+    // `assert.throws` proves the mutator reported an error, not that it left
+    // the row alone. A caller who catches the throw reads the new declaration.
+    const mutatesThenThrows = () => {
+      const inner = ["mutated_output"];
+      const row = rowLike(inner);
+      return {
+        ...row,
+        [Symbol.iterator]: () => inner[Symbol.iterator](),
+        has: (/** @type {string} */ v) => inner.includes(v),
+        keys: () => inner[Symbol.iterator](),
+        values: () => inner[Symbol.iterator](),
+        entries: () => inner.map((v) => [v, v])[Symbol.iterator](),
+        forEach: (/** @type {any} */ fn) => {
+          for (const v of inner) fn(v, v, row);
+        },
+        get size() {
+          return inner.length;
+        },
+        add: (/** @type {string} */ v) => {
+          inner.push(v);
+          throw new Error("read-only");
+        },
+      };
+    };
+    assert.throws(
+      () =>
+        run(
+          {
+            ...echoAdapter,
+            UNRENDERED_FIELDS: rowMap({
+              [EventKind.POST_TOOL]: mutatesThenThrows(),
+            }),
+          },
+          fullFixtures(),
+        ),
+      /changed the row before it threw/,
+    );
   });
 
   it("throws when a content field reaches no channel and is not declared", () => {

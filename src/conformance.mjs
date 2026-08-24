@@ -261,15 +261,25 @@ function assertRowReads(agent, kind, row, assert) {
   // afterwards and would then report channels `render` still drops — the stale
   // declaration this whole rule exists to prevent. `readonlySet` exposes no
   // mutator at all, which is what makes every call below throw.
+  //
+  // Throwing is not enough on its own: a mutator that inserts and THEN throws
+  // has already changed the row, and a caller who catches it observes the new
+  // contents. So the members are compared across every attempt.
   for (const [mutator, argument] of [
     ["add", "mutated_input"],
     ["delete", declared[0]],
     ["clear", undefined],
-  ])
+  ]) {
     assert.throws(
       () => /** @type {any} */ (row)[mutator](argument),
       `${where} exposes a working '${mutator}' — a consumer can rewrite the declaration after conformance certifies it; build the row with readonlySet`,
     );
+    assert.deepEqual(
+      [...row],
+      declared,
+      `${where}: '${mutator}' changed the row before it threw — a caller that catches it reads the new declaration`,
+    );
+  }
   assert.deepEqual(
     declared.filter((field) => VERDICT_CONTENT_FIELDS.includes(field)),
     declared,
@@ -519,13 +529,25 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
 
   for (const field of VERDICT_CONTENT_FIELDS) {
     carries(field, {}, "alone");
-    const others = Object.fromEntries(
-      VERDICT_CONTENT_FIELDS.filter((name) => name !== field).map((name) => [
-        name,
-        (lookup(CONTENT_PROBE_VALUES, name) ?? [])[0],
-      ]),
-    );
-    carries(field, others, "with the other fields");
+    // The HELD fields take a different shape each round, because an adapter can
+    // lose one channel only for a particular shape of ANOTHER field — dropping
+    // `additional_context` exactly when `mutated_output` is an array. Pinning
+    // the held values to one shape tests that combination and no other.
+    const others = VERDICT_CONTENT_FIELDS.filter((name) => name !== field);
+    const shapesOf = (/** @type {string} */ name) =>
+      lookup(CONTENT_PROBE_VALUES, name) ?? [];
+    const rounds = Math.max(...others.map((name) => shapesOf(name).length));
+    for (let round = 0; round < rounds; round++)
+      carries(
+        field,
+        Object.fromEntries(
+          others.map((name) => [
+            name,
+            shapesOf(name)[Math.min(round, shapesOf(name).length - 1)],
+          ]),
+        ),
+        `with the other fields, round ${round + 1}`,
+      );
   }
 }
 
