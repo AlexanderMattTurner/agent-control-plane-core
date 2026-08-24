@@ -905,6 +905,40 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
   });
 
+  it("throws when a render FILTERS falsy members from a replacement", () => {
+    // `Boolean(value)` drops `enabled: false` and `retries: 0` from a record
+    // the caller meant to send, and every other probe is all-truthy — `[]` is
+    // truthy in JavaScript — so nothing else catches it.
+    const truthyOnly = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_output", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        const value = verdict.mutated_input;
+        // The synthesized probes only, so the golden fixtures' own
+        // `mutated_input` is untouched.
+        const probed =
+          value !== null &&
+          typeof value === "object" &&
+          (JSON.stringify(value).includes("conformance-content-probe") ||
+            JSON.stringify(value) === "{}");
+        if (event.event !== "pre_tool" || !probed) return native;
+        return {
+          ...native,
+          input: Object.fromEntries(
+            Object.entries(value).filter(([, entry]) => Boolean(entry)),
+          ),
+        };
+      },
+    };
+    assert.throws(
+      () => run(truthyOnly, fullFixtures()),
+      /no native path carries mutated_input verbatim/s,
+    );
+  });
+
   it("throws when a content field reaches no channel and is not declared", () => {
     // The gap rule ⑩ exists for: an adapter with no channel for a field just
     // ignored it, so a redaction verdict rendered a bare allow and the

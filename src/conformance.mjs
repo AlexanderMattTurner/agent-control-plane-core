@@ -148,6 +148,16 @@ const CONTENT_PROBE_VALUES = Object.freeze({
     Object.freeze({ command: `${sentinelFor("mutated_input")}-2`, argv: [] }),
     Object.freeze({ file_path: sentinelFor("mutated_input") }),
     Object.freeze({}),
+    // FALSY members. A render that keeps only what `Boolean(value)` admits
+    // turns this into `{}`, dropping `enabled: false` and `retries: 0` from a
+    // replacement the caller meant.
+    Object.freeze({
+      command: sentinelFor("mutated_input"),
+      enabled: false,
+      retries: 0,
+      note: "",
+      parent: null,
+    }),
   ]),
   // `mutated_output` is a tool's output verbatim, so every JSON shape a tool
   // can return is one an adapter must forward. A render that type-switches
@@ -556,7 +566,7 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
     // output an object. Zipping the held lists by index reaches each held
     // field's every shape but only one pairing of them.
     //
-    // The cross-product is 264 renders per case over three fields today, and
+    // The cross-product is 330 renders per case over three fields today, and
     // `render` is a pure call. A fourth content
     // field would multiply that, and is the point to reconsider.
     const others = VERDICT_CONTENT_FIELDS.filter((name) => name !== field);
