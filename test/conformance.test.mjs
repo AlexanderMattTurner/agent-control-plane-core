@@ -979,6 +979,49 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     );
   });
 
+  it("throws when a render replaces nested members BELOW the first level", () => {
+    // A replacement's values are unbounded JSON, so nesting has no depth limit.
+    // A render that walks one level and collapses what it finds under that
+    // passes every probe whose second level holds only primitives.
+    const deepFlattener = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_output", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) => {
+        const native = echoAdapter.render(verdict, event);
+        const value = verdict.mutated_input;
+        // The synthesized probes only, so the golden fixtures' own
+        // `mutated_input` is untouched.
+        const probed =
+          value !== null &&
+          typeof value === "object" &&
+          (JSON.stringify(value).includes("conformance-content-probe") ||
+            JSON.stringify(value) === "{}");
+        if (event.event !== "pre_tool" || !probed) return native;
+        const collapse = (/** @type {any} */ entry) =>
+          entry !== null && typeof entry === "object" ? "[deep]" : entry;
+        const shallow = Object.fromEntries(
+          Object.entries(value).map(([key, entry]) => [
+            key,
+            entry === null || typeof entry !== "object"
+              ? entry
+              : Array.isArray(entry)
+                ? entry.map(collapse)
+                : Object.fromEntries(
+                    Object.entries(entry).map(([k, e]) => [k, collapse(e)]),
+                  ),
+          ]),
+        );
+        return { ...native, input: shallow };
+      },
+    };
+    assert.throws(
+      () => run(deepFlattener, fullFixtures()),
+      /no native path carries mutated_input verbatim/s,
+    );
+  });
+
   it("throws when a render FLATTENS newlines out of the context", () => {
     // A context string is prose. A render that folds it onto one line to fit a
     // single-line native field delivers something the caller did not write, and

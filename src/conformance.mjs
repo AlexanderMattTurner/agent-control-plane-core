@@ -163,8 +163,13 @@ const CONTENT_PROBE_VALUES = Object.freeze({
     // keeps only the members it can flatten — carries them all intact.
     Object.freeze({
       command: sentinelFor("mutated_input"),
-      options: Object.freeze({ cwd: "/tmp", retries: 2 }),
+      options: Object.freeze({
+        cwd: "/tmp",
+        retries: 2,
+        env: Object.freeze({ PATH: "/usr/bin" }),
+      }),
       argv: Object.freeze(["--flag", `${sentinelFor("mutated_input")}-arg`]),
+      steps: Object.freeze([Object.freeze({ id: 1 })]),
     }),
   ]),
   // `mutated_output` is a tool's output verbatim, so every JSON shape a tool
