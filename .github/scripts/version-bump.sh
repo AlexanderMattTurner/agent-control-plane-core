@@ -96,7 +96,8 @@ elif grep -q "E404" "$NPM_VIEW_ERR"; then
   CURRENT_VERSION="0.0.0"
 else
   log "Error: npm view failed for '$PACKAGE_NAME' (not a 404 for an unpublished package):"
-  log "$(cat "$NPM_VIEW_ERR")"
+  npm_view_err_body="$(cat "$NPM_VIEW_ERR")"
+  log "$npm_view_err_body"
   exit 1
 fi
 # `npm view` can print nothing on a success exit (never-published package) or
@@ -342,7 +343,7 @@ git tag "v$NEW_VERSION"
 # Fail loudly if the tag never lands: the tag is what stops the next run from
 # re-analyzing these commits (re-drafting the changelog, re-pushing release
 # docs), so a silent failure here would quietly corrupt the next release.
-if ! retry_cmd 4 2 git push origin "v$NEW_VERSION"; then
+if ! retry_cmd 4 2 timeout --kill-after=10 60 git push origin "v$NEW_VERSION"; then
   log "Error: failed to push tag v$NEW_VERSION after retries. The release is published;"
   log "       push the tag manually so the next run does not re-analyze these commits."
   exit 1
@@ -383,7 +384,7 @@ else
   # left us on a branch or in detached HEAD state. Captured (not streamed) so the
   # fallback below can tell a permanent ruleset rejection from a transient one.
   PUSH_LOG="$(mktemp)"
-  push_release_docs() { git push origin "HEAD:$DEFAULT_BRANCH" >"$PUSH_LOG" 2>&1; }
+  push_release_docs() { timeout --kill-after=10 60 git push origin "HEAD:$DEFAULT_BRANCH" >"$PUSH_LOG" 2>&1; }
   if ! retry_cmd 4 2 push_release_docs; then
     cat "$PUSH_LOG" >&2
     # GH013 "Changes must be made through a pull request" means main requires
@@ -409,7 +410,7 @@ else
     # inline workflow guard scanning for a history rewrite has nothing to catch.
     git commit --amend -m "docs: release $NEW_VERSION"
     PR_FAILED=0
-    if ! retry_cmd 4 2 git push origin "$RELEASE_BRANCH"; then
+    if ! retry_cmd 4 2 timeout --kill-after=10 60 git push origin "$RELEASE_BRANCH"; then
       PR_FAILED=1
     elif ! PR_URL=$(gh pr create --title "docs: release $NEW_VERSION" \
       --body "Automated CHANGELOG entry for v$NEW_VERSION (already published to npm and tagged). Opened because a branch ruleset blocks pushing this commit to $DEFAULT_BRANCH directly." \

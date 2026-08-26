@@ -21,8 +21,11 @@ a small worker pool and Retry-After backoff rather than more parallelism.
 
 Counting rule (documented so the number means something):
   - denominator ("runs") counts only jobs that actually ran to a verdict:
-    conclusions `success`, `failure`, `timed_out`.
-  - numerator ("failures") counts `failure` and `timed_out`.
+    conclusions `success`, `failure`, `timed_out`, `startup_failure`,
+    `action_required`.
+  - numerator ("failures") counts `failure`, `timed_out`, `startup_failure`,
+    and `action_required` — every red conclusion GitHub returns, not just
+    `failure`.
   - `cancelled` and `skipped` are EXCLUDED from both — a cancelled job is almost
     always supersession noise (a newer push cancelling an older run, per the
     repo's concurrency rules), and a skipped job is a decide-gate no-op; neither
@@ -51,9 +54,13 @@ from urllib.parse import quote
 Getter = Callable[[str], dict]
 
 # Conclusions that count toward the denominator (the job produced a verdict).
-COUNTED = frozenset({"success", "failure", "timed_out"})
-# Conclusions that count as a failure (subset of COUNTED).
-FAILED = frozenset({"failure", "timed_out"})
+COUNTED = frozenset(
+    {"success", "failure", "timed_out", "startup_failure", "action_required"}
+)
+# Conclusions that count as a failure (subset of COUNTED). All four red
+# conclusions GitHub returns, not just `failure` — a run that never started a
+# job (startup_failure) or stalled on approval (action_required) is red too.
+FAILED = frozenset({"failure", "timed_out", "startup_failure", "action_required"})
 
 API_ROOT = "https://api.github.com"
 # GitHub caps `per_page` at 100 for both the runs and the jobs endpoints, so a

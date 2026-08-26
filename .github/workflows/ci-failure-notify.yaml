@@ -15,6 +15,11 @@ name: CI failure notify
 on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
     types: [completed]
+    # This listener only ever acts on a default-branch run (its job `if:`
+    # already re-checks head_branch == default_branch below) — filtering here
+    # too stops a run from being CREATED for every PR-branch completion of a
+    # workflow this list also names (pre-commit, Lint, Node tests, …).
+    branches: [main, master]
     workflows:
       - Auto-resolve merge conflicts
       - Auto version bump and publish
@@ -49,10 +54,13 @@ jobs:
   notify:
     name: File or update ci-failure issue
     # PR-triggered failures are already visible on the PR; only failures of
-    # push/schedule runs on the default branch go unnoticed. Skipped/cancelled
-    # conclusions are not failures.
+    # push/schedule runs on the default branch go unnoticed. Every red
+    # conclusion GitHub reports (failure/timed_out/startup_failure/
+    # action_required), not just `failure` — a run that never started a job
+    # (startup_failure) or that stalled on an approval (action_required) is
+    # still a run nobody saw. Skipped/cancelled conclusions are not failures.
     if: >-
-      github.event.workflow_run.conclusion == 'failure' &&
+      contains(fromJSON('["failure","timed_out","startup_failure","action_required"]'), github.event.workflow_run.conclusion) &&
       (github.event.workflow_run.event == 'push' ||
        github.event.workflow_run.event == 'schedule') &&
       github.event.workflow_run.head_branch == github.event.repository.default_branch

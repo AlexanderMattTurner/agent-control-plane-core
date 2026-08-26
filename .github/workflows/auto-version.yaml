@@ -84,5 +84,7 @@ jobs:
           # in this repo for exactly that reason (see template-sync.yaml). It is
           # safe here because the fallback only opens a PR from a new branch; it
           # never pushes to main directly (that stays on GITHUB_TOKEN above).
+          # token-fallback-ok: deliberate — the fallback only opens a PR from a
+          # new branch, never pushes to main (see the comment above).
           GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN_ORG || secrets.GITHUB_TOKEN }}
         run: bash .github/scripts/version-bump.sh

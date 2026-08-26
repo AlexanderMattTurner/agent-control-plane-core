@@ -24,7 +24,7 @@ name: PR review advisory comment
 # NOT a required status check: it applies an advisory label + summary, it doesn't
 # gate anything.
 on: # zizmor: ignore[dangerous-triggers]
-  workflow_run:
+  workflow_run: # unfiltered-listener-ok: labels PRs from any branch, including forks (see the header above) — a branch filter would stop it labeling exactly the fork PRs it exists to reach.
     workflows: ["PR review advisory"]
     types: [completed]
 

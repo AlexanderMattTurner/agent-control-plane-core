@@ -32,6 +32,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib-ci-retry.sh"
 MAX_DIFF_LINES="${MAX_DIFF_LINES:-20000}"
 
 mkdir -p "$PR_INPUT_DIR"
+[[ -d "$PR_INPUT_DIR" ]] || {
+  echo "::error::could not create $PR_INPUT_DIR" >&2
+  exit 1
+}
 
 emit_output() {
   if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
@@ -69,7 +73,18 @@ sanitize <"$raw_diff" >"${PR_INPUT_DIR}/diff.txt" 2>"${PR_INPUT_DIR}/diff.report
 # the sanitizer — retrying gh directly inside the `| sanitize` pipe is unsafe (a
 # failing attempt would stream partial JSON into the sanitizer, and a SIGPIPE if
 # it exited early would trip pipefail).
-meta_json="$(retry_stdout gh pr view "$PR" --json title,body,author,files)"
+# `gh pr view --json files` reads a connection gh caps at 100 with no cursor, so
+# a PR over that size silently loses files from the list. Fetch the file list
+# through the paginated REST endpoint instead, and merge it into the metadata
+# gh pr view already covers well.
+pr_meta_json="$(retry_stdout gh pr view "$PR" --json title,body,author)"
+# --slurp: without it `--paginate` prints one JSON array PER PAGE, so a PR over
+# 100 files yields several arrays and the --argjson below rejects the lot as
+# invalid JSON — the very size this endpoint was chosen to serve. --slurp wraps
+# the pages in one outer array, which the `.[][]` below flattens.
+fetch_pr_files() { gh api --paginate --slurp "repos/${GH_REPO:?}/pulls/${PR}/files"; }
+pr_files_json="$(retry_stdout fetch_pr_files | jq -c '[.[][] | {path: .filename, status: .status}]')"
+meta_json="$(jq -n --argjson meta "$pr_meta_json" --argjson files "$pr_files_json" '$meta + {files: $files}')"
 printf '%s' "$meta_json" |
   sanitize >"${PR_INPUT_DIR}/meta.txt" 2>"${PR_INPUT_DIR}/meta.report.txt"
 

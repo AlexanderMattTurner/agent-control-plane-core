@@ -107,7 +107,7 @@ def test_gh_repo_extraction(
     )
     exports = [
         line
-        for line in env_file.read_text().splitlines()
+        for line in env_file.read_text(encoding="utf-8").splitlines()
         if line.startswith("export GH_REPO=")
     ]
     if expected is None:
@@ -134,7 +134,7 @@ def test_preserves_pre_set_gh_repo(sandbox: Path) -> None:
     assert result.returncode == 0, result.stderr
     exports = [
         line
-        for line in env_file.read_text().splitlines()
+        for line in env_file.read_text(encoding="utf-8").splitlines()
         if line.startswith("export GH_REPO=")
     ]
     assert exports == []

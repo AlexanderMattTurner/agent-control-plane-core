@@ -19,6 +19,11 @@ permissions:
   contents: read
 
 jobs:
+  # trusted-base-ok: the "Refuse a base ref that is not this repo's default
+  # branch" step below re-derives the default branch from $GITHUB_EVENT_PATH
+  # (never from a caller-suppliable value) and hard-fails the job before any
+  # later step runs code from this checkout, on any mismatch or unparseable
+  # payload — the exact mitigation this check asks for.
   phone-home:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
@@ -34,6 +39,31 @@ jobs:
           sparse-checkout: .github/scripts
           persist-credentials: false
 
+      - name: Refuse a base ref that is not this repo's default branch
+        # A PR's base branch is chosen by the PR AUTHOR — nothing requires it to
+        # be the default branch. Later steps run phone-home-*.js from the ref
+        # checked out above WITH the org PAT (TEMPLATE_SYNC_TOKEN) in env, so a
+        # PR based on an attacker-controlled branch would run attacker code with
+        # that credential. Re-derive the default branch from the event payload
+        # GitHub wrote (never from a caller-suppliable value) and refuse on any
+        # mismatch, missing payload, or unparseable payload — no fallback.
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          [[ -n "${GITHUB_EVENT_PATH:-}" && -r "$GITHUB_EVENT_PATH" ]] || {
+            echo "::error::GITHUB_EVENT_PATH is missing or unreadable; cannot verify the base ref." >&2
+            exit 1
+          }
+          default_branch="$(jq -er '.repository.default_branch' "$GITHUB_EVENT_PATH")" || {
+            echo "::error::could not read .repository.default_branch from the event payload." >&2
+            exit 1
+          }
+          [[ "$BASE_REF" == "$default_branch" ]] || {
+            echo "::error::PR base ref '$BASE_REF' is not this repo's default branch ('$default_branch'); refusing to run phone-home scripts from an untrusted base." >&2
+            exit 1
+          }
+
       - name: Extract lessons from PR body
         id: extract
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
@@ -42,16 +72,29 @@ jobs:
             const run = require('./.github/scripts/phone-home-extract.js')
             await run({github, context, core})
 
+      - name: Cache gitleaks binary
+        id: cache-gitleaks
+        if: steps.extract.outputs.has_lessons == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/gitleaks-bin
+          key: gitleaks-${{ runner.os }}-8.30.1
+
       - name: Scan lessons for leaked secrets
         if: steps.extract.outputs.has_lessons == 'true'
         env:
           GITLEAKS_VERSION: "8.30.1"
+          CACHE_HIT: ${{ steps.cache-gitleaks.outputs.cache-hit }}
         run: |
           set -euo pipefail
-          curl --proto '=https' -fsSL --retry 6 --retry-all-errors --retry-delay 15 --connect-timeout 30 \
-            -o /tmp/gitleaks.tar.gz \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          tar xz -C /usr/local/bin -f /tmp/gitleaks.tar.gz gitleaks
+          mkdir -p /tmp/gitleaks-bin
+          if [[ "$CACHE_HIT" != "true" ]]; then
+            curl --proto '=https' -fsSL --retry 6 --retry-all-errors --retry-delay 15 --connect-timeout 30 \
+              -o /tmp/gitleaks.tar.gz \
+              "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+            tar xz -C /tmp/gitleaks-bin -f /tmp/gitleaks.tar.gz gitleaks
+          fi
+          install -m 0755 /tmp/gitleaks-bin/gitleaks /usr/local/bin/gitleaks
           gitleaks detect --no-git -s /tmp/phone-home -v
 
       - name: Submit to template repo

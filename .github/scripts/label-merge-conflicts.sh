@@ -40,6 +40,9 @@ list_prs() {
 }
 
 unknown=""
+# retry-loop-ok: polls GitHub's lazily-computed mergeability field until it
+# resolves out of UNKNOWN — not a retry of a failing command, so the shared
+# retry_cmd helper (which retries a nonzero exit) does not fit this shape.
 for ((pass = 1; pass <= ${MAX_PASSES:-2}; pass++)); do
   [[ "$pass" == "1" ]] || sleep "${RETRY_DELAY_SECS:-10}"
   unknown=""

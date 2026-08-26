@@ -69,6 +69,8 @@ if [[ -f package.json ]]; then
   pnpm audit 2>&1 | head -100 >>"$REPORT_PATH"
   pnpm_rc=${PIPESTATUS[0]}
   # Exit 0 = clean, exit 1 = vulnerabilities found (expected); higher = real error
+  # echo-fallback-ok: best-effort report generator — noting the error in the
+  # human-read report IS the intended recovery, not a value fed back into logic.
   [[ "${pnpm_rc:-0}" -le 1 ]] || echo "_pnpm audit encountered an error (exit code $pnpm_rc); output above may be incomplete._" >>"$REPORT_PATH"
 else
   echo "_Skipped: no package.json (not a Node project)._" >>"$REPORT_PATH"
