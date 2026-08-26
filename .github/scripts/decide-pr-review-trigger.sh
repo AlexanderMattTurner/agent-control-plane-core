@@ -9,23 +9,20 @@
 #     applied. The escape hatch the auto-approve message points at: a PR the
 #     reviewer skipped by title/author (chore/style, or a bot) gets a real
 #     read when a human adds the label. Any other label is a no-op (run=false).
-#   synchronize — a push. Two INDEPENDENT re-review triggers:
+# BUDGET — ONE whole-diff read per pull request. A later push is not re-read:
+# the reviewer's findings live on review threads, and resolving an addressed
+# thread is the session's own job, not another paid pass per push.
+#
+#   synchronize — a push. Reviews only when one of two conditions holds:
 #       1. "[opus-review]" in the head commit TITLE — a full, on-demand Opus
 #          re-read. Head-scoped (once-per-tag): the re-review fires for the
 #          commit that carries the tag and NOT again on later untagged pushes
 #          (re-tag to run again).
-#       2. The reviewer's latest verdict is a non-approving review that still
-#          blocks the merge — CHANGES_REQUESTED (an explicit hold) OR COMMENTED
-#          (a review the reviewer left without approving). Under a review-required
-#          ruleset both leave the PR at zero approvals, so both must clear the
-#          same way: EVERY push gets a cheap HAIKU re-check, so a push that
-#          addresses the concerns is re-evaluated and can flip the verdict to
-#          APPROVE (clearing the block) instead of the stale hold gating the PR
-#          until someone re-tags it by hand. Self-terminating: once the re-check
-#          approves, the latest verdict is no longer a non-approving review and
-#          later pushes stop re-running. This automatic recheck NEVER spends
-#          Opus — the expensive model is only ever the explicit [opus-review]
-#          opt-in.
+#       2. The reviewer left NO review of this pull request at all — re-arming
+#          the read `opened` owed but never delivered, after a cancelled job
+#          or an oversized diff. Self-terminating: the first review ends it.
+#          Any review STATE spends the read, CHANGES_REQUESTED and COMMENTED
+#          included — resolving an addressed finding is not this script's job.
 #
 # Read under pull_request_target, so the untrusted PR head is NEVER checked out
 # or executed here: the head commit's message and the PR's reviews are fetched as
@@ -42,7 +39,6 @@ REVIEW_LABEL="needs-auto-review"
 # the latest review it left is the effective verdict that gates the PR.
 REVIEWER="github-actions[bot]"
 OPUS_MODEL="claude-opus-4-8"
-HAIKU_MODEL="claude-haiku-4-5"
 
 emit() {
   # $1 run, $2 reason, $3 model (defaults to Opus — the thorough first-look model)
@@ -90,29 +86,24 @@ if grep -qiF "$KEYWORD" <<<"$subject"; then
   exit 0
 fi
 
-# synchronize, trigger 2: a cheap Haiku re-check on every push while the
-# reviewer's latest verdict is a non-approving review it can supersede —
-# CHANGES_REQUESTED or COMMENTED. The latest review authored by the reviewer bot
-# is the effective verdict; both of these leave the PR at zero approvals under a
-# review-required ruleset, so the push gets the re-check that can flip it to
-# APPROVE. The other states are deliberately NOT re-checked, mirroring
-# approve-if-reviewer-hold-clear.sh's allowlist: APPROVED is already through, and
-# DISMISSED / "" (the reviewer never reviewed this PR) are not a reviewer hold to
-# clear. `--paginate --slurp` returns an array with ONE element PER PAGE (each
-# element is that page's reviews array), so the filter must flatten BOTH levels
-# (`.[][]`) to walk every review across every page, then `last` picks the most
-# recent. A single `.[]` iterates PAGES, so `.user.login`/`.state` index a page
-# ARRAY — jq errors, the `2>/dev/null` swallows it to empty, and the recheck
-# silently never fires (the bug that stranded every held PR). `--slurp` keeps the
-# whole result in one document so `--jq` runs ONCE and emits a single line; bare
-# `--paginate` would run the filter per page and concatenate. A transient API
-# failure yields empty -> no re-review.
-# allow-exit-suppress: documented above — a transient API failure yields empty,
-# which falls through to no re-check rather than aborting this decide step.
-state="$(gh api "repos/$REPO/pulls/${PR:-}/reviews" --paginate --slurp 2>/dev/null |
+# synchronize, trigger 2: consumed only after trigger 1, so a tagged push pays
+# no paginated read it never uses. `--paginate --slurp` returns an array with ONE
+# element PER PAGE (each element is that page's reviews array), so the filter
+# must flatten BOTH levels (`.[][]`) to walk every review across every page, then
+# `last` picks the most recent. A single `.[]` iterates PAGES, so
+# `.user.login`/`.state` would index a page ARRAY — jq errors, and the re-arm
+# silently never fires. The exit STATUS is captured separately from the state,
+# because the two empty results mean opposite things: a successful "" is the
+# strongest reason to review (nobody ever looked), while a failed "" must keep
+# the fail-safe of not reviewing.
+reviews_rc=0
+reviews_json="$(gh api "repos/$REPO/pulls/${PR:-}/reviews" --paginate --slurp 2>/dev/null)" || reviews_rc=$?
+state="$(printf '%s' "$reviews_json" |
   jq -r "[.[][] | select(.user.login == \"$REVIEWER\")] | last | .state // empty" 2>/dev/null || true)"
-if [[ "$state" == "CHANGES_REQUESTED" || "$state" == "COMMENTED" ]]; then
-  emit true "outstanding $REVIEWER hold ($state) — re-checking on Haiku" "$HAIKU_MODEL"
+if [[ "$reviews_rc" -ne 0 ]]; then
+  emit false "could not read $REPO#${PR:-} reviews (rc=$reviews_rc) — not reviewing rather than guessing"
+elif [[ -z "$state" ]]; then
+  emit true "$REVIEWER has never reviewed this PR — running the first pass on this $ACTION" "$OPUS_MODEL"
 else
-  emit false "no $KEYWORD opt-in and no outstanding reviewer hold"
+  emit false "$REVIEWER already reviewed this PR (latest: $state) — a $ACTION is not re-read; push a commit titled $KEYWORD for a full re-read"
 fi
