@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Decide whether the PR reviewer (claude-pr-review.yaml) should run for this
+# Decide whether the PR reviewer (claude-review.yaml's review job) should run for this
 # pull_request_target event, emitting run=true/false AND the model to use to
 # GITHUB_OUTPUT.
 #
@@ -81,6 +81,8 @@ esac
 # the opt-in would silently fail. Capture into a variable (never `gh … | grep`,
 # whose early-exit SIGPIPEs the still-writing gh under pipefail), then match the
 # subject line.
+# allow-exit-suppress: a transient API failure yields empty -> falls through to
+# trigger 2 below rather than aborting the decide step over a non-fatal signal.
 message="$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq '.commit.message' 2>/dev/null || true)"
 subject="${message%%$'\n'*}"
 if grep -qiF "$KEYWORD" <<<"$subject"; then
@@ -105,8 +107,10 @@ fi
 # whole result in one document so `--jq` runs ONCE and emits a single line; bare
 # `--paginate` would run the filter per page and concatenate. A transient API
 # failure yields empty -> no re-review.
-state="$(gh api "repos/$REPO/pulls/${PR:-}/reviews" --paginate --slurp \
-  --jq "[.[][] | select(.user.login == \"$REVIEWER\")] | last | .state // empty" 2>/dev/null || true)"
+# allow-exit-suppress: documented above — a transient API failure yields empty,
+# which falls through to no re-check rather than aborting this decide step.
+state="$(gh api "repos/$REPO/pulls/${PR:-}/reviews" --paginate --slurp 2>/dev/null |
+  jq -r "[.[][] | select(.user.login == \"$REVIEWER\")] | last | .state // empty" 2>/dev/null || true)"
 if [[ "$state" == "CHANGES_REQUESTED" || "$state" == "COMMENTED" ]]; then
   emit true "outstanding $REVIEWER hold ($state) — re-checking on Haiku" "$HAIKU_MODEL"
 else

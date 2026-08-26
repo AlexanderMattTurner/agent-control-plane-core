@@ -175,9 +175,12 @@ describe("canEnforce version gate (≥ v0.135)", () => {
     });
   }
 
-  // Drift guard: derive the boundary versions from MIN_ENFORCING_VERSION so a
-  // threshold bump can't leave the hardcoded table above asserting a stale
-  // boundary. At-threshold enforces; the highest patch of the prior minor does not.
+  // drift-guard-ok: the table above is a set of concrete, readable exemplar
+  // versions kept for regression value — deriving it algorithmically would lose
+  // that readability. This test instead derives the BOUNDARY from
+  // MIN_ENFORCING_VERSION so a threshold bump can't leave the hardcoded table
+  // asserting a stale boundary. At-threshold enforces; the highest patch of the
+  // prior minor does not.
   it("derives the boundary from MIN_ENFORCING_VERSION", () => {
     const [maj, min] = MIN_ENFORCING_VERSION;
     assert.equal(canEnforce(`${maj}.${min}.0`), true);

@@ -17,7 +17,8 @@ if [[ -f package.json ]]; then
     corepack enable
   else
     echo "Installing pnpm..."
-    npm install -g pnpm
+    # Pinned to match package.json's "packageManager" field — bump both together.
+    npm install -g pnpm@11.8.0
   fi
 
   # Install dependencies (postinstall also sets core.hooksPath, redundantly)

@@ -66,15 +66,35 @@ repos:
   # Tier aggregates over per-check ids so a check added upstream to a tier
   # applies here with no config change — which is also why advancing `rev` can
   # surface new findings in code this repo has not touched.
-  - repo: https://github.com/alexander-turner/ci-truth-serum
-    rev: 22b9c8b5d8090e68872cbb5e3ad963d0020b6449 # main
+  - repo: https://github.com/AlexanderMattTurner/ci-truth-serum
+    # Not yet on ci-truth-serum main: open as AlexanderMattTurner/ci-truth-serum#169.
+    # Pinned anyway — it becomes an ancestor of main once that PR merges.
+    rev: 57a2005f5de2621dc3beb63191d911870de39d7a
     hooks:
       - id: check-tier1
       - id: check-tier2
       - id: check-extras
+        # These four functions are vendored shared-library API surface (git_authed
+        # in git-auth.bash; claude_oauth_ladder, auto_resolve_mark_attempt and
+        # auto_resolve_release_attempt, kept in lockstep with the same-named
+        # files in AlexanderMattTurner/agent-resolve-merge-conflicts) that this
+        # repo's own workflows do not currently call — auto-resolve-conflicts.yaml
+        # clones and runs that repo's code fresh instead of sourcing the local
+        # copy. Not dead in the sense the check exists to catch.
+        args:
+          - --check-arg
+          - check_dead_shell_functions=--always-live=git_authed
+          - --check-arg
+          - check_dead_shell_functions=--always-live=claude_oauth_ladder
+          - --check-arg
+          - check_dead_shell_functions=--always-live=auto_resolve_mark_attempt
+          - --check-arg
+          - check_dead_shell_functions=--always-live=auto_resolve_release_attempt
       # The one pack member outside the aggregates (language: script, so the
       # Python tier runner can't host it): reject absolute-target symlinks.
-      - id: check-symlinks
+      # Renamed from check-symlinks upstream (4ac5d45) to avoid colliding
+      # with pre-commit-hooks' own check-symlinks id.
+      - id: check-absolute-symlinks
         name: "extra: reject tracked symlinks with absolute targets"
 
   - repo: local

@@ -20,6 +20,11 @@ name: Build/publish failure notify
 on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
     types: [completed]
+    # Both watched workflows only ever run from the default branch (push to
+    # main/master, or schedule/workflow_dispatch, which always resolve to the
+    # default branch) — without this filter a completion from ANY branch still
+    # creates a run here, at the cost this check exists to prevent.
+    branches: [main, master]
     workflows:
       - Auto version bump and publish
       - Release canary
@@ -37,7 +42,7 @@ jobs:
   notify:
     name: Notify on build/publish failure
     if: >-
-      github.event.workflow_run.conclusion == 'failure' &&
+      contains(fromJSON('["failure","timed_out","startup_failure","action_required"]'), github.event.workflow_run.conclusion) &&
       github.event.workflow_run.event != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5

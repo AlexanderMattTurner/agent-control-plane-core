@@ -53,7 +53,7 @@ def repo_with_hook(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     # Seed main with the hook disabled: the first push is fixture setup, not the
     # behavior under test, and `init_test_repo` points core.hooksPath at /dev/null
     # so a scratch repo can commit without the real commit-msg/commitlint config.
-    (local / "a.txt").write_text("one\n")
+    (local / "a.txt").write_text("one\n", encoding="utf-8")
     commit_all(local, "feat: one")
     subprocess.run(["git", "push", "-q", "origin", "main"], cwd=local, check=True)
 
@@ -118,7 +118,7 @@ def test_a_tag_carrying_unpushed_commits_still_fails_closed(
     so skipping every tag would be a hole; only an EMPTY range may skip the
     tool."""
     local, remote, env = repo_with_hook
-    (local / "b.txt").write_text("two\n")
+    (local / "b.txt").write_text("two\n", encoding="utf-8")
     commit_all(local, "feat: two")
     subprocess.run(["git", "tag", "v9.9.10"], cwd=local, env=git_env(), check=True)
 
