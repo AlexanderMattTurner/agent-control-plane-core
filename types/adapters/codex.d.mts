@@ -63,7 +63,7 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * drops them. Codex documents one content channel, `updatedInput` on
  * PreToolUse. It documents no PostToolUse output-rewrite field and no context
  * injection field at all, so `mutated_output` and `additional_context` are
- * dropped on every kind — the same gap `reason` has on Amp. A redaction verdict
+ * dropped on every kind. A redaction verdict
  * therefore does NOT reach the model here: the unredacted output stands, and a
  * guardrail that must redact has to deny the call instead. Inventing a native
  * key would be worse than the visible gap, because the host ignores it and the

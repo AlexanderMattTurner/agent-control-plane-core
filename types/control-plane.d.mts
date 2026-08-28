@@ -436,7 +436,7 @@ export const CoverageStatus: Readonly<{
  * @typedef {object} Verdict
  * @property {"allow"|"deny"|"ask"} decision
  * @property {Record<string, unknown>} [mutated_input] replacement tool input (pre_tool)
- * @property {unknown} [mutated_output] replacement tool output (post_tool) — the normalized channel for a PostToolUse content transform (redaction/sanitize); a string or the tool's structured output, verbatim. An adapter renders it into whatever native output-mutation channel the host has, or drops it when the host has none (the same per-adapter fidelity gap `reason` has on Amp).
+ * @property {unknown} [mutated_output] replacement tool output (post_tool) — the normalized channel for a PostToolUse content transform (redaction/sanitize); a string or the tool's structured output, verbatim. An adapter renders it into whatever native output-mutation channel the host has, or drops it when the host has none (the same per-adapter fidelity gap `additional_context` has on Codex).
  * @property {string} [additional_context] extra context to splice into the agent's stream
  * @property {string} [reason] human-readable rationale (shown on deny/ask)
  */
@@ -592,7 +592,7 @@ export type Verdict = {
      */
     mutated_input?: Record<string, unknown> | undefined;
     /**
-     * replacement tool output (post_tool) — the normalized channel for a PostToolUse content transform (redaction/sanitize); a string or the tool's structured output, verbatim. An adapter renders it into whatever native output-mutation channel the host has, or drops it when the host has none (the same per-adapter fidelity gap `reason` has on Amp).
+     * replacement tool output (post_tool) — the normalized channel for a PostToolUse content transform (redaction/sanitize); a string or the tool's structured output, verbatim. An adapter renders it into whatever native output-mutation channel the host has, or drops it when the host has none (the same per-adapter fidelity gap `additional_context` has on Codex).
      */
     mutated_output?: unknown;
     /**

@@ -98,7 +98,7 @@ const CONTEXT_ONLY = readonlySet(["mutated_input", "mutated_output"]);
  * `hookSpecificOutput.tool_input` on BeforeTool, `systemMessage` on the tool
  * events and `hookSpecificOutput.additionalContext` on BeforeAgent. It documents
  * NO AfterTool output-rewrite field, so `mutated_output` is dropped on every
- * kind — the same gap `reason` has on Amp. `mutated_input` is dropped everywhere
+ * kind. `mutated_input` is dropped everywhere
  * but BeforeTool: the tool has already run by AfterTool, and BeforeAgent has no
  * tool input at all, so emitting `tool_input` there names a channel the host
  * ignores while reading to the caller as a mutation applied.

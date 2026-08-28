@@ -48,27 +48,39 @@ describe("amp render: the full (decision × this_call_vetoable) table", () => {
     this_call_vetoable,
   });
 
+  // `stderr` carries the reason on the ENFORCED row only: that is the one render
+  // that blocks the call, and Amp surfaces the delegate helper's stderr. The
+  // other rows have blocked nothing, so they say nothing on fd 2.
   const cases = [
-    // decision, vetoable, exit_code, enforced
-    ["allow", true, 0, false],
-    ["allow", false, 0, false],
-    ["deny", true, 2, true],
+    // decision, vetoable, exit_code, enforced, stderr
+    ["allow", true, 0, false, undefined],
+    ["allow", false, 0, false, undefined],
+    ["deny", true, 2, true, "r"],
     // The regression this table exists for: an unenforceable deny used to fall
     // through the ternary chain to exit 0 — Amp's "run it".
-    ["deny", false, 1, false],
-    ["ask", true, 1, false],
-    ["ask", false, 1, false],
+    ["deny", false, 1, false, undefined],
+    ["ask", true, 1, false, undefined],
+    ["ask", false, 1, false, undefined],
   ];
 
-  for (const [decision, vetoable, exit_code, enforced] of cases) {
+  for (const [decision, vetoable, exit_code, enforced, stderr] of cases) {
     it(`${decision} on a ${vetoable ? "vetoable" : "non-vetoable"} call → exit ${exit_code}`, () => {
       assert.deepEqual(render({ decision, reason: "r" }, eventFor(vetoable)), {
         transport: "external_hook",
         exit_code,
         enforced,
+        ...(stderr === undefined ? {} : { stderr }),
       });
     });
   }
+
+  it("an enforced deny with no reason carries no stderr rather than an empty one", () => {
+    assert.deepEqual(render({ decision: "deny" }, eventFor(true)), {
+      transport: "external_hook",
+      exit_code: 2,
+      enforced: true,
+    });
+  });
 
   it("an unenforceable deny is never Amp's allow signal", () => {
     const event = eventFor(false);

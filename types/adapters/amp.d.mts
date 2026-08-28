@@ -5,8 +5,13 @@
 export function parse(native: any): ToolCallEvent;
 /**
  * Render into Amp's pure exit-code transport: the decision is the exit code,
- * with no stdout body. `reason` has no native channel here, so it is dropped
- * (Amp surfaces the helper's own stderr). No `soleGate` option — an allow already renders as exit 0 either way, so
+ * with no stdout body. An ENFORCED deny also carries its `reason` on
+ * `NativeResponse.stderr`, which `emit` writes to fd 2: the delegate is a PATH
+ * helper whose stderr Amp surfaces, and this render is what that helper writes,
+ * so a block that reached the user with no rationale was the adapter throwing
+ * the reason away. Only the enforced path — a deny this call cannot veto and an
+ * ask have blocked nothing, and `stderr` is the contract's block-reason channel.
+ * No `soleGate` option — an allow already renders as exit 0 either way, so
  * there's no distinct "real approve" signal for this transport to opt into.
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
@@ -40,9 +45,10 @@ export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
  * Which {@link VERDICT_CONTENT_FIELDS} have no native channel, so `render`
  * drops them. Amp's transport is the exit code and nothing else — there is no
  * stdout body to carry a replacement input, a replacement output or extra
- * context, so ALL THREE are dropped on every kind, the same gap `reason` has
- * here (Amp surfaces the helper's own stderr instead). A guardrail that needs
- * any of them cannot use Amp as its only integration. Built over every
+ * context, so ALL THREE are dropped on every kind. A guardrail that needs any of
+ * them cannot use Amp as its only integration. `reason` is not one of them and
+ * is NOT dropped: an enforced deny writes it to the helper's stderr, which Amp
+ * surfaces (see {@link render}). Built over every
  * {@link EventKind} rather than the one `parse` emits: a row this adapter cannot
  * reach is still the honest answer for a caller that asks.
  * @type {Record<string, ReadonlySet<string>|undefined>}
