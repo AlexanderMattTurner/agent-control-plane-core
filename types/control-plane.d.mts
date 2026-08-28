@@ -178,6 +178,26 @@ export function sanitizeVerdict(verdict: unknown, sanitizeText: (text: string) =
  */
 export function collectPassthrough(native: Record<string, unknown>, consumed: Set<string>): Record<string, unknown>;
 /**
+ * Build the {@link EventMeta} base every adapter shares: the four required
+ * fields, whichever {@link STANDARD_META_FIELDS} the payload carries, and the
+ * unmodelled remainder in `passthrough`. A mapped field is consumed here too, so
+ * a value that reached `meta` can never also appear in `meta.passthrough`.
+ *
+ * A non-string value leaves its field ABSENT rather than stamping a number or
+ * null onto a contract field consumers read as text. The result is deliberately
+ * mutable: the caller adds the agent-specific `native_tool` after the base.
+ * @param {{ agent: string, native_event: string, integration_mode: string, primary_gate_present: boolean, native: Record<string, unknown>, consumed: Set<string> }} parts
+ * @returns {EventMeta}
+ */
+export function baseMeta({ agent, native_event, integration_mode, primary_gate_present, native, consumed, }: {
+    agent: string;
+    native_event: string;
+    integration_mode: string;
+    primary_gate_present: boolean;
+    native: Record<string, unknown>;
+    consumed: Set<string>;
+}): EventMeta;
+/**
  * The value if it is a plain (non-array) object, else `{}`.
  * @param {unknown} value
  * @returns {Record<string, unknown>}
@@ -437,6 +457,19 @@ export const VERDICT_CONTENT_FIELDS: readonly string[];
  * ignores the key it was written into.
  */
 export const UNRENDERED_ON_UNKNOWN: ReadonlySet<string>;
+/**
+ * The optional {@link EventMeta} string fields a host may carry, and the SSOT
+ * {@link baseMeta} reads off every native payload.
+ *
+ * PROBLEM CLASS — an adapter drops a normalized metadata field. Each adapter
+ * hand-copied these, one copy omitted `permission_mode`, and a guardrail keyed
+ * on `event.meta.permission_mode` then read `undefined` for that agent alone and
+ * took its no-value branch. Nothing distinguished "this host never sends the
+ * field" from "this adapter forgot it". Every adapter now maps the WHOLE set
+ * through {@link baseMeta}, so a field a host does not send is simply absent and
+ * no adapter carries an omission of its own.
+ */
+export const STANDARD_META_FIELDS: readonly string[];
 /**
  * The translator for one agent's protocol. `parse` maps a native event to a
  * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the

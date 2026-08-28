@@ -45,7 +45,7 @@ import {
   nativeResponse,
   UNRENDERED_ON_UNKNOWN,
   readonlySet,
-  collectPassthrough,
+  baseMeta,
   asObject,
   asString,
   asStringOrNull,
@@ -53,7 +53,6 @@ import {
 
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
-/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
 
 export const AGENT = "gemini";
@@ -163,37 +162,14 @@ export const NATIVE_EVENT_FOR = Object.freeze(
 
 // Only the fields the adapter maps are consumed; everything else (timestamp,
 // mcp_context, original_request_name, …) survives verbatim in meta.passthrough.
+// The STANDARD_META_FIELDS are consumed by `baseMeta`, not listed here.
 const CONSUMED = new Set([
   "hook_event_name",
-  "session_id",
-  "cwd",
-  "transcript_path",
   "tool_name",
   "tool_input",
   "tool_response",
   "prompt",
 ]);
-
-/**
- * @param {string} nativeEvent
- * @param {Record<string, unknown>} raw
- * @returns {EventMeta}
- */
-function geminiMeta(nativeEvent, raw) {
-  /** @type {EventMeta} */
-  const meta = {
-    agent: AGENT,
-    native_event: nativeEvent,
-    integration_mode: INTEGRATION_MODE,
-    primary_gate_present: true,
-    passthrough: collectPassthrough(raw, CONSUMED),
-  };
-  if (typeof raw.session_id === "string") meta.session_id = raw.session_id;
-  if (typeof raw.cwd === "string") meta.cwd = raw.cwd;
-  if (typeof raw.transcript_path === "string")
-    meta.transcript_path = raw.transcript_path;
-  return meta;
-}
 
 /**
  * Adapter-scoped native-builtin → canonical tool aliases, applied ONLY when a
@@ -301,7 +277,14 @@ export function parse(native) {
   const gating = kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL;
   const response = kind === EventKind.POST_TOOL ? raw.tool_response : undefined;
   const nativeTool = gating ? asStringOrNull(raw.tool_name) : null;
-  const meta = geminiMeta(nativeEvent, raw);
+  const meta = baseMeta({
+    agent: AGENT,
+    native_event: nativeEvent,
+    integration_mode: INTEGRATION_MODE,
+    primary_gate_present: true,
+    native: raw,
+    consumed: CONSUMED,
+  });
   if (nativeTool !== null) meta.native_tool = nativeTool;
   // Classify on the NATIVE name (MCP detection keys on the `mcp_…` FQN prefix
   // every Gemini MCP tool carries); the class gates both the veto flag and the

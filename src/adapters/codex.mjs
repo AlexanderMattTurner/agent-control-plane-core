@@ -28,7 +28,7 @@ import {
   nativeResponse,
   UNRENDERED_ON_UNKNOWN,
   readonlySet,
-  collectPassthrough,
+  baseMeta,
   asObject,
   asString,
   asStringOrNull,
@@ -36,7 +36,6 @@ import {
 
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
-/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
 
 export const AGENT = "codex";
@@ -111,12 +110,9 @@ export const NATIVE_EVENT_FOR = Object.freeze({
 // tool, so a reasonless enforced deny still renders a non-empty one.
 export const DEFAULT_DENY_REASON = "blocked by monitor";
 
+// The STANDARD_META_FIELDS are consumed by `baseMeta`, not listed here.
 const CONSUMED = new Set([
   "hook_event_name",
-  "session_id",
-  "cwd",
-  "permission_mode",
-  "transcript_path",
   "tool_name",
   "tool_input",
   "version",
@@ -161,22 +157,16 @@ export function parse(native) {
   const kind = gating ? EventKind.PRE_TOOL : EventKind.UNKNOWN;
   const enforce = canEnforce(raw.version);
 
-  /** @type {EventMeta} */
-  const meta = {
+  const meta = baseMeta({
     agent: AGENT,
     native_event: nativeEvent,
     integration_mode: enforce
       ? IntegrationMode.EXTERNAL_HOOK
       : IntegrationMode.OBSERVE_ONLY,
     primary_gate_present: true,
-    passthrough: collectPassthrough(raw, CONSUMED),
-  };
-  if (typeof raw.session_id === "string") meta.session_id = raw.session_id;
-  if (typeof raw.cwd === "string") meta.cwd = raw.cwd;
-  if (typeof raw.permission_mode === "string")
-    meta.permission_mode = raw.permission_mode;
-  if (typeof raw.transcript_path === "string")
-    meta.transcript_path = raw.transcript_path;
+    native: raw,
+    consumed: CONSUMED,
+  });
 
   // Coverage floor: even on an enforcing Codex, `PreToolUse` fires for Bash only,
   // so an MCP-sourced call is un-vetoable regardless of version (COVERAGE.mcp).

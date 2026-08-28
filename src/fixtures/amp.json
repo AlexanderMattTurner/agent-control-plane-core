@@ -10,7 +10,9 @@
           "command": "ls -la"
         },
         "session_id": "a1",
-        "cwd": "/w"
+        "cwd": "/w",
+        "permission_mode": "default",
+        "transcript_path": "/t.jsonl"
       },
       "event": {
         "schema_version": 1,
@@ -28,7 +30,9 @@
           "primary_gate_present": true,
           "passthrough": {},
           "session_id": "a1",
-          "cwd": "/w"
+          "cwd": "/w",
+          "permission_mode": "default",
+          "transcript_path": "/t.jsonl"
         }
       },
       "render": {

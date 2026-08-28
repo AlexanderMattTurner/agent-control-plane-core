@@ -27,14 +27,13 @@ import {
   nativeResponse,
   readonlySet,
   VERDICT_CONTENT_FIELDS,
-  collectPassthrough,
+  baseMeta,
   asObject,
   asStringOrNull,
 } from "../control-plane.mjs";
 
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
-/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
 
 export const AGENT = "amp";
@@ -98,8 +97,9 @@ export const UNRENDERED_FIELDS = Object.freeze(
 );
 
 // Amp invokes the delegate for a tool call; the payload carries the tool name +
-// input and the session context. Pinned by fixtures/amp.json.
-const CONSUMED = new Set(["tool", "input", "session_id", "cwd"]);
+// input. The session context is the STANDARD_META_FIELDS set `baseMeta`
+// consumes, so it is not listed here. Pinned by fixtures/amp.json.
+const CONSUMED = new Set(["tool", "input"]);
 
 /**
  * @param {any} native
@@ -107,16 +107,14 @@ const CONSUMED = new Set(["tool", "input", "session_id", "cwd"]);
  */
 export function parse(native) {
   const raw = asObject(native);
-  /** @type {EventMeta} */
-  const meta = {
+  const meta = baseMeta({
     agent: AGENT,
     native_event: "delegate",
     integration_mode: INTEGRATION_MODE,
     primary_gate_present: true,
-    passthrough: collectPassthrough(raw, CONSUMED),
-  };
-  if (typeof raw.session_id === "string") meta.session_id = raw.session_id;
-  if (typeof raw.cwd === "string") meta.cwd = raw.cwd;
+    native: raw,
+    consumed: CONSUMED,
+  });
   const nativeTool = asStringOrNull(raw.tool);
   if (nativeTool !== null) meta.native_tool = nativeTool;
   return makeEvent({
@@ -180,9 +178,8 @@ for (const decision of Object.values(Decision)) {
 /**
  * Render into Amp's pure exit-code transport: the decision is the exit code,
  * with no stdout body. `reason` has no native channel here, so it is dropped
- * (Amp surfaces the helper's own stderr). No `soleGate` option — an allow
- * already renders as exit 0 either way, so there's no distinct "real approve"
- * signal for this transport to opt into.
+ * (Amp surfaces the helper's own stderr). No `soleGate` option — an allow already renders as exit 0 either way, so
+ * there's no distinct "real approve" signal for this transport to opt into.
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
  * @returns {NativeResponse}

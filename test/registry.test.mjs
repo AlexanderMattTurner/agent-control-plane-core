@@ -6,6 +6,7 @@ import {
   adapterFor,
   assertRegistryConsistent,
 } from "../src/registry.mjs";
+import { STANDARD_META_FIELDS } from "../src/control-plane.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
 import { codexAdapter } from "../src/adapters/codex.mjs";
 import { ampAdapter } from "../src/adapters/amp.mjs";
@@ -87,4 +88,62 @@ describe("adapter registry", () => {
     assert.ok(Object.isFrozen(ADAPTERS));
     assert.ok(Object.isFrozen(AGENT_IDS));
   });
+});
+
+// The EventMeta fields every adapter must map, checked adapter by adapter rather
+// than per adapter's own tests: each adapter hand-copied these, the gemini copy
+// omitted `permission_mode`, and a guardrail keying on `event.meta.permission_mode`
+// then read `undefined` for gemini alone while claude and codex answered.
+describe("every adapter maps the standard EventMeta fields", () => {
+  // One payload for all four hosts: the standard fields are top-level in every
+  // native protocol. The event name is claude/codex's, so gemini and amp take
+  // their unrecognized-event branches — the mapping must hold there too.
+  const native = {
+    hook_event_name: "PreToolUse",
+    tool: "Bash",
+    tool_name: "Bash",
+    session_id: "s1",
+    cwd: "/w",
+    permission_mode: "acceptEdits",
+    transcript_path: "/t.jsonl",
+  };
+  const expected = {
+    session_id: "s1",
+    cwd: "/w",
+    permission_mode: "acceptEdits",
+    transcript_path: "/t.jsonl",
+  };
+
+  it("STANDARD_META_FIELDS is exactly what this test drives", () => {
+    assert.deepEqual(
+      [...STANDARD_META_FIELDS].sort(),
+      Object.keys(expected).sort(),
+    );
+  });
+
+  for (const adapter of SHIPPED) {
+    it(`${adapter.AGENT} maps all of them, and none reaches passthrough`, () => {
+      const { meta } = adapter.parse(native);
+      for (const field of STANDARD_META_FIELDS) {
+        assert.equal(
+          meta[field],
+          expected[field],
+          `${adapter.AGENT} dropped ${field}`,
+        );
+        // A mapped field must not ALSO ride along unmodelled: a consumer reading
+        // passthrough would see the same value under a second name.
+        assert.equal(
+          Object.hasOwn(meta.passthrough, field),
+          false,
+          `${adapter.AGENT} duplicated ${field} into passthrough`,
+        );
+      }
+    });
+
+    it(`${adapter.AGENT} leaves a non-string standard field absent`, () => {
+      const { meta } = adapter.parse({ ...native, cwd: 42, session_id: null });
+      assert.equal("cwd" in meta, false);
+      assert.equal("session_id" in meta, false);
+    });
+  }
 });

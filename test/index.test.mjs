@@ -25,6 +25,8 @@ describe("public API surface (index barrel)", () => {
     "makeEvent",
     "normalizeVerdict",
     "collectPassthrough",
+    "baseMeta",
+    "STANDARD_META_FIELDS",
     "nativeResponse",
     "asObject",
     "asString",

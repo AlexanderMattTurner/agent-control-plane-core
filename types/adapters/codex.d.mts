@@ -46,7 +46,6 @@ export function render(verdict: Verdict, event: ToolCallEvent, { soleGate }?: {
 }): NativeResponse;
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
-/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
 export const AGENT: "codex";
 export const INTEGRATION_MODE: "external_hook";
@@ -87,5 +86,4 @@ export const DEFAULT_DENY_REASON: "blocked by monitor";
 export const codexAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;
 export type Verdict = import("../control-plane.mjs").Verdict;
-export type EventMeta = import("../control-plane.mjs").EventMeta;
 export type NativeResponse = import("../control-plane.mjs").NativeResponse;
