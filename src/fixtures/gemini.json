@@ -454,6 +454,86 @@
           }
         }
       }
+    },
+    {
+      "name": "BeforeTool builtin read_file without absolute_path stays native",
+      "call_class": "builtin",
+      "native": {
+        "hook_event_name": "BeforeTool",
+        "tool_name": "read_file",
+        "tool_input": {
+          "path": "/w/notes.txt"
+        }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "read_file",
+        "input": {
+          "path": "/w/notes.txt"
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "gemini",
+          "native_event": "BeforeTool",
+          "native_tool": "read_file",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {}
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        }
+      }
+    },
+    {
+      "name": "BeforeTool builtin write_file without file_path stays native",
+      "call_class": "builtin",
+      "native": {
+        "hook_event_name": "BeforeTool",
+        "tool_name": "write_file",
+        "tool_input": {
+          "content": "hi"
+        }
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "write_file",
+        "input": {
+          "content": "hi"
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "gemini",
+          "native_event": "BeforeTool",
+          "native_tool": "write_file",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {}
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false
+          }
+        }
+      }
     }
   ]
 }

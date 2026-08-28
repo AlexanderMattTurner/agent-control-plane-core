@@ -40,6 +40,7 @@ import {
   canonicalTool,
   lookup,
   assertAliasTargetsModeled,
+  MODELED_TOOL_INPUT_KEYS,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
@@ -180,10 +181,11 @@ const CONSUMED = new Set([
  * `mcp_{server}_{tool}` name (gemini-cli docs/tools/mcp-server.md), so a bare
  * builtin name in `tool_name` can only be the builtin. Renaming the tool also
  * renames its INPUT to the schema that name advertises, via
- * {@link GEMINI_INPUT_ALIASES} — a consumer told `event.tool` is `Read` reads
- * `input.file_path` and finds it, rather than reading `undefined` off a
- * forwarded `absolute_path` and allowing. Targets are pinned to
- * {@link MODELED_TOOLS} at import, every entry must be witnessed by a gemini
+ * {@link GEMINI_INPUT_ALIASES}, and the rename must actually produce that key or
+ * the call keeps its native name (see {@link geminiCall}) — a consumer told
+ * `event.tool` is `Read` reads `input.file_path` and finds it, rather than
+ * reading `undefined` off a forwarded `absolute_path` and allowing. Targets are
+ * pinned to {@link MODELED_TOOLS} at import, every entry must be witnessed by a gemini
  * conformance fixture (`assertToolAliasesCovered`), and every aliased case must
  * carry the canonical input key (`assertAliasedInputsCanonical`).
  * @type {Readonly<Record<string, string>>}
@@ -212,37 +214,26 @@ const GEMINI_INPUT_ALIASES = Object.freeze({
 assertAliasTargetsModeled(GEMINI_TOOL_ALIASES);
 
 /**
- * Canonicalize a Gemini native tool name: adapter-scoped builtin aliases first
- * (BUILTIN calls only — an MCP- or context-flagged call is never reclassified),
- * then the global {@link canonicalTool} map, else verbatim.
- * @param {string|null} nativeTool
- * @param {string} callClass a {@link CallClass} value
- * @returns {string|null}
- */
-function geminiCanonicalTool(nativeTool, callClass) {
-  if (nativeTool !== null && callClass === CallClass.BUILTIN) {
-    const scoped = lookup(GEMINI_TOOL_ALIASES, nativeTool);
-    if (scoped !== undefined) return scoped;
-  }
-  return canonicalTool(nativeTool);
-}
-
-/**
  * @param {string} kind
  * @param {Record<string, unknown>} raw
- * @param {string|null} nativeTool
- * @param {string} callClass a {@link CallClass} value
- * @returns {Record<string, unknown>}
+ * @returns {Record<string, unknown>} the NATIVE tool input, in Gemini's dialect
  */
-function geminiInput(kind, raw, nativeTool, callClass) {
+function geminiInput(kind, raw) {
   if (kind === EventKind.PROMPT_SUBMIT)
     return { prompt: asString(raw.prompt, "") };
   if (kind !== EventKind.PRE_TOOL && kind !== EventKind.POST_TOOL) return {};
-  const input = asObject(raw.tool_input);
-  // Renamed only where the NAME was renamed: the aliases are builtin-scoped, so
-  // an MCP tool that happens to be called `read_file` keeps its own dialect.
-  if (callClass !== CallClass.BUILTIN || nativeTool === null) return input;
-  const renames = lookup(GEMINI_INPUT_ALIASES, nativeTool);
+  return asObject(raw.tool_input);
+}
+
+/**
+ * A copy of `input` with each `renames` key that the payload actually supplies
+ * moved to its canonical name. A native key the payload omits is NOT invented,
+ * so the result carries the canonical key only where a real value backs it.
+ * @param {Record<string, unknown>} input
+ * @param {Record<string, string>|undefined} renames native key → canonical key
+ * @returns {Record<string, unknown>}
+ */
+function renameInputKeys(input, renames) {
   if (renames === undefined) return input;
   const out = { ...input };
   for (const [nativeKey, canonicalKey] of Object.entries(renames)) {
@@ -251,6 +242,46 @@ function geminiInput(kind, raw, nativeTool, callClass) {
     delete out[nativeKey];
   }
   return out;
+}
+
+/**
+ * Decide the canonical tool name and the input TOGETHER — the scoped alias
+ * applies to both or to neither.
+ *
+ * Renaming `read_file` to `Read` ADVERTISES the schema that name carries
+ * ({@link MODELED_TOOL_INPUT_KEYS}: `Read` promises `input.file_path`). So the
+ * alias is applied only when the renamed input really supplies that key. A
+ * builtin payload that does not — a `read_file` with no `absolute_path`, a
+ * `write_file` with no `file_path` — keeps its NATIVE name and its native input,
+ * because a native name promises nothing and reaches a judge as a name it must
+ * handle on purpose. Splitting the two decisions is the bypass this function
+ * exists to make unrepresentable: a judge told "this is a Read" read
+ * `input.file_path`, got `undefined`, and allowed.
+ *
+ * The aliases are builtin-scoped, so an MCP-sourced or context-flagged call is
+ * never reclassified and keeps its own dialect; a name the scoped map does not
+ * hold falls through to the global {@link canonicalTool}.
+ * @param {string|null} nativeTool
+ * @param {string} callClass a {@link CallClass} value
+ * @param {Record<string, unknown>} input the native tool input
+ * @returns {{ tool: string|null, input: Record<string, unknown> }}
+ */
+function geminiCall(nativeTool, callClass, input) {
+  const native = { tool: canonicalTool(nativeTool), input };
+  if (nativeTool === null || callClass !== CallClass.BUILTIN) return native;
+  const scoped = lookup(GEMINI_TOOL_ALIASES, nativeTool);
+  if (scoped === undefined) return native;
+  const renamed = renameInputKeys(
+    input,
+    lookup(GEMINI_INPUT_ALIASES, nativeTool),
+  );
+  const advertised = lookup(
+    /** @type {Record<string, string>} */ (MODELED_TOOL_INPUT_KEYS),
+    scoped,
+  );
+  if (advertised === undefined || !Object.hasOwn(renamed, advertised))
+    return native;
+  return { tool: scoped, input: renamed };
 }
 
 /**
@@ -290,10 +321,11 @@ export function parse(native) {
   // every Gemini MCP tool carries); the class gates both the veto flag and the
   // builtin-only adapter-scoped aliases.
   const callClass = classifyCallClass(nativeTool, raw);
+  const call = geminiCall(nativeTool, callClass, geminiInput(kind, raw));
   return makeEvent({
     event: kind,
-    tool: geminiCanonicalTool(nativeTool, callClass),
-    input: geminiInput(kind, raw, nativeTool, callClass),
+    tool: call.tool,
+    input: call.input,
     response,
     this_call_vetoable: vetoableFor(kind, GATED_EVENTS, COVERAGE[callClass]),
     meta,

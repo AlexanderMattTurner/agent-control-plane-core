@@ -96,10 +96,11 @@ export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
  * `mcp_{server}_{tool}` name (gemini-cli docs/tools/mcp-server.md), so a bare
  * builtin name in `tool_name` can only be the builtin. Renaming the tool also
  * renames its INPUT to the schema that name advertises, via
- * {@link GEMINI_INPUT_ALIASES} — a consumer told `event.tool` is `Read` reads
- * `input.file_path` and finds it, rather than reading `undefined` off a
- * forwarded `absolute_path` and allowing. Targets are pinned to
- * {@link MODELED_TOOLS} at import, every entry must be witnessed by a gemini
+ * {@link GEMINI_INPUT_ALIASES}, and the rename must actually produce that key or
+ * the call keeps its native name (see {@link geminiCall}) — a consumer told
+ * `event.tool` is `Read` reads `input.file_path` and finds it, rather than
+ * reading `undefined` off a forwarded `absolute_path` and allowing. Targets are
+ * pinned to {@link MODELED_TOOLS} at import, every entry must be witnessed by a gemini
  * conformance fixture (`assertToolAliasesCovered`), and every aliased case must
  * carry the canonical input key (`assertAliasedInputsCanonical`).
  * @type {Readonly<Record<string, string>>}
