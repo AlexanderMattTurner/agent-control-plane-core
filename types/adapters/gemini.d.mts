@@ -30,6 +30,7 @@ export function render(verdict: Verdict, event: ToolCallEvent, { soleGate }?: {
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
+/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 export const AGENT: "gemini";
 export const INTEGRATION_MODE: "external_hook";
 /**
@@ -111,3 +112,4 @@ export const geminiAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;
 export type Verdict = import("../control-plane.mjs").Verdict;
 export type NativeResponse = import("../control-plane.mjs").NativeResponse;
+export type EventMeta = import("../control-plane.mjs").EventMeta;

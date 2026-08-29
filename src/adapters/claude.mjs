@@ -37,6 +37,11 @@ import {
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
+// Re-exported on this subpath even though no signature below names it:
+// tsc turns each @typedef into an `export type` in the generated .d.mts,
+// so dropping this line breaks `import type { EventMeta } from "…/<agent>"`
+// for every TypeScript consumer.
+/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 
 /** Producing-agent id stamped onto every event this adapter parses. */
 export const AGENT = "claude";

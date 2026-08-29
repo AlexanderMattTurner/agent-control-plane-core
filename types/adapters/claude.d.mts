@@ -27,6 +27,7 @@ export function render(verdict: Verdict, event: ToolCallEvent, { soleGate }?: {
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
+/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** Producing-agent id stamped onto every event this adapter parses. */
 export const AGENT: "claude";
 /** How this adapter attaches to the agent. */
@@ -77,3 +78,4 @@ export const claudeAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;
 export type Verdict = import("../control-plane.mjs").Verdict;
 export type NativeResponse = import("../control-plane.mjs").NativeResponse;
+export type EventMeta = import("../control-plane.mjs").EventMeta;
