@@ -46,8 +46,8 @@ export function render(verdict: Verdict, event: ToolCallEvent, { soleGate }?: {
 }): NativeResponse;
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
-/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
+/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 export const AGENT: "codex";
 export const INTEGRATION_MODE: "external_hook";
 /**
@@ -64,7 +64,7 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * drops them. Codex documents one content channel, `updatedInput` on
  * PreToolUse. It documents no PostToolUse output-rewrite field and no context
  * injection field at all, so `mutated_output` and `additional_context` are
- * dropped on every kind — the same gap `reason` has on Amp. A redaction verdict
+ * dropped on every kind. A redaction verdict
  * therefore does NOT reach the model here: the unredacted output stands, and a
  * guardrail that must redact has to deny the call instead. Inventing a native
  * key would be worse than the visible gap, because the host ignores it and the
@@ -87,5 +87,5 @@ export const DEFAULT_DENY_REASON: "blocked by monitor";
 export const codexAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;
 export type Verdict = import("../control-plane.mjs").Verdict;
-export type EventMeta = import("../control-plane.mjs").EventMeta;
 export type NativeResponse = import("../control-plane.mjs").NativeResponse;
+export type EventMeta = import("../control-plane.mjs").EventMeta;

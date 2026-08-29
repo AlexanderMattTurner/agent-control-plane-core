@@ -139,3 +139,58 @@ describe("subpath exports", () => {
     }
   });
 });
+
+// A `@typedef` in an adapter is what tsc turns into an `export type` in the
+// generated .d.mts, so a refactor that stops using one silently deletes a
+// published type from that adapter's subpath. Nothing else notices: the
+// adapter's runtime exports are unchanged and every consumer inside this repo
+// imports the type from /contract instead.
+describe("adapter subpaths re-export the contract types they name", () => {
+  const CONTRACT_TYPES = [
+    "ToolCallEvent",
+    "Verdict",
+    "NativeResponse",
+    "EventMeta",
+  ];
+
+  /** The `export type X = …` names a generated declaration file publishes. */
+  const declaredTypes = (relative) =>
+    [
+      ...readFileSync(fileURLToPath(new URL(relative, ROOT)), "utf8").matchAll(
+        /^export type (\w+) =/gmu,
+      ),
+    ].map((match) => match[1]);
+
+  const adapters = SUBPATHS.filter(([, target]) =>
+    target.import.startsWith("./src/adapters/"),
+  );
+
+  it("reads an adapter subpath from the manifest", () => {
+    assert.equal(
+      adapters.length,
+      4,
+      `expected 4 adapter subpaths, read ${adapters.length} — the cases below would be vacuous`,
+    );
+  });
+
+  // The re-exports must resolve to something: a name the contract itself stopped
+  // publishing would leave every adapter aliasing a type that is not there.
+  it("/contract publishes every type the adapters re-export", () => {
+    const contract = declaredTypes("types/control-plane.d.mts");
+    for (const name of CONTRACT_TYPES) {
+      assert.ok(contract.includes(name), `/contract no longer exports ${name}`);
+    }
+  });
+
+  for (const [subpath, target] of adapters) {
+    it(`${subpath} publishes ${CONTRACT_TYPES.join(", ")}`, () => {
+      const published = declaredTypes(target.types);
+      for (const name of CONTRACT_TYPES) {
+        assert.ok(
+          published.includes(name),
+          `${subpath} dropped its ${name} export; restore the @typedef in ${target.import} and re-run pnpm build`,
+        );
+      }
+    });
+  }
+});

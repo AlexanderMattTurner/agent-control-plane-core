@@ -163,6 +163,20 @@ describe("gemini adapter-scoped builtin tool aliases", () => {
     });
   });
 
+  // The native payload each alias member needs to keep its promise: the alias
+  // renames the name only when the input supplies the key that name advertises.
+  const NATIVE_INPUT = {
+    read_file: { absolute_path: "/x" },
+    write_file: { file_path: "/x", content: "hi" },
+  };
+
+  it("every alias member has a native payload below (no vacuous loop)", () => {
+    assert.deepEqual(
+      Object.keys(NATIVE_INPUT).sort(),
+      Object.keys(GEMINI_TOOL_ALIASES).sort(),
+    );
+  });
+
   // One case per alias member: the map is the SSOT, so adding an entry without
   // a matching parse expectation fails here.
   for (const [nativeName, canonical] of Object.entries(GEMINI_TOOL_ALIASES)) {
@@ -170,11 +184,26 @@ describe("gemini adapter-scoped builtin tool aliases", () => {
       const event = geminiAdapter.parse({
         hook_event_name: "BeforeTool",
         tool_name: nativeName,
-        tool_input: { x: 1 },
+        tool_input: NATIVE_INPUT[nativeName],
       });
       assert.equal(event.tool, canonical);
       assert.equal(event.meta.native_tool, nativeName);
       assert.equal(event.this_call_vetoable, true);
+    });
+
+    // The name and the input are ONE decision. A payload that cannot produce
+    // the key `canonical` advertises keeps the native name, which promises
+    // nothing — the alternative is a judge told "this is a Read" reading
+    // `input.file_path`, getting undefined, and allowing.
+    it(`builtin ${nativeName} stays native when the input cannot back ${canonical}`, () => {
+      const event = geminiAdapter.parse({
+        hook_event_name: "BeforeTool",
+        tool_name: nativeName,
+        tool_input: { x: 1 },
+      });
+      assert.equal(event.tool, nativeName);
+      assert.deepEqual(event.input, { x: 1 });
+      assert.equal(event.meta.native_tool, nativeName);
     });
   }
 

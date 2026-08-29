@@ -8,7 +8,8 @@
  *
  * This adapter is what proves the transport split earns its keep: the normalized
  * ToolCallEvent/Verdict are identical to Claude's, but `render` carries the
- * decision in `exit_code` with no `stdout` at all.
+ * decision in `exit_code` with no `stdout` at all. An enforced deny's `reason`
+ * goes to the helper's STDERR, which Amp surfaces.
  */
 
 import {
@@ -27,15 +28,19 @@ import {
   nativeResponse,
   readonlySet,
   VERDICT_CONTENT_FIELDS,
-  collectPassthrough,
+  baseMeta,
   asObject,
   asStringOrNull,
 } from "../control-plane.mjs";
 
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
-/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
+// Re-exported on this subpath even though no signature below names it:
+// tsc turns each @typedef into an `export type` in the generated .d.mts,
+// so dropping this line breaks `import type { EventMeta } from "…/<agent>"`
+// for every TypeScript consumer.
+/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 
 export const AGENT = "amp";
 export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
@@ -81,9 +86,10 @@ assertGatedKinds(GATED_EVENTS, AGENT);
  * Which {@link VERDICT_CONTENT_FIELDS} have no native channel, so `render`
  * drops them. Amp's transport is the exit code and nothing else — there is no
  * stdout body to carry a replacement input, a replacement output or extra
- * context, so ALL THREE are dropped on every kind, the same gap `reason` has
- * here (Amp surfaces the helper's own stderr instead). A guardrail that needs
- * any of them cannot use Amp as its only integration. Built over every
+ * context, so ALL THREE are dropped on every kind. A guardrail that needs any of
+ * them cannot use Amp as its only integration. `reason` is not one of them and
+ * is NOT dropped: an enforced deny writes it to the helper's stderr, which Amp
+ * surfaces (see {@link render}). Built over every
  * {@link EventKind} rather than the one `parse` emits: a row this adapter cannot
  * reach is still the honest answer for a caller that asks.
  * @type {Record<string, ReadonlySet<string>|undefined>}
@@ -98,8 +104,9 @@ export const UNRENDERED_FIELDS = Object.freeze(
 );
 
 // Amp invokes the delegate for a tool call; the payload carries the tool name +
-// input and the session context. Pinned by fixtures/amp.json.
-const CONSUMED = new Set(["tool", "input", "session_id", "cwd"]);
+// input. The session context is the STANDARD_META_FIELDS set `baseMeta`
+// consumes, so it is not listed here. Pinned by fixtures/amp.json.
+const CONSUMED = new Set(["tool", "input"]);
 
 /**
  * @param {any} native
@@ -107,16 +114,14 @@ const CONSUMED = new Set(["tool", "input", "session_id", "cwd"]);
  */
 export function parse(native) {
   const raw = asObject(native);
-  /** @type {EventMeta} */
-  const meta = {
+  const meta = baseMeta({
     agent: AGENT,
     native_event: "delegate",
     integration_mode: INTEGRATION_MODE,
     primary_gate_present: true,
-    passthrough: collectPassthrough(raw, CONSUMED),
-  };
-  if (typeof raw.session_id === "string") meta.session_id = raw.session_id;
-  if (typeof raw.cwd === "string") meta.cwd = raw.cwd;
+    native: raw,
+    consumed: CONSUMED,
+  });
   const nativeTool = asStringOrNull(raw.tool);
   if (nativeTool !== null) meta.native_tool = nativeTool;
   return makeEvent({
@@ -179,10 +184,14 @@ for (const decision of Object.values(Decision)) {
 
 /**
  * Render into Amp's pure exit-code transport: the decision is the exit code,
- * with no stdout body. `reason` has no native channel here, so it is dropped
- * (Amp surfaces the helper's own stderr). No `soleGate` option — an allow
- * already renders as exit 0 either way, so there's no distinct "real approve"
- * signal for this transport to opt into.
+ * with no stdout body. An ENFORCED deny also carries its `reason` on
+ * `NativeResponse.stderr`, which `emit` writes to fd 2: the delegate is a PATH
+ * helper whose stderr Amp surfaces, and this render is what that helper writes,
+ * so a block that reached the user with no rationale was the adapter throwing
+ * the reason away. Only the enforced path — a deny this call cannot veto and an
+ * ask have blocked nothing, and `stderr` is the contract's block-reason channel.
+ * No `soleGate` option — an allow already renders as exit 0 either way, so
+ * there's no distinct "real approve" signal for this transport to opt into.
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
  * @returns {NativeResponse}
@@ -211,7 +220,12 @@ export function render(verdict, event) {
     throw new Error(
       `amp adapter: exit-code table has no entry for decision ${JSON.stringify(vd.decision)} / this_call_vetoable ${JSON.stringify(vetoable)}`,
     );
-  return nativeResponse({ transport: INTEGRATION_MODE, exit_code, enforced });
+  return nativeResponse({
+    transport: INTEGRATION_MODE,
+    exit_code,
+    enforced,
+    ...(enforced && vd.reason !== undefined ? { stderr: vd.reason } : {}),
+  });
 }
 
 /** @type {import("../control-plane.mjs").Adapter} */

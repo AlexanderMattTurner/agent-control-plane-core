@@ -390,7 +390,7 @@ export function classifyCallClass(tool, native) {
  * @typedef {object} Verdict
  * @property {"allow"|"deny"|"ask"} decision
  * @property {Record<string, unknown>} [mutated_input] replacement tool input (pre_tool)
- * @property {unknown} [mutated_output] replacement tool output (post_tool) — the normalized channel for a PostToolUse content transform (redaction/sanitize); a string or the tool's structured output, verbatim. An adapter renders it into whatever native output-mutation channel the host has, or drops it when the host has none (the same per-adapter fidelity gap `reason` has on Amp).
+ * @property {unknown} [mutated_output] replacement tool output (post_tool) — the normalized channel for a PostToolUse content transform (redaction/sanitize); a string or the tool's structured output, verbatim. An adapter renders it into whatever native output-mutation channel the host has, or drops it when the host has none (the same per-adapter fidelity gap `additional_context` has on Codex).
  * @property {string} [additional_context] extra context to splice into the agent's stream
  * @property {string} [reason] human-readable rationale (shown on deny/ask)
  */
@@ -674,6 +674,65 @@ export function collectPassthrough(native, consumed) {
     if (!consumed.has(key)) rest[key] = val;
   }
   return rest;
+}
+
+/**
+ * The optional {@link EventMeta} string fields a host may carry, and the SSOT
+ * {@link baseMeta} reads off every native payload.
+ *
+ * PROBLEM CLASS — an adapter drops a normalized metadata field. Each adapter
+ * hand-copied these, one copy omitted `permission_mode`, and a guardrail keyed
+ * on `event.meta.permission_mode` then read `undefined` for that agent alone and
+ * took its no-value branch. Nothing distinguished "this host never sends the
+ * field" from "this adapter forgot it". Every adapter now maps the WHOLE set
+ * through {@link baseMeta}, so a field a host does not send is simply absent and
+ * no adapter carries an omission of its own.
+ */
+export const STANDARD_META_FIELDS = Object.freeze([
+  "session_id",
+  "cwd",
+  "permission_mode",
+  "transcript_path",
+]);
+
+/**
+ * Build the {@link EventMeta} base every adapter shares: the four required
+ * fields, whichever {@link STANDARD_META_FIELDS} the payload carries, and the
+ * unmodelled remainder in `passthrough`. A mapped field is consumed here too, so
+ * a value that reached `meta` can never also appear in `meta.passthrough`.
+ *
+ * A non-string value leaves its field ABSENT rather than stamping a number or
+ * null onto a contract field consumers read as text. The result is deliberately
+ * mutable: the caller adds the agent-specific `native_tool` after the base.
+ * @param {{ agent: string, native_event: string, integration_mode: string, primary_gate_present: boolean, native: Record<string, unknown>, consumed: Set<string> }} parts
+ * @returns {EventMeta}
+ */
+export function baseMeta({
+  agent,
+  native_event,
+  integration_mode,
+  primary_gate_present,
+  native,
+  consumed,
+}) {
+  /** @type {EventMeta} */
+  const meta = {
+    agent,
+    native_event,
+    integration_mode: /** @type {EventMeta["integration_mode"]} */ (
+      integration_mode
+    ),
+    primary_gate_present,
+    passthrough: collectPassthrough(
+      native,
+      new Set([...consumed, ...STANDARD_META_FIELDS]),
+    ),
+  };
+  for (const field of STANDARD_META_FIELDS) {
+    const value = lookup(native, field);
+    if (typeof value === "string") Object.assign(meta, { [field]: value });
+  }
+  return meta;
 }
 
 // ─── Coercion primitives ─────────────────────────────────────────────────────

@@ -297,7 +297,7 @@ case for that channel — this research confirms the mechanism matches exactly:
   mutating `output`** (maps directly to `mutated_input`). No native "ask"
   primitive was found — an adapter would need to render `ask` as something
   else (deny with a distinguishing reason, most likely), the same kind of
-  per-adapter limitation Amp already has for `reason` on deny.
+  per-adapter limitation Codex already has for `additional_context`.
 - **Confirmed gap, not just suspected**: MCP-sourced tool calls do **not**
   trigger `tool.execute.before`/`after` at all
   ([sst/opencode#2319](https://github.com/sst/opencode/issues/2319)). An
@@ -352,7 +352,7 @@ gate.**
   adapter and cannot be honoured: the raw output still goes to the model. The
   adapter declares the drop in `UNRENDERED_FIELDS` and renders a
   `systemMessage` warning so the model is told the output is unvetted, the same
-  kind of per-adapter limitation Amp already has for `reason` on deny. A
+  kind of per-adapter limitation Codex already has for `additional_context`. A
   guardrail that must actually redact has to deny the call instead.
 
 ## Codex CLI (re-check against the shipped adapter)

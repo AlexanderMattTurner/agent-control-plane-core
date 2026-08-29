@@ -61,13 +61,16 @@ describe("integration: per-host hook transports over a real process boundary", (
     );
   });
 
-  it("amp deny → exit 2 with NO stdout body (pure exit-code transport)", () => {
+  it("amp deny → exit 2, no stdout body, reason on stderr", () => {
     const out = runHook("amp", {
       tool: "Bash",
       input: { command: "rm -rf /tmp" },
     });
     assert.equal(out.code, 2);
     assert.equal(out.stdout, "");
+    // Amp surfaces the delegate helper's stderr, so the block reaches the user
+    // with its rationale instead of a bare rejection.
+    assert.match(out.stderr, /rm -rf blocked/);
   });
 
   it("codex ≥v0.135 deny → exit 2 (enforcing)", () => {

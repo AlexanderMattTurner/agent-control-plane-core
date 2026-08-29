@@ -29,8 +29,8 @@ export function render(verdict: Verdict, event: ToolCallEvent, { soleGate }?: {
 }): NativeResponse;
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
-/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
+/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 export const AGENT: "gemini";
 export const INTEGRATION_MODE: "external_hook";
 /**
@@ -49,7 +49,7 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * `hookSpecificOutput.tool_input` on BeforeTool, `systemMessage` on the tool
  * events and `hookSpecificOutput.additionalContext` on BeforeAgent. It documents
  * NO AfterTool output-rewrite field, so `mutated_output` is dropped on every
- * kind — the same gap `reason` has on Amp. `mutated_input` is dropped everywhere
+ * kind. `mutated_input` is dropped everywhere
  * but BeforeTool: the tool has already run by AfterTool, and BeforeAgent has no
  * tool input at all, so emitting `tool_input` there names a channel the host
  * ignores while reading to the caller as a mutation applied.
@@ -97,10 +97,11 @@ export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
  * `mcp_{server}_{tool}` name (gemini-cli docs/tools/mcp-server.md), so a bare
  * builtin name in `tool_name` can only be the builtin. Renaming the tool also
  * renames its INPUT to the schema that name advertises, via
- * {@link GEMINI_INPUT_ALIASES} — a consumer told `event.tool` is `Read` reads
- * `input.file_path` and finds it, rather than reading `undefined` off a
- * forwarded `absolute_path` and allowing. Targets are pinned to
- * {@link MODELED_TOOLS} at import, every entry must be witnessed by a gemini
+ * {@link GEMINI_INPUT_ALIASES}, and the rename must actually produce that key or
+ * the call keeps its native name (see {@link geminiCall}) — a consumer told
+ * `event.tool` is `Read` reads `input.file_path` and finds it, rather than
+ * reading `undefined` off a forwarded `absolute_path` and allowing. Targets are
+ * pinned to {@link MODELED_TOOLS} at import, every entry must be witnessed by a gemini
  * conformance fixture (`assertToolAliasesCovered`), and every aliased case must
  * carry the canonical input key (`assertAliasedInputsCanonical`).
  * @type {Readonly<Record<string, string>>}
@@ -110,5 +111,5 @@ export const GEMINI_TOOL_ALIASES: Readonly<Record<string, string>>;
 export const geminiAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;
 export type Verdict = import("../control-plane.mjs").Verdict;
-export type EventMeta = import("../control-plane.mjs").EventMeta;
 export type NativeResponse = import("../control-plane.mjs").NativeResponse;
+export type EventMeta = import("../control-plane.mjs").EventMeta;
