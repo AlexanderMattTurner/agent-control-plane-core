@@ -368,11 +368,14 @@ research could not independently verify the _exact_ JSON field names in the
 v0.117–v0.135 window, only that enforcement-shaped events existed. Surfacing
 this for the maintainer's call, not changing the pinned version in this doc.
 
-Content channels: Codex documents `updatedInput` on PreToolUse and nothing
-else — no output-rewrite field and no context-injection field. The adapter
-declares both `mutated_output` and `additional_context` dropped in
-`UNRENDERED_FIELDS`, so a redaction or context verdict does not reach the model
-here at all.
+Content channels: Codex documents `updatedInput` on PreToolUse and
+`hookSpecificOutput.additionalContext` on PostToolUse — no output-rewrite field
+on either ("can't undo side effects from a tool that already ran";
+`updatedMCPToolOutput` is rejected). The adapter declares `mutated_output`
+dropped on every kind and `additional_context` dropped on PreToolUse, so a
+redaction verdict does not reach the model here at all and a context verdict
+only lands post-tool. A guardrail that must redact has to deny: pre-tool that
+stops the call, post-tool it blocks the turn via `decision: "block"`.
 
 ---
 

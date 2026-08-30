@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Codex CLI EXTERNAL_HOOK entry. Reads a native PreToolUse/PermissionRequest
- * payload on stdin, applies the demo judge, and emits Codex's native response.
+ * Codex CLI EXTERNAL_HOOK entry. Reads a native
+ * PreToolUse/PermissionRequest/PostToolUse payload on stdin, applies the demo
+ * judge, and emits Codex's native response.
  *
  * FAILURE POSTURE — fail OPEN (exit 0), like Claude Code: Codex treats a
  * non-conforming hook as non-blocking. On a pre-v0.135 Codex the render is

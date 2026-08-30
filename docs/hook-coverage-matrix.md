@@ -99,6 +99,15 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   (per [X1]). No source confirms firing either way ⇒ unknown, resolve by probe.
 - **[X4] resumed ❓** — no source on whether a resumed Codex session re-arms the
   hook surface. Unknown.
+- **[X5] scope of [X1]–[X4]** — these four rows describe `PreToolUse` routing;
+  that is what the sources speak about. `PostToolUse` has a wider surface: it
+  "runs after supported tools produce output", `apply_patch` and MCP calls
+  included, and honours `decision: "block"` (exit 2 blocks further processing)
+  but cannot rewrite the output. So `src/adapters/codex.mjs` applies COVERAGE to
+  a pre-tool event only — a `PostToolUse` payload in hand is proof the post-tool
+  hook fired for that call, and judging it by the pre-tool MCP ❌ would degrade a
+  block Codex honours into a notify.
+  [OpenAI Codex hooks docs](https://developers.openai.com/codex/hooks).
 
 **Amp** (`external_hook`; per-tool permission engine, decision = delegate binary
 exit code — already shipped adapter)

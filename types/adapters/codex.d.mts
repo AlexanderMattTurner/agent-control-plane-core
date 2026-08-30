@@ -27,15 +27,20 @@ export function canEnforce(version: unknown): boolean;
  */
 export function parse(native: any): ToolCallEvent;
 /**
- * Render into Codex's native external-hook transport: a `hookSpecificOutput`
- * body preserving the native event name (`PreToolUse`/`PermissionRequest`) plus
- * exit 2 on an enforceable deny. On a pre-v0.135 Codex (`this_call_vetoable`
- * false) the body still renders but exit stays 0 and `enforced` is false —
- * advisory only.
+ * Render into Codex's native external-hook transport: a JSON body preserving the
+ * native event name (`PreToolUse`/`PermissionRequest`/`PostToolUse`) plus exit 2
+ * on an enforceable deny. On a pre-v0.135 Codex (`this_call_vetoable` false) the
+ * body still renders but exit stays 0 and `enforced` is false — advisory only.
+ *
+ * The two kinds use DIFFERENT native shapes, because Codex does: a pre-tool
+ * decision rides `hookSpecificOutput.permissionDecision`, a post-tool one the
+ * top-level `decision`/`reason` pair (`permissionDecision` is accepted but inert
+ * on PostToolUse, so emitting it there would read as a block that never bites).
  *
  * `soleGate` (default `false`) is the same dangerous, explicit opt-in as the
  * Claude adapter: when `true` AND the verdict is `allow`, the render emits the
- * real `permissionDecision: "allow"` instead of abstaining.
+ * real `permissionDecision: "allow"` instead of abstaining. It has no meaning
+ * post-tool — there is no approval left to grant — so it is ignored there.
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
  * @param {{ soleGate?: boolean }} [options]
@@ -56,6 +61,12 @@ export const INTEGRATION_MODE: "external_hook";
  * reach it — so builtin is PARTIAL and MCP is UNCOVERED. Subagent and resumed
  * firing are undocumented ⇒ UNKNOWN.
  *
+ * These rows describe PRE-TOOL routing, which is the only thing the matrix's
+ * [X1]/[X2] sources speak about. `parse` applies them to a pre-tool event only
+ * (see {@link vetoableCall}); Codex's `PostToolUse` fires for tools `PreToolUse`
+ * never sees, so a post-tool event judged by the MCP row would drop a block
+ * Codex documents it honours.
+ *
  * The SUBAGENT and RESUMED rows are DECLARATIVE ONLY: a lone Codex pre-tool
  * payload carries no signal for either class, so {@link classifyCallClass}
  * never returns them and `parse` never reads these two entries — a subagent's
@@ -67,15 +78,19 @@ export const INTEGRATION_MODE: "external_hook";
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;
 /**
- * Which {@link VERDICT_CONTENT_FIELDS} have no native channel, so `render`
- * drops them. Codex documents one content channel, `updatedInput` on
- * PreToolUse. It documents no PostToolUse output-rewrite field and no context
- * injection field at all, so `mutated_output` and `additional_context` are
- * dropped on every kind. A redaction verdict
- * therefore does NOT reach the model here: the unredacted output stands, and a
- * guardrail that must redact has to deny the call instead. Inventing a native
- * key would be worse than the visible gap, because the host ignores it and the
- * caller reads the render as a redaction applied.
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each kind, so
+ * `render` drops them. Codex splits its two content channels by event:
+ * `updatedInput` exists only on PreToolUse (the call has not run yet), and
+ * `hookSpecificOutput.additionalContext` only on PostToolUse — Codex documents
+ * no context field on PreToolUse, where `updatedInput` is the whole surface.
+ *
+ * NEITHER kind can rewrite tool output: PostToolUse "can't undo side effects
+ * from a tool that already ran", and Codex rejects `updatedMCPToolOutput`, so
+ * `mutated_output` is dropped everywhere. A redaction verdict therefore does NOT
+ * reach the model here: the unredacted output stands, and a guardrail that must
+ * redact has to deny (post-tool, that blocks the turn rather than un-showing the
+ * output). Inventing a native key would be worse than the visible gap, because
+ * the host ignores it and the caller reads the render as a redaction applied.
  * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
@@ -84,8 +99,9 @@ export const MIN_ENFORCING_VERSION: readonly number[];
 /**
  * The native event a conformance probe should carry for each kind — this
  * adapter's own answer, so an every-kind probe exercises the branch that kind
- * really takes. Codex routes every other native event into `unknown`, which has
- * no native name, so `pre_tool` is the only row.
+ * really takes. `pre_tool` names `PreToolUse` rather than `PermissionRequest`
+ * because that is the branch a synthesized probe should take; `unknown` has no
+ * native name by definition and is absent.
  * @type {Record<string, string|undefined>}
  */
 export const NATIVE_EVENT_FOR: Record<string, string | undefined>;

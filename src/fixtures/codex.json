@@ -317,6 +317,131 @@
           }
         }
       }
+    },
+    {
+      "name": "PostToolUse v0.151 blocks on the post-tool schema",
+      "native": {
+        "hook_event_name": "PostToolUse",
+        "version": "0.151.0",
+        "session_id": "c2",
+        "cwd": "/w",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat .env"
+        },
+        "tool_response": "OPENAI_API_KEY=sk-live-1",
+        "tool_use_id": "call_9"
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "post_tool",
+        "tool": "Bash",
+        "input": {
+          "command": "cat .env"
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "codex",
+          "native_event": "PostToolUse",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {
+            "tool_use_id": "call_9"
+          },
+          "session_id": "c2",
+          "cwd": "/w",
+          "native_tool": "Bash"
+        },
+        "response": "OPENAI_API_KEY=sk-live-1"
+      },
+      "render": {
+        "context": {
+          "verdict": {
+            "decision": "allow",
+            "additional_context": "1 secret in this output"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": "1 secret in this output"
+              }
+            }
+          }
+        },
+        "output_mutation": {
+          "verdict": {
+            "decision": "allow",
+            "mutated_output": "[REDACTED]"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PostToolUse"
+              }
+            }
+          }
+        },
+        "ask": {
+          "verdict": {
+            "decision": "ask",
+            "reason": "secret in output"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PostToolUse"
+              },
+              "decision": "block",
+              "reason": "secret in output"
+            }
+          }
+        },
+        "deny": {
+          "verdict": {
+            "decision": "deny",
+            "reason": "leaked credential"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PostToolUse"
+              },
+              "decision": "block",
+              "reason": "leaked credential"
+            }
+          }
+        },
+        "deny_no_reason": {
+          "verdict": {
+            "decision": "deny"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PostToolUse"
+              },
+              "decision": "block",
+              "reason": "blocked by monitor"
+            }
+          }
+        }
+      }
     }
   ]
 }
