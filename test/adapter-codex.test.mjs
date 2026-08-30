@@ -6,11 +6,12 @@ import { fileURLToPath } from "node:url";
 import {
   codexAdapter,
   canEnforce,
+  COVERAGE,
   DEFAULT_DENY_REASON,
   MIN_ENFORCING_VERSION,
 } from "../src/adapters/codex.mjs";
 import { runAdapterConformance } from "../src/conformance.mjs";
-import { EventKind } from "../src/control-plane.mjs";
+import { CallClass, CoverageStatus, EventKind } from "../src/control-plane.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtures = JSON.parse(
@@ -224,6 +225,37 @@ describe("codex: an unmodelled event is never vetoable, even on an enforcing ver
       codexAdapter.render({ decision: "deny", reason: "r" }, event).enforced,
       true,
     );
+  });
+});
+
+describe("codex: the SUBAGENT coverage row is inert, so a subagent shell call is judged BUILTIN", () => {
+  // COVERAGE[SUBAGENT] is UNKNOWN and reads as fail-closed, but nothing selects
+  // it: classifyCallClass has no subagent signal in a lone PreToolUse payload,
+  // so the PARTIAL builtin row answers and the call parses vetoable. Adding a
+  // subagent signal to the classifier flips this case, which is the point:
+  // reviewing this expectation is how that change gets noticed.
+  const subagentCall = {
+    hook_event_name: "PreToolUse",
+    version: "0.135.0",
+    tool_name: "shell",
+    tool_input: { command: ["ls"] },
+    agent_id: "sub-1",
+    agent_type: "explorer",
+  };
+
+  it("parses vetoable despite COVERAGE[subagent] being unknown", () => {
+    assert.equal(COVERAGE[CallClass.SUBAGENT], CoverageStatus.UNKNOWN);
+    assert.equal(codexAdapter.parse(subagentCall).this_call_vetoable, true);
+  });
+
+  // Positive marker: the row that IS reachable does bite on the same payload,
+  // so the case above is the classifier's blind spot and not a dead coverage map.
+  it("an MCP-named tool on the same payload parses non-vetoable", () => {
+    const event = codexAdapter.parse({
+      ...subagentCall,
+      tool_name: "mcp__github__create_issue",
+    });
+    assert.equal(event.this_call_vetoable, false);
   });
 });
 

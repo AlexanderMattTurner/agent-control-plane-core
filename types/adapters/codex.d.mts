@@ -54,8 +54,15 @@ export const INTEGRATION_MODE: "external_hook";
  * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). `PreToolUse`
  * intercepts the shell (Bash) tool ONLY — other builtins and MCP tools never
  * reach it — so builtin is PARTIAL and MCP is UNCOVERED. Subagent and resumed
- * firing are undocumented ⇒ UNKNOWN (treated as uncovered until an item-⑤ probe
- * proves otherwise).
+ * firing are undocumented ⇒ UNKNOWN.
+ *
+ * The SUBAGENT and RESUMED rows are DECLARATIVE ONLY: a lone Codex pre-tool
+ * payload carries no signal for either class, so {@link classifyCallClass}
+ * never returns them and `parse` never reads these two entries — a subagent's
+ * shell call is classified BUILTIN and judged by the PARTIAL row, i.e. parses
+ * vetoable. They record the matrix verdict for a consumer reading COVERAGE
+ * directly; they become load-bearing only once an item-⑤ probe supplies a
+ * classifier signal.
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;

@@ -209,6 +209,18 @@ the class vetoable:**
 - Amp **resumed-session** firing (structural argument is strong but uncited).
 - OpenHands sub-agent security-layer inheritance.
 
+**How far the ❓-is-❌ rule actually reaches today:** an adapter applies its
+coverage row through `classifyCallClass`, which can only return `builtin` or
+`mcp` — a lone pre-tool payload carries no subagent or resumed-session signal in
+any host modelled here. So a ❓ on the **subagent** or **resumed** row is
+recorded but never selected: such a call is classified `builtin` and judged by
+that row, and on Codex, Gemini CLI, and Amp it parses vetoable. Only the
+`builtin` and `mcp` rows degrade a call to `notify` today; the other two are
+documentation until item ⑤ supplies a signal to classify on. Honouring them
+without one would mean taking the minimum status across the classes the
+classifier cannot separate, which collapses `builtin` to ❓ and disables
+enforcement for those three adapters outright.
+
 **The risk of assuming coverage a host doesn't provide:** if an adapter reports
 `this_call_vetoable: true` for a class the host never routes through the hook,
 the monitor is free to render `deny` as `enforced` — and nothing enforces it.

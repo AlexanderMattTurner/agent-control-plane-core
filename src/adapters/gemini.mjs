@@ -69,8 +69,15 @@ export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
  * builtins on v0.26+ (COVERED). MCP routing through the same matcher is only
  * MEDIUM-confidence and unproven, subagent firing for a loaded agent is
  * undocumented, and resumed-session behavior has no source — all three are
- * UNKNOWN, held at fail-closed until an item-⑤ probe upgrades them. A guessed ✅
- * here would be a silent fail-open.
+ * UNKNOWN. A guessed ✅ here would be a silent fail-open.
+ *
+ * Only the MCP row is fail-closed in practice: `parse` reads it, because
+ * {@link classifyCallClass} detects MCP from the tool name or `mcp_context`.
+ * The SUBAGENT and RESUMED rows are DECLARATIVE ONLY — a lone pre-tool payload
+ * carries no signal for either class, so the classifier never returns them and
+ * such a call is judged by the BUILTIN row (COVERED, i.e. vetoable). They
+ * record the matrix verdict for a consumer reading COVERAGE directly, and
+ * become load-bearing only once an item-⑤ probe supplies a classifier signal.
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE = Object.freeze({
