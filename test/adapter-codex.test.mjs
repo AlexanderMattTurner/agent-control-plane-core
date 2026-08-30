@@ -228,34 +228,47 @@ describe("codex: an unmodelled event is never vetoable, even on an enforcing ver
   });
 });
 
-describe("codex: the SUBAGENT coverage row is inert, so a subagent shell call is judged BUILTIN", () => {
-  // COVERAGE[SUBAGENT] is UNKNOWN and reads as fail-closed, but nothing selects
-  // it: classifyCallClass has no subagent signal in a lone PreToolUse payload,
-  // so the PARTIAL builtin row answers and the call parses vetoable. Adding a
-  // subagent signal to the classifier flips this case, which is the point:
-  // reviewing this expectation is how that change gets noticed.
-  const subagentCall = {
+describe("codex: COVERAGE[subagent] bites only when the payload names a subagent", () => {
+  // What a real Codex 0.151 subagent shell call looks like: nothing marks it.
+  // Codex's tool events fire identically for main and subagent sessions and
+  // carry no agent_id/agent_type — that field rides SubagentStart/SubagentStop
+  // only (openai/codex#16226, open) — so the call classifies BUILTIN, takes the
+  // PARTIAL row, and parses vetoable. That gap is the HOST's, not the adapter's:
+  // there is nothing in this payload to read.
+  const shellCall = {
     hook_event_name: "PreToolUse",
-    version: "0.135.0",
+    version: "0.151.0",
     tool_name: "shell",
     tool_input: { command: ["ls"] },
-    agent_id: "sub-1",
-    agent_type: "explorer",
   };
 
-  it("parses vetoable despite COVERAGE[subagent] being unknown", () => {
+  it("a Codex subagent's shell call is indistinguishable today, so it parses vetoable", () => {
     assert.equal(COVERAGE[CallClass.SUBAGENT], CoverageStatus.UNKNOWN);
-    assert.equal(codexAdapter.parse(subagentCall).this_call_vetoable, true);
+    assert.equal(codexAdapter.parse(shellCall).this_call_vetoable, true);
   });
 
-  // Positive marker: the row that IS reachable does bite on the same payload,
-  // so the case above is the classifier's blind spot and not a dead coverage map.
-  it("an MCP-named tool on the same payload parses non-vetoable", () => {
+  // The row is wired, not dead: the moment a payload names a subagent — Claude
+  // Code stamps `agent_type` today, and Codex would once #16226 lands — the
+  // UNKNOWN row answers and the call degrades to non-vetoable, with no further
+  // change to this adapter.
+  it("the same call carrying agent_type parses non-vetoable", () => {
     const event = codexAdapter.parse({
-      ...subagentCall,
-      tool_name: "mcp__github__create_issue",
+      ...shellCall,
+      agent_id: "sub-1",
+      agent_type: "explorer",
     });
     assert.equal(event.this_call_vetoable, false);
+  });
+
+  it("an MCP-named tool takes the MCP row whether or not a subagent made it", () => {
+    for (const extra of [{}, { agent_type: "explorer" }]) {
+      const event = codexAdapter.parse({
+        ...shellCall,
+        ...extra,
+        tool_name: "mcp__github__create_issue",
+      });
+      assert.equal(event.this_call_vetoable, false);
+    }
   });
 });
 

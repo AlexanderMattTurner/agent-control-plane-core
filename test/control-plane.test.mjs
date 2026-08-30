@@ -275,19 +275,43 @@ describe("classifyCallClass detects MCP, defaults undetectable to builtin", () =
     });
   }
 
-  // The adapters' SUBAGENT/RESUMED coverage rows are documentation, not a gate:
-  // no payload shape selects them, so a subagent's or a resumed session's call is
-  // judged by the row its TOOL selects. Claude's real payload carries
-  // `agent_id`/`agent_type` (first case), so the signal a future classifier could
-  // key on exists on at least one host — it is simply not read. If it ever is,
-  // this fails and every "declarative only" comment must be revisited.
+  // `agent_type` is the one subagent signal read, and only as a non-empty
+  // string: a host that stamps the key empty on a main-thread call is saying "no
+  // subagent", and reading that as one degrades every ordinary call on a host
+  // whose SUBAGENT row is ❓.
+  for (const [native, expected] of [
+    [{ agent_id: "a1", agent_type: "explorer" }, CallClass.SUBAGENT],
+    [{ agent_type: "general-purpose" }, CallClass.SUBAGENT],
+    [{ agent_type: "" }, CallClass.BUILTIN],
+    [{ agent_type: null }, CallClass.BUILTIN],
+    [{ agent_type: { name: "explorer" } }, CallClass.BUILTIN],
+    [{ agent_id: "a1" }, CallClass.BUILTIN],
+  ]) {
+    it(`${JSON.stringify(native)} -> ${expected}`, () => {
+      assert.equal(classifyCallClass("Bash", native), expected);
+    });
+  }
+
+  // MCP wins over the subagent signal: an MCP call made from inside a subagent
+  // still goes out through the host's MCP surface, which is the axis most often
+  // left un-gated (Codex ❌, Gemini ❓).
+  it("an MCP-named tool from a subagent classifies mcp, not subagent", () => {
+    assert.equal(
+      classifyCallClass("mcp__github__create_issue", {
+        agent_type: "explorer",
+      }),
+      CallClass.MCP,
+    );
+  });
+
+  // RESUMED remains undetectable: no host marks a lone tool event as belonging
+  // to a resumed session, so an adapter's RESUMED row is still never selected.
   for (const native of [
-    { agent_id: "a1", agent_type: "explorer" },
     { subagent: true },
     { session: { resumed: true } },
     { source: "resume" },
   ]) {
-    it(`${JSON.stringify(native)} still classifies as builtin, not subagent/resumed`, () => {
+    it(`${JSON.stringify(native)} classifies builtin — no resumed signal`, () => {
       assert.equal(classifyCallClass("Bash", native), CallClass.BUILTIN);
     });
   }

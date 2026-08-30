@@ -67,13 +67,19 @@ export const INTEGRATION_MODE: "external_hook";
  * never sees, so a post-tool event judged by the MCP row would drop a block
  * Codex documents it honours.
  *
- * The SUBAGENT and RESUMED rows are DECLARATIVE ONLY: a lone Codex pre-tool
- * payload carries no signal for either class, so {@link classifyCallClass}
- * never returns them and `parse` never reads these two entries — a subagent's
- * shell call is classified BUILTIN and judged by the PARTIAL row, i.e. parses
- * vetoable (an MCP-named one still takes the UNCOVERED MCP row). They record the
- * matrix verdict for a consumer reading COVERAGE directly; they become
- * load-bearing only once an item-⑤ probe supplies a classifier signal.
+ * The SUBAGENT row is WIRED but unreachable on Codex today, and the reason is
+ * the host's: {@link classifyCallClass} returns SUBAGENT for a payload carrying
+ * a non-empty `agent_type`, and Codex's tool events fire identically for main
+ * and subagent sessions and carry no such field — it rides SubagentStart /
+ * SubagentStop only (openai/codex#16226, open). So a Codex subagent's shell call
+ * still classifies BUILTIN and takes the PARTIAL row, i.e. parses vetoable; the
+ * moment Codex stamps the field, this UNKNOWN row answers instead with no change
+ * here. An MCP-named call takes the UNCOVERED MCP row either way.
+ *
+ * The RESUMED row is DECLARATIVE ONLY: no host marks a lone tool event as
+ * belonging to a resumed session, so the classifier never returns it and `parse`
+ * never reads the entry. It records the matrix verdict for a consumer reading
+ * COVERAGE directly, and becomes load-bearing only once a signal exists.
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;

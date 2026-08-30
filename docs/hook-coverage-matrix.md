@@ -97,6 +97,12 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
 - **[X3] subagent ❓** — subagent/delegation calls are not listed as covered, and
   even if a subagent's calls did reach `PreToolUse`, only its _Bash_ calls would
   (per [X1]). No source confirms firing either way ⇒ unknown, resolve by probe.
+  Note the cell is also unreachable at runtime today: Codex's tool events carry
+  no `agent_id`/`agent_type`, so `classifyCallClass` cannot tell a subagent's
+  call from the main thread's and this ❓ never answers.
+  [openai/codex#16226](https://github.com/openai/codex/issues/16226) (open) asks
+  for exactly that field; a correlating hook could record it at `SubagentStart`
+  instead, which is state this package does not keep.
 - **[X4] resumed ❓** — no source on whether a resumed Codex session re-arms the
   hook surface. Unknown.
 - **[X5] scope of [X1]–[X4]** — these four rows describe `PreToolUse` routing;
@@ -219,20 +225,26 @@ the class vetoable:**
 - OpenHands sub-agent security-layer inheritance.
 
 **How far the ❓-is-❌ rule actually reaches today:** an adapter applies its
-coverage row through `classifyCallClass`, which can only return `builtin` or
-`mcp`: it keys on the tool name and `mcp_context` alone and reads no subagent or
-resumed-session marker, and no adapter passes one. Claude's payload does carry
-`agent_id`/`agent_type` ([C3]) — a signal a future classifier could key on, but
-one nothing reads today, and Claude's four cells are ✅ anyway. So a ❓ on the
-**subagent** or **resumed** row is recorded but never selected: a call from a
-subagent or a resumed session is classified by its TOOL, and judged by that row —
-`builtin`, so on Codex, Gemini CLI and Amp it parses vetoable, or `mcp` when the
-name or `mcp_context` says so, where Codex ❌ and Gemini ❓ still bite. Only the
-`builtin` and `mcp` rows degrade a call to `notify` today; the other two are
-documentation until item ⑤ supplies a signal to classify on. Honouring them
+coverage row through `classifyCallClass`, which returns `mcp` (tool name or
+`mcp_context`), then `subagent` (a non-empty `agent_type` on the payload), else
+`builtin`. MCP is checked first: an MCP call made inside a subagent still goes
+out through the host's MCP surface, the axis most often left un-gated.
+
+So the **subagent** row bites exactly on the hosts that stamp that field. Claude
+Code does, on every hook input ([C3]) — and its cells are ✅, so nothing changes
+there. Codex does **not**: its tool events fire identically for main and
+subagent sessions, and `agent_type` rides `SubagentStart`/`SubagentStop` only
+([openai/codex#16226](https://github.com/openai/codex/issues/16226), open), so
+[X3]'s ❓ cannot reach a Codex tool call until that lands — a Codex subagent's
+shell call still classifies `builtin` and parses vetoable. Gemini CLI documents
+no such field either, so [G3] is in the same position. The wiring is in place in
+all three: the row answers the day the payload names an agent.
+
+The **resumed** row has no signal on any host — nothing marks a lone tool event
+as belonging to a resumed session — so it stays documentation. Honouring it
 without one would mean taking the minimum status across the classes the
 classifier cannot separate, which collapses `builtin` to ❓ and disables
-enforcement for those three adapters outright.
+enforcement for those adapters outright.
 
 **The risk of assuming coverage a host doesn't provide:** if an adapter reports
 `this_call_vetoable: true` for a class the host never routes through the hook,
