@@ -84,6 +84,17 @@ export function isCoverageStatus(status: unknown): boolean;
  * adapter whose host leaves those classes un-gated relies on the sandbox, not
  * this classifier. An adapter feeds the result into `coverageAllowsVeto(this.
  * COVERAGE[class])` so a call in an uncovered/unknown class parses non-vetoable.
+ *
+ * The fail-closed reading of a ❓ row therefore reaches only the classes this
+ * function can return, BUILTIN and MCP. An adapter's SUBAGENT/RESUMED rows are
+ * never selected here, so declaring them UNKNOWN does not make a subagent's or
+ * a resumed session's call non-vetoable: it is judged by the row its TOOL
+ * selects, BUILTIN or MCP.
+ * Honouring those rows would mean taking the minimum status across the classes
+ * this classifier cannot separate — which collapses BUILTIN to UNKNOWN and
+ * disables enforcement outright for every adapter that has a ❓ there, so it is
+ * deliberately not done. Until item ⑤ supplies a signal, that gap is the
+ * sandbox's to cover, and the rows stand as documentation.
  * @param {string|null} tool tool name (null for non-tool events)
  * @param {Record<string, unknown>} [native] the raw native payload, for `mcp_context`
  * @returns {string} a {@link CallClass} value

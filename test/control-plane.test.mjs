@@ -274,6 +274,23 @@ describe("classifyCallClass detects MCP, defaults undetectable to builtin", () =
       assert.equal(classifyCallClass(tool, native), expected);
     });
   }
+
+  // The adapters' SUBAGENT/RESUMED coverage rows are documentation, not a gate:
+  // no payload shape selects them, so a subagent's or a resumed session's call is
+  // judged by the row its TOOL selects. Claude's real payload carries
+  // `agent_id`/`agent_type` (first case), so the signal a future classifier could
+  // key on exists on at least one host — it is simply not read. If it ever is,
+  // this fails and every "declarative only" comment must be revisited.
+  for (const native of [
+    { agent_id: "a1", agent_type: "explorer" },
+    { subagent: true },
+    { session: { resumed: true } },
+    { source: "resume" },
+  ]) {
+    it(`${JSON.stringify(native)} still classifies as builtin, not subagent/resumed`, () => {
+      assert.equal(classifyCallClass("Bash", native), CallClass.BUILTIN);
+    });
+  }
 });
 
 describe("coercion primitives never throw", () => {

@@ -99,6 +99,15 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   (per [X1]). No source confirms firing either way ⇒ unknown, resolve by probe.
 - **[X4] resumed ❓** — no source on whether a resumed Codex session re-arms the
   hook surface. Unknown.
+- **[X5] scope of [X1]–[X4]** — these four rows describe `PreToolUse` routing;
+  that is what the sources speak about. `PostToolUse` has a wider surface: it
+  "runs after supported tools produce output", `apply_patch` and MCP calls
+  included, and honours `decision: "block"` (exit 2 blocks further processing)
+  but cannot rewrite the output. So `src/adapters/codex.mjs` applies COVERAGE to
+  a pre-tool event only — a `PostToolUse` payload in hand is proof the post-tool
+  hook fired for that call, and judging it by the pre-tool MCP ❌ would degrade a
+  block Codex honours into a notify.
+  [OpenAI Codex hooks docs](https://developers.openai.com/codex/hooks).
 
 **Amp** (`external_hook`; per-tool permission engine, decision = delegate binary
 exit code — already shipped adapter)
@@ -208,6 +217,22 @@ the class vetoable:**
   a successfully loaded agent, and **resumed-session** firing.
 - Amp **resumed-session** firing (structural argument is strong but uncited).
 - OpenHands sub-agent security-layer inheritance.
+
+**How far the ❓-is-❌ rule actually reaches today:** an adapter applies its
+coverage row through `classifyCallClass`, which can only return `builtin` or
+`mcp`: it keys on the tool name and `mcp_context` alone and reads no subagent or
+resumed-session marker, and no adapter passes one. Claude's payload does carry
+`agent_id`/`agent_type` ([C3]) — a signal a future classifier could key on, but
+one nothing reads today, and Claude's four cells are ✅ anyway. So a ❓ on the
+**subagent** or **resumed** row is recorded but never selected: a call from a
+subagent or a resumed session is classified by its TOOL, and judged by that row —
+`builtin`, so on Codex, Gemini CLI and Amp it parses vetoable, or `mcp` when the
+name or `mcp_context` says so, where Codex ❌ and Gemini ❓ still bite. Only the
+`builtin` and `mcp` rows degrade a call to `notify` today; the other two are
+documentation until item ⑤ supplies a signal to classify on. Honouring them
+without one would mean taking the minimum status across the classes the
+classifier cannot separate, which collapses `builtin` to ❓ and disables
+enforcement for those three adapters outright.
 
 **The risk of assuming coverage a host doesn't provide:** if an adapter reports
 `this_call_vetoable: true` for a class the host never routes through the hook,
