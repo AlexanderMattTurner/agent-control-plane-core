@@ -203,7 +203,13 @@ main() {
       ancestor=$(dirname "$ancestor")
     done
 
-    [[ "$parent_dir" != "." ]] && mkdir -p "$parent_dir"
+    if [[ "$parent_dir" != "." ]]; then
+      mkdir -p "$parent_dir"
+      [[ -d "$parent_dir" ]] || {
+        echo "::error::could not create $parent_dir" >&2
+        exit 1
+      }
+    fi
 
     # Case 1: new file in template.
     if [[ ! -f "$rel_path" ]]; then
@@ -395,7 +401,8 @@ main() {
       echo "has_downgrades=true"
       echo "downgrade_files=$downgrade"
     } >>"$GITHUB_OUTPUT"
-    emit_multiline_output "downgrade_report" "$(cat "$DOWNGRADE_REPORT")"
+    downgrade_report_body="$(cat "$DOWNGRADE_REPORT")"
+    emit_multiline_output "downgrade_report" "$downgrade_report_body"
   else
     echo "has_downgrades=false" >>"$GITHUB_OUTPUT"
   fi
@@ -420,8 +427,11 @@ main() {
       printf '\n\n_Conflict report truncated at %d KB. Every conflicted file is listed in .template-sync-conflicts._\n' "$((max_report_bytes / 1000))" >>"$capped"
       mv "$capped" "$CONFLICT_REPORT"
     fi
-    emit_multiline_output "conflict_report" "$(cat "$CONFLICT_REPORT")"
-    echo "Template updates available for: $conflicts" >.template-sync-conflicts
+    conflict_report_body="$(cat "$CONFLICT_REPORT")"
+    emit_multiline_output "conflict_report" "$conflict_report_body"
+    # `$conflicts` appends a trailing space per path; leaving it in the file makes
+    # pre-commit's trailing-whitespace hook rewrite it and fail the check.
+    echo "Template updates available for: ${conflicts%"${conflicts##*[![:space:]]}"}" >.template-sync-conflicts
   else
     echo "has_conflicts=false" >>"$GITHUB_OUTPUT"
     rm -f .template-sync-conflicts

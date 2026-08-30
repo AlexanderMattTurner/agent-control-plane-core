@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { geminiAdapter, GEMINI_TOOL_ALIASES } from "../src/adapters/gemini.mjs";
+import {
+  geminiAdapter,
+  GEMINI_TOOL_ALIASES,
+  POST_TOOL_REDACTION_UNSUPPORTED,
+} from "../src/adapters/gemini.mjs";
 import { runAdapterConformance } from "../src/conformance.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -88,14 +92,89 @@ describe("gemini render: BeforeTool decision channel", () => {
   });
 });
 
+describe("gemini render: AfterTool has no output-mutation channel", () => {
+  const event = geminiAdapter.parse({
+    hook_event_name: "AfterTool",
+    tool_name: "run_shell_command",
+    tool_input: { command: "cat secrets" },
+    tool_response: "AKIA-not-a-real-key",
+  });
+
+  it("a redaction verdict warns the model instead of rendering a bare allow", () => {
+    // AfterTool is gated, so a redaction verdict reaches this adapter, and
+    // Gemini documents no field to replace the output with. An empty exit 0
+    // here hands the model the raw output with nothing marking it unvetted.
+    const out = geminiAdapter.render(
+      { decision: "allow", mutated_output: "cat secrets\n[REDACTED]" },
+      event,
+    );
+    assert.equal(out.exit_code, 0);
+    assert.equal(out.enforced, false);
+    assert.deepEqual(out.stdout, {
+      systemMessage: POST_TOOL_REDACTION_UNSUPPORTED,
+    });
+  });
+
+  it("the replacement output itself never reaches the wire", () => {
+    const out = geminiAdapter.render(
+      { decision: "allow", mutated_output: "the-redacted-replacement" },
+      event,
+    );
+    assert.equal(
+      JSON.stringify(out).includes("the-redacted-replacement"),
+      false,
+    );
+  });
+
+  it("the warning follows any context the same verdict carries", () => {
+    const out = geminiAdapter.render(
+      {
+        decision: "allow",
+        mutated_output: "redacted",
+        additional_context: "removed 1 secret",
+      },
+      event,
+    );
+    assert.deepEqual(out.stdout, {
+      systemMessage: `removed 1 secret\n\n${POST_TOOL_REDACTION_UNSUPPORTED}`,
+    });
+  });
+
+  it("mutated_input is dropped after the tool has already run", () => {
+    // tool_input is a BeforeTool channel; emitting it on AfterTool names a key
+    // the host ignores while reading to the caller as a mutation applied.
+    const out = geminiAdapter.render(
+      { decision: "allow", mutated_input: { command: "echo safe" } },
+      event,
+    );
+    assert.equal(out.stdout, undefined);
+  });
+});
+
 describe("gemini adapter-scoped builtin tool aliases", () => {
   it("pins the scoped alias map exactly (frozen)", () => {
     assert.ok(Object.isFrozen(GEMINI_TOOL_ALIASES));
+    // `web_fetch` is absent on purpose: `WebFetch` advertises `input.url` and
+    // Gemini's payload carries only a prose `prompt`, so the alias handed a
+    // domain deny-lister an undefined target and it allowed the fetch.
     assert.deepEqual(GEMINI_TOOL_ALIASES, {
       read_file: "Read",
       write_file: "Write",
-      web_fetch: "WebFetch",
     });
+  });
+
+  // The native payload each alias member needs to keep its promise: the alias
+  // renames the name only when the input supplies the key that name advertises.
+  const NATIVE_INPUT = {
+    read_file: { absolute_path: "/x" },
+    write_file: { file_path: "/x", content: "hi" },
+  };
+
+  it("every alias member has a native payload below (no vacuous loop)", () => {
+    assert.deepEqual(
+      Object.keys(NATIVE_INPUT).sort(),
+      Object.keys(GEMINI_TOOL_ALIASES).sort(),
+    );
   });
 
   // One case per alias member: the map is the SSOT, so adding an entry without
@@ -105,13 +184,67 @@ describe("gemini adapter-scoped builtin tool aliases", () => {
       const event = geminiAdapter.parse({
         hook_event_name: "BeforeTool",
         tool_name: nativeName,
-        tool_input: { x: 1 },
+        tool_input: NATIVE_INPUT[nativeName],
       });
       assert.equal(event.tool, canonical);
       assert.equal(event.meta.native_tool, nativeName);
       assert.equal(event.this_call_vetoable, true);
     });
+
+    // The name and the input are ONE decision. A payload that cannot produce
+    // the key `canonical` advertises keeps the native name, which promises
+    // nothing — the alternative is a judge told "this is a Read" reading
+    // `input.file_path`, getting undefined, and allowing.
+    it(`builtin ${nativeName} stays native when the input cannot back ${canonical}`, () => {
+      const event = geminiAdapter.parse({
+        hook_event_name: "BeforeTool",
+        tool_name: nativeName,
+        tool_input: { x: 1 },
+      });
+      assert.equal(event.tool, nativeName);
+      assert.deepEqual(event.input, { x: 1 });
+      assert.equal(event.meta.native_tool, nativeName);
+    });
   }
+
+  it("renames read_file's absolute_path to the file_path Read advertises", () => {
+    // The bypass: a judge keyed on the canonical `Read` reads `input.file_path`.
+    // With the native `absolute_path` forwarded it read `undefined` and allowed,
+    // having been told by `event.tool` that it was inspecting a Read.
+    const event = geminiAdapter.parse({
+      hook_event_name: "BeforeTool",
+      tool_name: "read_file",
+      tool_input: { absolute_path: "/etc/passwd" },
+    });
+    assert.equal(event.tool, "Read");
+    assert.deepEqual(event.input, { file_path: "/etc/passwd" });
+    assert.equal(event.meta.native_tool, "read_file");
+  });
+
+  it("renames only for BUILTIN calls, leaving an MCP dialect alone", () => {
+    const event = geminiAdapter.parse({
+      hook_event_name: "BeforeTool",
+      tool_name: "read_file",
+      tool_input: { absolute_path: "/etc/passwd" },
+      mcp_context: { server: "fs" },
+    });
+    assert.equal(event.tool, "read_file");
+    assert.deepEqual(event.input, { absolute_path: "/etc/passwd" });
+  });
+
+  it("leaves web_fetch native, so a judge cannot mistake it for a WebFetch", () => {
+    // Gemini carries the target inside a prose prompt with no url field, so the
+    // alias could only have been honoured by guessing one. A judge that gates on
+    // a guessed destination is worse than one that does not recognise the tool.
+    const event = geminiAdapter.parse({
+      hook_event_name: "BeforeTool",
+      tool_name: "web_fetch",
+      tool_input: { prompt: "summarize https://evil.example" },
+    });
+    assert.equal(event.tool, "web_fetch");
+    assert.equal(event.input.url, undefined);
+    assert.deepEqual(event.input, { prompt: "summarize https://evil.example" });
+  });
 
   it("an MCP FQN is never aliased (mcp_ prefix wins)", () => {
     const event = geminiAdapter.parse({
@@ -227,10 +360,20 @@ describe("gemini parse: never throws, preserves unmodelled fields", () => {
   });
 
   it("an unknown event kind renders without an enforced block", () => {
+    // Gemini honours a deny on BeforeTool/AfterTool/BeforeAgent and nothing
+    // else, so an event the adapter cannot name has no veto to report. Claiming
+    // one is the error that lies to a guardrail: the transcript shows a block
+    // and the host runs the tool anyway.
     const event = geminiAdapter.parse({ hook_event_name: "AfterAgent" });
     assert.equal(event.event, "unknown");
+    assert.equal(event.this_call_vetoable, false);
     const out = geminiAdapter.render({ decision: "deny", reason: "r" }, event);
-    // still vetoable=true, so an enforced deny renders exit 2 even on unknown
-    assert.equal(out.exit_code, 2);
+    assert.equal(out.enforced, false);
+    assert.equal(out.exit_code, 0);
+    // The objection still reaches the operator — only the false claim of
+    // enforcement is dropped. stderr is the System Block channel, so an
+    // un-enforced deny takes the advisory decision body instead.
+    assert.equal(out.stderr, undefined);
+    assert.deepEqual(out.stdout, { decision: "deny", reason: "r" });
   });
 });

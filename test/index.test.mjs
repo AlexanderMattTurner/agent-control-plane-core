@@ -25,16 +25,21 @@ describe("public API surface (index barrel)", () => {
     "makeEvent",
     "normalizeVerdict",
     "collectPassthrough",
+    "baseMeta",
+    "STANDARD_META_FIELDS",
     "nativeResponse",
     "asObject",
     "asString",
     "asStringOrNull",
+    "VERDICT_CONTENT_FIELDS",
+    "UNRENDERED_ON_UNKNOWN",
     // adapters + harness
     "claudeAdapter",
     "codexAdapter",
     "ampAdapter",
     "geminiAdapter",
     "HookEvent",
+    "POST_TOOL_REDACTION_UNSUPPORTED",
     // registry
     "ADAPTERS",
     "AGENT_IDS",
@@ -44,6 +49,7 @@ describe("public API surface (index barrel)", () => {
     "runAdapterConformance",
     "assertCoverageWellFormed",
     "assertToolAliasesCovered",
+    "assertAliasedInputsCanonical",
   ];
 
   for (const name of expected) {
@@ -52,7 +58,7 @@ describe("public API surface (index barrel)", () => {
     });
   }
 
-  it("adapters expose the { AGENT, COVERAGE, parse, render } shape", () => {
+  it("adapters expose the { AGENT, COVERAGE, UNRENDERED_FIELDS, parse, render } shape", () => {
     for (const adapter of [
       pkg.claudeAdapter,
       pkg.codexAdapter,
@@ -62,6 +68,8 @@ describe("public API surface (index barrel)", () => {
       assert.equal(typeof adapter.AGENT, "string");
       assert.equal(typeof adapter.parse, "function");
       assert.equal(typeof adapter.render, "function");
+      // Every content field it drops is declared, per conformance rule ⑩.
+      assert.equal(typeof adapter.UNRENDERED_FIELDS, "object");
       // Every adapter's coverage matrix is well-formed against the contract SSOT.
       pkg.assertCoverageWellFormed(adapter, assert);
     }

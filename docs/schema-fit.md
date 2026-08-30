@@ -297,7 +297,7 @@ case for that channel — this research confirms the mechanism matches exactly:
   mutating `output`** (maps directly to `mutated_input`). No native "ask"
   primitive was found — an adapter would need to render `ask` as something
   else (deny with a distinguishing reason, most likely), the same kind of
-  per-adapter limitation Amp already has for `reason` on deny.
+  per-adapter limitation Codex already has for `additional_context`.
 - **Confirmed gap, not just suspected**: MCP-sourced tool calls do **not**
   trigger `tool.execute.before`/`after` at all
   ([sst/opencode#2319](https://github.com/sst/opencode/issues/2319)). An
@@ -345,6 +345,15 @@ gate.**
   [#19599](https://github.com/google-gemini/gemini-cli/issues/19599)) — a
   tool-availability bug, not a confirmed hook bypass; don't overstate it as the
   latter in a future coverage matrix.
+- **No AfterTool output-rewrite channel.** Gemini documents `tool_input` on
+  BeforeTool, `systemMessage` on the tool events and
+  `hookSpecificOutput.additionalContext` on BeforeAgent — nothing that replaces
+  a tool's output. AfterTool IS gated, so a `mutated_output` verdict reaches the
+  adapter and cannot be honoured: the raw output still goes to the model. The
+  adapter declares the drop in `UNRENDERED_FIELDS` and renders a
+  `systemMessage` warning so the model is told the output is unvetted, the same
+  kind of per-adapter limitation Codex already has for `additional_context`. A
+  guardrail that must actually redact has to deny the call instead.
 
 ## Codex CLI (re-check against the shipped adapter)
 
@@ -358,6 +367,12 @@ for the feature to stabilize past its initial release) rather than a bug — the
 research could not independently verify the _exact_ JSON field names in the
 v0.117–v0.135 window, only that enforcement-shaped events existed. Surfacing
 this for the maintainer's call, not changing the pinned version in this doc.
+
+Content channels: Codex documents `updatedInput` on PreToolUse and nothing
+else — no output-rewrite field and no context-injection field. The adapter
+declares both `mutated_output` and `additional_context` dropped in
+`UNRENDERED_FIELDS`, so a redaction or context verdict does not reach the model
+here at all.
 
 ---
 

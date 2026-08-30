@@ -16,12 +16,23 @@
   "engines": {
     "node": ">=20"
   },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=22.15",
+      "onFail": "error"
+    }
+  },
   "main": "./src/index.mjs",
   "types": "./types/index.d.mts",
   "exports": {
     ".": {
       "types": "./types/index.d.mts",
       "import": "./src/index.mjs"
+    },
+    "./contract": {
+      "types": "./types/control-plane.d.mts",
+      "import": "./src/control-plane.mjs"
     },
     "./claude": {
       "types": "./types/adapters/claude.d.mts",

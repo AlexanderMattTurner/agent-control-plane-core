@@ -19,13 +19,16 @@ import {
   CallClass,
   CoverageStatus,
   classifyCallClass,
-  coverageAllowsVeto,
+  vetoableFor,
+  assertGatedKinds,
   canonicalTool,
   lookup,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
-  collectPassthrough,
+  UNRENDERED_ON_UNKNOWN,
+  readonlySet,
+  baseMeta,
   asObject,
   asString,
   asStringOrNull,
@@ -33,8 +36,12 @@ import {
 
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
-/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
+// Re-exported on this subpath even though no signature below names it:
+// tsc turns each @typedef into an `export type` in the generated .d.mts,
+// so dropping this line breaks `import type { EventMeta } from "…/<agent>"`
+// for every TypeScript consumer.
+/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 
 /** Producing-agent id stamped onto every event this adapter parses. */
 export const AGENT = "claude";
@@ -55,6 +62,50 @@ export const COVERAGE = Object.freeze({
   [CallClass.MCP]: CoverageStatus.COVERED,
   [CallClass.SUBAGENT]: CoverageStatus.COVERED,
   [CallClass.RESUMED]: CoverageStatus.COVERED,
+});
+
+/**
+ * The event kinds this host can actually gate. Claude Code honours a deny on these three. SESSION_START is left out: exit 2 does
+ * not abort a session start, and the matrix documents no host response for it — an
+ * undocumented kind is fail-closed to non-vetoable, the same rule coverage uses.
+ * A kind absent here parses non-vetoable, so an unmodelled event never renders as
+ * an enforced block the host will not perform. Module-private: `Object.freeze` does
+ * not stop `Set.add`, so an exported set would let a consumer add UNKNOWN back after
+ * `assertGatedKinds` has already run.
+ */
+const GATED_EVENTS = Object.freeze(
+  new Set([EventKind.PRE_TOOL, EventKind.POST_TOOL, EventKind.PROMPT_SUBMIT]),
+);
+assertGatedKinds(GATED_EVENTS, AGENT);
+
+// The kinds whose only content channel is context: the tool has already run
+// (or there is no tool), so neither an input nor an output replacement has
+// anywhere to go.
+const CONTEXT_ONLY = readonlySet(["mutated_input", "mutated_output"]);
+
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each event
+ * kind, so `render` drops them. Claude Code splits its content channels by
+ * event: `updatedInput` exists only on PreToolUse (the call has not run yet),
+ * and `updatedToolOutput` only on PostToolUse (there is no tool output to
+ * replace anywhere else). `additionalContext` is the one channel every kind
+ * carries. The conformance harness holds this to what `render` actually emits,
+ * in both directions.
+ *
+ * `additionalContext` on PreToolUse is inherited behaviour, not a checked claim:
+ * Claude Code documents the field for UserPromptSubmit, SessionStart and
+ * PostToolUse, and this adapter has emitted it on PreToolUse since before the
+ * declaration existed. Rule ⑩ can see that the value reaches the wire, never
+ * that the host reads the key — confirm it against the hook reference before
+ * relying on it.
+ * @type {Record<string, ReadonlySet<string>|undefined>}
+ */
+export const UNRENDERED_FIELDS = Object.freeze({
+  [EventKind.PRE_TOOL]: readonlySet(["mutated_output"]),
+  [EventKind.POST_TOOL]: readonlySet(["mutated_input"]),
+  [EventKind.PROMPT_SUBMIT]: CONTEXT_ONLY,
+  [EventKind.SESSION_START]: CONTEXT_ONLY,
+  [EventKind.UNKNOWN]: UNRENDERED_ON_UNKNOWN,
 });
 
 /** Claude Code native hook event names (the `hook_event_name` field). */
@@ -79,12 +130,17 @@ const KIND_TO_NATIVE = Object.freeze({
   [EventKind.SESSION_START]: HookEvent.SESSION_START,
 });
 
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. `unknown` has no native name by definition and is absent.
+ * @type {Record<string, string|undefined>}
+ */
+export const NATIVE_EVENT_FOR = KIND_TO_NATIVE;
+
+// The STANDARD_META_FIELDS are consumed by `baseMeta`, not listed here.
 const CONSUMED = new Set([
   "hook_event_name",
-  "session_id",
-  "cwd",
-  "permission_mode",
-  "transcript_path",
   "tool_name",
   "tool_input",
   "tool_response",
@@ -115,29 +171,6 @@ function claudeTool(kind, raw) {
 }
 
 /**
- * @param {string} nativeEvent
- * @param {Record<string, unknown>} raw
- * @returns {EventMeta}
- */
-function claudeMeta(nativeEvent, raw) {
-  /** @type {EventMeta} */
-  const meta = {
-    agent: AGENT,
-    native_event: nativeEvent,
-    integration_mode: INTEGRATION_MODE,
-    primary_gate_present: true,
-    passthrough: collectPassthrough(raw, CONSUMED),
-  };
-  if (typeof raw.session_id === "string") meta.session_id = raw.session_id;
-  if (typeof raw.cwd === "string") meta.cwd = raw.cwd;
-  if (typeof raw.permission_mode === "string")
-    meta.permission_mode = raw.permission_mode;
-  if (typeof raw.transcript_path === "string")
-    meta.transcript_path = raw.transcript_path;
-  return meta;
-}
-
-/**
  * Parse a raw Claude Code hook payload into a normalized {@link ToolCallEvent}.
  * Never throws on an unmodelled event type or tool-input field.
  * @param {any} native
@@ -153,7 +186,14 @@ export function parse(native) {
     ) ?? EventKind.UNKNOWN;
   const response = kind === EventKind.POST_TOOL ? raw.tool_response : undefined;
   const nativeTool = claudeTool(kind, raw);
-  const meta = claudeMeta(nativeEvent, raw);
+  const meta = baseMeta({
+    agent: AGENT,
+    native_event: nativeEvent,
+    integration_mode: INTEGRATION_MODE,
+    primary_gate_present: true,
+    native: raw,
+    consumed: CONSUMED,
+  });
   if (nativeTool !== null) meta.native_tool = nativeTool;
   return makeEvent({
     event: kind,
@@ -162,7 +202,9 @@ export function parse(native) {
     response,
     // Classify on the NATIVE name — MCP detection keys on `mcp__…`, which a
     // canonical builtin name would never carry.
-    this_call_vetoable: coverageAllowsVeto(
+    this_call_vetoable: vetoableFor(
+      kind,
+      GATED_EVENTS,
       COVERAGE[classifyCallClass(nativeTool, raw)],
     ),
     meta,
@@ -198,7 +240,7 @@ export function render(verdict, event, { soleGate = false } = {}) {
   const stdout =
     kind === EventKind.PRE_TOOL
       ? gatingBody(hookEventName, vd, soleGate)
-      : nonGatingBody(hookEventName, vd);
+      : nonGatingBody(hookEventName, kind, vd);
 
   return nativeResponse({
     transport: INTEGRATION_MODE,
@@ -236,18 +278,24 @@ function gatingBody(hookEventName, vd, soleGate) {
 
 /**
  * @param {string} hookEventName
+ * @param {string} kind the normalized {@link EventKind} being rendered
  * @param {Verdict} vd
  * @returns {Record<string, unknown>}
  */
-function nonGatingBody(hookEventName, vd) {
+function nonGatingBody(hookEventName, kind, vd) {
   /** @type {Record<string, unknown>} */
   const hookSpecificOutput = { hookEventName };
   // A PostToolUse content transform: `updatedToolOutput` replaces what the model
   // sees (the tool already ran, so this governs only the model's view). The
-  // native channel for the whole redaction/sanitize pipeline.
-  if (vd.mutated_output !== undefined)
+  // native channel for the whole redaction/sanitize pipeline. PostToolUse ONLY:
+  // a UserPromptSubmit or SessionStart carries no tool output, so the field is
+  // dropped there (declared in {@link UNRENDERED_FIELDS}) rather than emitted
+  // into a key the host ignores, which reads to a caller as a redaction applied.
+  if (kind === EventKind.POST_TOOL && vd.mutated_output !== undefined)
     hookSpecificOutput.updatedToolOutput = vd.mutated_output;
-  if (vd.additional_context !== undefined)
+  // Not on an UNKNOWN kind: `hookEventName` there is the unrecognized native
+  // event name, so the adapter has established no channel to write into.
+  if (kind !== EventKind.UNKNOWN && vd.additional_context !== undefined)
     hookSpecificOutput.additionalContext = vd.additional_context;
   /** @type {Record<string, unknown>} */
   const out = { hookSpecificOutput };
@@ -263,6 +311,8 @@ export const claudeAdapter = {
   AGENT,
   INTEGRATION_MODE,
   COVERAGE,
+  UNRENDERED_FIELDS,
+  NATIVE_EVENT_FOR,
   parse,
   render,
 };

@@ -35,14 +35,18 @@ import {
   CallClass,
   CoverageStatus,
   classifyCallClass,
-  coverageAllowsVeto,
+  vetoableFor,
+  assertGatedKinds,
   canonicalTool,
   lookup,
   assertAliasTargetsModeled,
+  MODELED_TOOL_INPUT_KEYS,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
-  collectPassthrough,
+  UNRENDERED_ON_UNKNOWN,
+  readonlySet,
+  baseMeta,
   asObject,
   asString,
   asStringOrNull,
@@ -50,8 +54,12 @@ import {
 
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
-/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
+// Re-exported on this subpath even though no signature below names it:
+// tsc turns each @typedef into an `export type` in the generated .d.mts,
+// so dropping this line breaks `import type { EventMeta } from "…/<agent>"`
+// for every TypeScript consumer.
+/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 
 export const AGENT = "gemini";
 export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
@@ -72,6 +80,66 @@ export const COVERAGE = Object.freeze({
   [CallClass.RESUMED]: CoverageStatus.UNKNOWN,
 });
 
+/**
+ * The event kinds this host can actually gate. Gemini CLI honours a deny on each of the three events NATIVE_TO_KIND maps.
+ * A kind absent here parses non-vetoable, so an unmodelled event never renders as
+ * an enforced block the host will not perform. Module-private: `Object.freeze` does
+ * not stop `Set.add`, so an exported set would let a consumer add UNKNOWN back
+ * after `assertGatedKinds` has already run.
+ */
+const GATED_EVENTS = Object.freeze(
+  new Set([EventKind.PRE_TOOL, EventKind.POST_TOOL, EventKind.PROMPT_SUBMIT]),
+);
+assertGatedKinds(GATED_EVENTS, AGENT);
+
+// The kinds whose only content channel is context: the tool has already run
+// (or there is no tool), so neither an input nor an output replacement has
+// anywhere to go.
+const CONTEXT_ONLY = readonlySet(["mutated_input", "mutated_output"]);
+
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each event
+ * kind, so `render` drops them. Gemini CLI documents
+ * `hookSpecificOutput.tool_input` on BeforeTool, `systemMessage` on the tool
+ * events and `hookSpecificOutput.additionalContext` on BeforeAgent. It documents
+ * NO AfterTool output-rewrite field, so `mutated_output` is dropped on every
+ * kind. `mutated_input` is dropped everywhere
+ * but BeforeTool: the tool has already run by AfterTool, and BeforeAgent has no
+ * tool input at all, so emitting `tool_input` there names a channel the host
+ * ignores while reading to the caller as a mutation applied.
+ *
+ * ALLOW path only. The enforced-deny branch of `render` returns no stdout at
+ * all, so a deny drops `additional_context` too, on every kind — these rows do
+ * not describe it.
+ *
+ * AfterTool is GATED here, so a redaction verdict does reach this adapter and
+ * cannot be honoured. It renders {@link POST_TOOL_REDACTION_UNSUPPORTED} on
+ * `systemMessage` instead, so the model is told the output above it is
+ * unredacted rather than left to read it as vetted. The raw output still reaches
+ * the model; a guardrail that must actually redact has to deny.
+ * @type {Record<string, ReadonlySet<string>|undefined>}
+ */
+export const UNRENDERED_FIELDS = Object.freeze({
+  ...Object.fromEntries(
+    Object.values(EventKind).map((kind) => [kind, UNRENDERED_ON_UNKNOWN]),
+  ),
+  [EventKind.PRE_TOOL]: readonlySet(["mutated_output"]),
+  [EventKind.POST_TOOL]: CONTEXT_ONLY,
+  [EventKind.PROMPT_SUBMIT]: CONTEXT_ONLY,
+});
+
+/**
+ * What the model is told when a verdict redacts an AfterTool output Gemini has
+ * no channel to replace. Exported so a caller composing its own `systemMessage`
+ * can recognize it; recognize it with `endsWith`, never equality, because a
+ * verdict carrying `additional_context` too puts that context first (see
+ * {@link decisionBody}).
+ */
+export const POST_TOOL_REDACTION_UNSUPPORTED =
+  "The monitor redacted this tool output, but Gemini CLI has no AfterTool " +
+  "channel to replace it. Treat the tool output above as UNREDACTED and " +
+  "unvetted.";
+
 /** Gemini CLI native hook event names (the `hook_event_name` field). */
 export const HookEvent = Object.freeze({
   BEFORE_TOOL: "BeforeTool",
@@ -85,39 +153,29 @@ const NATIVE_TO_KIND = Object.freeze({
   [HookEvent.BEFORE_AGENT]: EventKind.PROMPT_SUBMIT,
 });
 
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. `session_start` and `unknown` have no Gemini event and are
+ * absent.
+ * @type {Record<string, string|undefined>}
+ */
+export const NATIVE_EVENT_FOR = Object.freeze(
+  Object.fromEntries(
+    Object.entries(NATIVE_TO_KIND).map(([native, kind]) => [kind, native]),
+  ),
+);
+
 // Only the fields the adapter maps are consumed; everything else (timestamp,
 // mcp_context, original_request_name, …) survives verbatim in meta.passthrough.
+// The STANDARD_META_FIELDS are consumed by `baseMeta`, not listed here.
 const CONSUMED = new Set([
   "hook_event_name",
-  "session_id",
-  "cwd",
-  "transcript_path",
   "tool_name",
   "tool_input",
   "tool_response",
   "prompt",
 ]);
-
-/**
- * @param {string} nativeEvent
- * @param {Record<string, unknown>} raw
- * @returns {EventMeta}
- */
-function geminiMeta(nativeEvent, raw) {
-  /** @type {EventMeta} */
-  const meta = {
-    agent: AGENT,
-    native_event: nativeEvent,
-    integration_mode: INTEGRATION_MODE,
-    primary_gate_present: true,
-    passthrough: collectPassthrough(raw, CONSUMED),
-  };
-  if (typeof raw.session_id === "string") meta.session_id = raw.session_id;
-  if (typeof raw.cwd === "string") meta.cwd = raw.cwd;
-  if (typeof raw.transcript_path === "string")
-    meta.transcript_path = raw.transcript_path;
-  return meta;
-}
 
 /**
  * Adapter-scoped native-builtin → canonical tool aliases, applied ONLY when a
@@ -126,49 +184,109 @@ function geminiMeta(nativeEvent, raw) {
  * CLI removes the ambiguity at parse time: every MCP tool is unconditionally
  * registered — and surfaced in hook payloads — under its fully qualified
  * `mcp_{server}_{tool}` name (gemini-cli docs/tools/mcp-server.md), so a bare
- * builtin name in `tool_name` can only be the builtin. The builtin's native
- * input fields still pass through verbatim (e.g. read_file's `absolute_path`,
- * not Read's `file_path`) — `meta.native_tool` tells a consumer which field
- * dialect to expect. Targets are pinned to {@link MODELED_TOOLS} at import, and
- * every entry must be witnessed by a gemini conformance fixture
- * (`assertToolAliasesCovered`).
+ * builtin name in `tool_name` can only be the builtin. Renaming the tool also
+ * renames its INPUT to the schema that name advertises, via
+ * {@link GEMINI_INPUT_ALIASES}, and the rename must actually produce that key or
+ * the call keeps its native name (see {@link geminiCall}) — a consumer told
+ * `event.tool` is `Read` reads `input.file_path` and finds it, rather than
+ * reading `undefined` off a forwarded `absolute_path` and allowing. Targets are
+ * pinned to {@link MODELED_TOOLS} at import, every entry must be witnessed by a gemini
+ * conformance fixture (`assertToolAliasesCovered`), and every aliased case must
+ * carry the canonical input key (`assertAliasedInputsCanonical`).
  * @type {Readonly<Record<string, string>>}
  */
+// `web_fetch` is deliberately ABSENT. Canonicalizing to `WebFetch` advertises
+// `input.url`, and Gemini's payload has no URL field at all — the target sits
+// inside a prose `prompt` ("summarize https://example.com"). Recovering it means
+// guessing which URL in free text is the target, and a guardrail that gates on a
+// guessed destination is worse than one that plainly does not recognize the
+// tool: under the alias a domain deny-lister read `input.url`, got `undefined`,
+// and allowed the fetch. Left native, `web_fetch` reaches a judge as a name it
+// must handle on purpose.
 export const GEMINI_TOOL_ALIASES = Object.freeze({
   read_file: "Read",
   write_file: "Write",
-  web_fetch: "WebFetch",
+});
+
+// Native input field → the canonical field the alias target advertises, per
+// tool. Only a pure RENAME belongs here: the value is carried across untouched,
+// so no consumer receives a field this adapter invented. A dialect that cannot
+// be expressed as a rename does not get an alias at all (see `web_fetch`).
+const GEMINI_INPUT_ALIASES = Object.freeze({
+  read_file: { absolute_path: "file_path" },
 });
 
 assertAliasTargetsModeled(GEMINI_TOOL_ALIASES);
 
 /**
- * Canonicalize a Gemini native tool name: adapter-scoped builtin aliases first
- * (BUILTIN calls only — an MCP- or context-flagged call is never reclassified),
- * then the global {@link canonicalTool} map, else verbatim.
- * @param {string|null} nativeTool
- * @param {string} callClass a {@link CallClass} value
- * @returns {string|null}
- */
-function geminiCanonicalTool(nativeTool, callClass) {
-  if (nativeTool !== null && callClass === CallClass.BUILTIN) {
-    const scoped = lookup(GEMINI_TOOL_ALIASES, nativeTool);
-    if (scoped !== undefined) return scoped;
-  }
-  return canonicalTool(nativeTool);
-}
-
-/**
  * @param {string} kind
  * @param {Record<string, unknown>} raw
- * @returns {Record<string, unknown>}
+ * @returns {Record<string, unknown>} the NATIVE tool input, in Gemini's dialect
  */
 function geminiInput(kind, raw) {
   if (kind === EventKind.PROMPT_SUBMIT)
     return { prompt: asString(raw.prompt, "") };
-  if (kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL)
-    return asObject(raw.tool_input);
-  return {};
+  if (kind !== EventKind.PRE_TOOL && kind !== EventKind.POST_TOOL) return {};
+  return asObject(raw.tool_input);
+}
+
+/**
+ * A copy of `input` with each `renames` key that the payload actually supplies
+ * moved to its canonical name. A native key the payload omits is NOT invented,
+ * so the result carries the canonical key only where a real value backs it.
+ * @param {Record<string, unknown>} input
+ * @param {Record<string, string>|undefined} renames native key → canonical key
+ * @returns {Record<string, unknown>}
+ */
+function renameInputKeys(input, renames) {
+  if (renames === undefined) return input;
+  const out = { ...input };
+  for (const [nativeKey, canonicalKey] of Object.entries(renames)) {
+    if (!Object.hasOwn(out, nativeKey)) continue;
+    out[canonicalKey] = out[nativeKey];
+    delete out[nativeKey];
+  }
+  return out;
+}
+
+/**
+ * Decide the canonical tool name and the input TOGETHER — the scoped alias
+ * applies to both or to neither.
+ *
+ * Renaming `read_file` to `Read` ADVERTISES the schema that name carries
+ * ({@link MODELED_TOOL_INPUT_KEYS}: `Read` promises `input.file_path`). So the
+ * alias is applied only when the renamed input really supplies that key. A
+ * builtin payload that does not — a `read_file` with no `absolute_path`, a
+ * `write_file` with no `file_path` — keeps its NATIVE name and its native input,
+ * because a native name promises nothing and reaches a judge as a name it must
+ * handle on purpose. Splitting the two decisions is the bypass this function
+ * exists to make unrepresentable: a judge told "this is a Read" read
+ * `input.file_path`, got `undefined`, and allowed.
+ *
+ * The aliases are builtin-scoped, so an MCP-sourced or context-flagged call is
+ * never reclassified and keeps its own dialect; a name the scoped map does not
+ * hold falls through to the global {@link canonicalTool}.
+ * @param {string|null} nativeTool
+ * @param {string} callClass a {@link CallClass} value
+ * @param {Record<string, unknown>} input the native tool input
+ * @returns {{ tool: string|null, input: Record<string, unknown> }}
+ */
+function geminiCall(nativeTool, callClass, input) {
+  const native = { tool: canonicalTool(nativeTool), input };
+  if (nativeTool === null || callClass !== CallClass.BUILTIN) return native;
+  const scoped = lookup(GEMINI_TOOL_ALIASES, nativeTool);
+  if (scoped === undefined) return native;
+  const renamed = renameInputKeys(
+    input,
+    lookup(GEMINI_INPUT_ALIASES, nativeTool),
+  );
+  const advertised = lookup(
+    /** @type {Record<string, string>} */ (MODELED_TOOL_INPUT_KEYS),
+    scoped,
+  );
+  if (advertised === undefined || !Object.hasOwn(renamed, advertised))
+    return native;
+  return { tool: scoped, input: renamed };
 }
 
 /**
@@ -195,18 +313,26 @@ export function parse(native) {
   const gating = kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL;
   const response = kind === EventKind.POST_TOOL ? raw.tool_response : undefined;
   const nativeTool = gating ? asStringOrNull(raw.tool_name) : null;
-  const meta = geminiMeta(nativeEvent, raw);
+  const meta = baseMeta({
+    agent: AGENT,
+    native_event: nativeEvent,
+    integration_mode: INTEGRATION_MODE,
+    primary_gate_present: true,
+    native: raw,
+    consumed: CONSUMED,
+  });
   if (nativeTool !== null) meta.native_tool = nativeTool;
   // Classify on the NATIVE name (MCP detection keys on the `mcp_…` FQN prefix
   // every Gemini MCP tool carries); the class gates both the veto flag and the
   // builtin-only adapter-scoped aliases.
   const callClass = classifyCallClass(nativeTool, raw);
+  const call = geminiCall(nativeTool, callClass, geminiInput(kind, raw));
   return makeEvent({
     event: kind,
-    tool: geminiCanonicalTool(nativeTool, callClass),
-    input: geminiInput(kind, raw),
+    tool: call.tool,
+    input: call.input,
     response,
-    this_call_vetoable: coverageAllowsVeto(COVERAGE[callClass]),
+    this_call_vetoable: vetoableFor(kind, GATED_EVENTS, COVERAGE[callClass]),
     meta,
   });
 }
@@ -232,6 +358,10 @@ export function render(verdict, event, { soleGate = false } = {}) {
   // reads its block rationale from stderr, not the ignored stdout body). Carry it
   // on NativeResponse.stderr so `emit` writes it to fd 2 — a genuine block is
   // never surfaced to the user/model with no explanation.
+  // No stdout body at all on this path, so EVERY content field is dropped here,
+  // whatever UNRENDERED_FIELDS says for the kind — that map describes the allow
+  // path. Nothing is lost that a blocked call could still use: the tool never
+  // runs, so only `additional_context` had anywhere to go.
   if (enforced)
     return nativeResponse({
       transport: INTEGRATION_MODE,
@@ -243,7 +373,7 @@ export function render(verdict, event, { soleGate = false } = {}) {
   const body =
     event.event === EventKind.PROMPT_SUBMIT
       ? promptSubmitBody(vd)
-      : decisionBody(vd, soleGate);
+      : decisionBody(vd, event.event, soleGate);
   return nativeResponse({
     transport: INTEGRATION_MODE,
     exit_code: 0,
@@ -253,30 +383,52 @@ export function render(verdict, event, { soleGate = false } = {}) {
 }
 
 /**
+ * Write Gemini's advisory `decision: "deny"` (plus any reason) onto `out` for a
+ * deny or an ask — Gemini has no native ask tier, so both surface the same way.
+ * Shared by both body builders so the two cannot drift apart.
+ * @param {Record<string, unknown>} out
+ * @param {Verdict} vd
+ * @returns {boolean} whether a decision was written
+ */
+function applyAdvisoryDeny(out, vd) {
+  if (vd.decision !== Decision.DENY && vd.decision !== Decision.ASK)
+    return false;
+  out.decision = "deny";
+  if (vd.reason !== undefined) out.reason = vd.reason;
+  return true;
+}
+
+/**
  * Build the exit-0 stdout decision body. `allow` abstains — no `decision` key,
  * so Gemini runs its normal flow — unless `soleGate` opts into the real
  * `decision: "allow"`. `deny`/`ask` both surface an advisory `decision: "deny"`
  * (Gemini has no native ask tier). `mutated_input` rides along as
- * `hookSpecificOutput.tool_input` and `additional_context` as Gemini's native
- * `systemMessage`. Returns undefined when there is nothing to emit (a pure
- * abstaining allow).
+ * `hookSpecificOutput.tool_input` on BeforeTool only, and `additional_context`
+ * as Gemini's native `systemMessage`. A `mutated_output` has no channel at all:
+ * on AfterTool it becomes the {@link POST_TOOL_REDACTION_UNSUPPORTED} warning on
+ * that same `systemMessage`, joined after any context the verdict also carries.
+ * Returns undefined when there is nothing to emit (a pure abstaining allow).
  * @param {Verdict} vd
+ * @param {string} kind the normalized {@link EventKind} being rendered
  * @param {boolean} soleGate
  * @returns {Record<string, unknown>|undefined}
  */
-function decisionBody(vd, soleGate) {
+function decisionBody(vd, kind, soleGate) {
   /** @type {Record<string, unknown>} */
   const out = {};
-  if (vd.decision === Decision.DENY || vd.decision === Decision.ASK) {
-    out.decision = "deny";
-    if (vd.reason !== undefined) out.reason = vd.reason;
-  } else if (soleGate) {
-    out.decision = "allow";
-  }
-  if (vd.mutated_input !== undefined)
+  if (!applyAdvisoryDeny(out, vd) && soleGate) out.decision = "allow";
+  if (kind === EventKind.PRE_TOOL && vd.mutated_input !== undefined)
     out.hookSpecificOutput = { tool_input: vd.mutated_input };
-  if (vd.additional_context !== undefined)
-    out.systemMessage = vd.additional_context;
+  // `systemMessage` is documented on the TOOL events. An UNKNOWN kind is an
+  // event this adapter could not name, so it has no established channel and
+  // carries nothing.
+  const toolEvent = kind === EventKind.PRE_TOOL || kind === EventKind.POST_TOOL;
+  const messages = [];
+  if (toolEvent && vd.additional_context !== undefined)
+    messages.push(vd.additional_context);
+  if (kind === EventKind.POST_TOOL && vd.mutated_output !== undefined)
+    messages.push(POST_TOOL_REDACTION_UNSUPPORTED);
+  if (messages.length > 0) out.systemMessage = messages.join("\n\n");
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
@@ -296,10 +448,7 @@ function decisionBody(vd, soleGate) {
 function promptSubmitBody(vd) {
   /** @type {Record<string, unknown>} */
   const out = {};
-  if (vd.decision === Decision.DENY || vd.decision === Decision.ASK) {
-    out.decision = "deny";
-    if (vd.reason !== undefined) out.reason = vd.reason;
-  }
+  applyAdvisoryDeny(out, vd);
   if (vd.additional_context !== undefined)
     out.hookSpecificOutput = { additionalContext: vd.additional_context };
   return Object.keys(out).length > 0 ? out : undefined;
@@ -310,6 +459,8 @@ export const geminiAdapter = {
   AGENT,
   INTEGRATION_MODE,
   COVERAGE,
+  UNRENDERED_FIELDS,
+  NATIVE_EVENT_FOR,
   parse,
   render,
 };

@@ -20,12 +20,15 @@ import {
   CallClass,
   CoverageStatus,
   classifyCallClass,
-  coverageAllowsVeto,
+  vetoableFor,
+  assertGatedKinds,
   canonicalTool,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
-  collectPassthrough,
+  UNRENDERED_ON_UNKNOWN,
+  readonlySet,
+  baseMeta,
   asObject,
   asString,
   asStringOrNull,
@@ -33,8 +36,12 @@ import {
 
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
-/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
+// Re-exported on this subpath even though no signature below names it:
+// tsc turns each @typedef into an `export type` in the generated .d.mts,
+// so dropping this line breaks `import type { EventMeta } from "…/<agent>"`
+// for every TypeScript consumer.
+/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 
 export const AGENT = "codex";
 export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
@@ -54,6 +61,36 @@ export const COVERAGE = Object.freeze({
   [CallClass.RESUMED]: CoverageStatus.UNKNOWN,
 });
 
+/**
+ * The event kinds this host can actually gate. `PreToolUse` is the one event Codex can veto. Every other native event parses as
+ * UNKNOWN today, so without this set each of them reported an enforced block.
+ * A kind absent here parses non-vetoable, so an unmodelled event never renders as
+ * an enforced block the host will not perform. Module-private: `Object.freeze` does
+ * not stop `Set.add`, so an exported set would let a consumer add UNKNOWN back
+ * after `assertGatedKinds` has already run.
+ */
+const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
+assertGatedKinds(GATED_EVENTS, AGENT);
+
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel, so `render`
+ * drops them. Codex documents one content channel, `updatedInput` on
+ * PreToolUse. It documents no PostToolUse output-rewrite field and no context
+ * injection field at all, so `mutated_output` and `additional_context` are
+ * dropped on every kind. A redaction verdict
+ * therefore does NOT reach the model here: the unredacted output stands, and a
+ * guardrail that must redact has to deny the call instead. Inventing a native
+ * key would be worse than the visible gap, because the host ignores it and the
+ * caller reads the render as a redaction applied.
+ * @type {Record<string, ReadonlySet<string>|undefined>}
+ */
+export const UNRENDERED_FIELDS = Object.freeze({
+  ...Object.fromEntries(
+    Object.values(EventKind).map((kind) => [kind, UNRENDERED_ON_UNKNOWN]),
+  ),
+  [EventKind.PRE_TOOL]: readonlySet(["mutated_output", "additional_context"]),
+});
+
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION = Object.freeze([0, 135]);
 
@@ -63,16 +100,24 @@ const MIN_ENFORCING_SEMVER = `${MIN_ENFORCING_VERSION[0]}.${MIN_ENFORCING_VERSIO
 // Both native events gate a tool call; PermissionRequest is the ask-tier veto.
 const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest"]);
 
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. Codex routes every other native event into `unknown`, which has
+ * no native name, so `pre_tool` is the only row.
+ * @type {Record<string, string|undefined>}
+ */
+export const NATIVE_EVENT_FOR = Object.freeze({
+  [EventKind.PRE_TOOL]: "PreToolUse",
+});
+
 // Codex drops an enforced deny that carries no (or an empty) reason and runs the
 // tool, so a reasonless enforced deny still renders a non-empty one.
 export const DEFAULT_DENY_REASON = "blocked by monitor";
 
+// The STANDARD_META_FIELDS are consumed by `baseMeta`, not listed here.
 const CONSUMED = new Set([
   "hook_event_name",
-  "session_id",
-  "cwd",
-  "permission_mode",
-  "transcript_path",
   "tool_name",
   "tool_input",
   "version",
@@ -117,22 +162,16 @@ export function parse(native) {
   const kind = gating ? EventKind.PRE_TOOL : EventKind.UNKNOWN;
   const enforce = canEnforce(raw.version);
 
-  /** @type {EventMeta} */
-  const meta = {
+  const meta = baseMeta({
     agent: AGENT,
     native_event: nativeEvent,
     integration_mode: enforce
       ? IntegrationMode.EXTERNAL_HOOK
       : IntegrationMode.OBSERVE_ONLY,
     primary_gate_present: true,
-    passthrough: collectPassthrough(raw, CONSUMED),
-  };
-  if (typeof raw.session_id === "string") meta.session_id = raw.session_id;
-  if (typeof raw.cwd === "string") meta.cwd = raw.cwd;
-  if (typeof raw.permission_mode === "string")
-    meta.permission_mode = raw.permission_mode;
-  if (typeof raw.transcript_path === "string")
-    meta.transcript_path = raw.transcript_path;
+    native: raw,
+    consumed: CONSUMED,
+  });
 
   // Coverage floor: even on an enforcing Codex, `PreToolUse` fires for Bash only,
   // so an MCP-sourced call is un-vetoable regardless of version (COVERAGE.mcp).
@@ -140,7 +179,12 @@ export function parse(native) {
   const nativeTool = asStringOrNull(raw.tool_name);
   if (nativeTool !== null) meta.native_tool = nativeTool;
   const vetoable =
-    enforce && coverageAllowsVeto(COVERAGE[classifyCallClass(nativeTool, raw)]);
+    enforce &&
+    vetoableFor(
+      kind,
+      GATED_EVENTS,
+      COVERAGE[classifyCallClass(nativeTool, raw)],
+    );
 
   return makeEvent({
     event: kind,
@@ -188,7 +232,12 @@ export function render(verdict, event, { soleGate = false } = {}) {
   // deny, whatever the judge supplied.
   if (enforced && !body.permissionDecisionReason)
     body.permissionDecisionReason = DEFAULT_DENY_REASON;
-  if (vd.mutated_input !== undefined) body.updatedInput = vd.mutated_input;
+  // PreToolUse only. Codex routes every other native event — PostToolUse
+  // included — into EventKind.UNKNOWN, and an event the adapter cannot name has
+  // no channel it can claim: emitting `updatedInput` there names a key the host
+  // ignores while reading to the caller as a mutation applied.
+  if (event.event === EventKind.PRE_TOOL && vd.mutated_input !== undefined)
+    body.updatedInput = vd.mutated_input;
 
   return nativeResponse({
     transport: event.meta.integration_mode,
@@ -203,6 +252,8 @@ export const codexAdapter = {
   AGENT,
   INTEGRATION_MODE,
   COVERAGE,
+  UNRENDERED_FIELDS,
+  NATIVE_EVENT_FOR,
   parse,
   render,
 };

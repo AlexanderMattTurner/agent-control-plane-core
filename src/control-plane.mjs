@@ -33,6 +33,14 @@
  * field, a new modeled tool, a new tool alias) is backward-compatible and stays
  * at v1; RENAMING or REMOVING a field, or changing a decision/event vocabulary,
  * is breaking and bumps the version.
+ *
+ * That version covers the WIRE shapes an event or verdict carries, not the
+ * {@link Adapter} interface an integrator implements. A new REQUIRED adapter
+ * member breaks every third-party adapter while every event on the wire stays
+ * byte-identical, so it is a package-semver break and leaves
+ * {@link CONTROL_PLANE_SCHEMA} alone. `UNRENDERED_FIELDS` is one: adding it is
+ * a one-line change per adapter, and the conformance harness names the member
+ * and the migration rather than throwing from inside itself.
  */
 
 /** Wire identifier for this schema version; bump on a breaking shape change. */
@@ -65,16 +73,39 @@ export const Decision = Object.freeze({
 });
 
 /**
+ * Every modeled tool, mapped to the input field a guardrail reads for it — the
+ * schema that renaming a native tool to this canonical name ADVERTISES.
+ *
+ * Canonicalizing the name while passing the native input dialect through is a
+ * silent bypass, and the worst kind: a judge written against `Read` reads
+ * `input.file_path`, an un-renamed Gemini payload supplies `absolute_path`, so
+ * the judge sees `undefined` and allows — having been told by `event.tool` that
+ * it was looking at a Read. Leaving the native name would at least fail
+ * visibly. `assertAliasedInputsCanonical` holds aliases to this map, so a new
+ * alias whose input dialect cannot be renamed faithfully fails conformance
+ * instead of shipping as a hole.
+ *
+ * This is also where {@link MODELED_TOOLS} comes from, rather than a second
+ * list beside it. A modeled tool missing its input key would make that guard
+ * skip it — re-opening the bypass one tool-add later — and deriving the names
+ * from the keys makes the two impossible to drift instead of asking a test to
+ * notice.
+ */
+export const MODELED_TOOL_INPUT_KEYS = Object.freeze({
+  Bash: "command",
+  Edit: "file_path",
+  Write: "file_path",
+  Read: "file_path",
+  WebFetch: "url",
+});
+
+/**
  * Tools whose input shape the core models. Every other tool passes through
  * unmodelled — its input object is preserved verbatim and no field is required.
  */
-export const MODELED_TOOLS = Object.freeze([
-  "Bash",
-  "Edit",
-  "Write",
-  "Read",
-  "WebFetch",
-]);
+export const MODELED_TOOLS = Object.freeze(
+  Object.keys(MODELED_TOOL_INPUT_KEYS),
+);
 
 /** @type {Set<string>} membership set for {@link MODELED_TOOLS}, used to constrain alias targets. */
 const MODELED_TOOL_SET = new Set(MODELED_TOOLS);
@@ -219,16 +250,66 @@ const COVERAGE_STATUS_VALUES = new Set(Object.values(CoverageStatus));
  * forbid it — an unknown is fail-closed to uncovered, which is the whole point
  * of the matrix. Throws on an unrecognized status (fail loud — a typo must not
  * quietly read as "permitted").
- * @param {string} status a {@link CoverageStatus} value
+ *
+ * `undefined` is accepted as an INPUT type — that is what a prototype-safe
+ * `lookup` of a missing key yields — and takes the same throw: a coverage a
+ * caller could not resolve must never read as "permitted" either.
+ * @param {string|undefined} status a {@link CoverageStatus} value
  * @returns {boolean}
  */
 export function coverageAllowsVeto(status) {
-  if (!COVERAGE_STATUS_VALUES.has(status)) {
+  if (!COVERAGE_STATUS_VALUES.has(/** @type {string} */ (status))) {
     throw new Error(
       `control-plane: invalid coverage status ${JSON.stringify(status)}`,
     );
   }
   return status === CoverageStatus.COVERED || status === CoverageStatus.PARTIAL;
+}
+
+/**
+ * The event kinds a host can gate at all. {@link EventKind.UNKNOWN} is absent by
+ * construction, and that absence is the point: an event this package could not
+ * name is one whose host response nobody has established.
+ */
+/** @type {Set<string>} */
+const GATEABLE_KINDS = new Set([
+  EventKind.PRE_TOOL,
+  EventKind.POST_TOOL,
+  EventKind.PROMPT_SUBMIT,
+  EventKind.SESSION_START,
+]);
+
+/**
+ * Whether an event may be marked `this_call_vetoable`.
+ *
+ * INVARIANT: an event whose kind the adapter's `GATED_EVENTS` does not name is
+ * never vetoable, whatever its coverage says. Coverage answers whether the
+ * host's hook fires for a CLASS of call and says nothing about a kind the
+ * adapter could not model — so keying on coverage alone reported an enforced
+ * block for every unmodelled event, which is the one direction that lies to a
+ * guardrail: the transcript shows a block and the host runs the tool.
+ * @param {string} kind an {@link EventKind} value
+ * @param {Set<string>} gatedKinds the adapter's own gated set
+ * @param {string|undefined} coverage a {@link CoverageStatus} value
+ * @returns {boolean}
+ */
+export function vetoableFor(kind, gatedKinds, coverage) {
+  if (!gatedKinds.has(kind)) return false;
+  return coverageAllowsVeto(coverage);
+}
+
+/**
+ * Refuse a gated-kind set naming a kind no host can gate. Called at module load
+ * by each adapter, so `EventKind.UNKNOWN` cannot be added to one by hand.
+ * @param {Set<string>} kinds an adapter's `GATED_EVENTS`
+ * @param {string} agent the adapter's agent id, for the message
+ */
+export function assertGatedKinds(kinds, agent) {
+  for (const kind of kinds)
+    if (!GATEABLE_KINDS.has(kind))
+      throw new Error(
+        `${agent} adapter: ${JSON.stringify(kind)} is not a gateable event kind`,
+      );
 }
 
 /**
@@ -309,10 +390,73 @@ export function classifyCallClass(tool, native) {
  * @typedef {object} Verdict
  * @property {"allow"|"deny"|"ask"} decision
  * @property {Record<string, unknown>} [mutated_input] replacement tool input (pre_tool)
- * @property {unknown} [mutated_output] replacement tool output (post_tool) — the normalized channel for a PostToolUse content transform (redaction/sanitize); a string or the tool's structured output, verbatim. An adapter renders it into whatever native output-mutation channel the host has, or drops it when the host has none (the same per-adapter fidelity gap `reason` has on Amp).
+ * @property {unknown} [mutated_output] replacement tool output (post_tool) — the normalized channel for a PostToolUse content transform (redaction/sanitize); a string or the tool's structured output, verbatim. An adapter renders it into whatever native output-mutation channel the host has, or drops it when the host has none (the same per-adapter fidelity gap `additional_context` has on Codex).
  * @property {string} [additional_context] extra context to splice into the agent's stream
  * @property {string} [reason] human-readable rationale (shown on deny/ask)
  */
+
+/**
+ * The {@link Verdict} fields that carry CONTENT into the agent's stream, as
+ * opposed to the decision itself. Every adapter either renders each one into a
+ * native channel or has no channel for it and drops it; `UNRENDERED_FIELDS`
+ * declares which, and the conformance harness holds each adapter to its own
+ * declaration. `reason` is not listed: it is only live on deny/ask, so it is not
+ * probeable from a single abstaining verdict the way these three are.
+ */
+export const VERDICT_CONTENT_FIELDS = Object.freeze([
+  "mutated_input",
+  "mutated_output",
+  "additional_context",
+]);
+
+/**
+ * A genuinely immutable set of `values`, for a row a consumer can reach.
+ *
+ * `Object.freeze` does not freeze a Set's CONTENTS — `frozen.delete(x)` still
+ * succeeds — and these rows are shared between adapters, so one `delete` would
+ * make several declarations report a channel their renders still discard. The
+ * wrapper holds the Set privately and exposes only the read half, frozen.
+ * @param {Iterable<string>} values
+ * @returns {ReadonlySet<string>}
+ */
+export function readonlySet(values) {
+  const inner = new Set(values);
+  /** @type {ReadonlySet<string>} */
+  const facade = Object.freeze(
+    /** @type {any} */ ({
+      /** @param {string} value */
+      has: (value) => inner.has(value),
+      keys: () => inner.keys(),
+      values: () => inner.values(),
+      entries: () => inner.entries(),
+      // The callback's third argument is the SET, and forwarding to
+      // `inner.forEach` hands the private mutable one straight to a consumer —
+      // `row.forEach((v, k, set) => set.clear())` would empty a row several
+      // adapters share. The shim passes the facade, so there is no reference to
+      // the inner Set anywhere a caller can reach.
+      /**
+       * @param {(value: string, key: string, set: ReadonlySet<string>) => void} fn
+       * @param {unknown} [thisArg]
+       */
+      forEach: (fn, thisArg) =>
+        inner.forEach((value) => fn.call(thisArg, value, value, facade)),
+      [Symbol.iterator]: () => inner[Symbol.iterator](),
+      get size() {
+        return inner.size;
+      },
+    }),
+  );
+  return facade;
+}
+
+/**
+ * The `UNRENDERED_FIELDS` row every adapter uses for {@link EventKind.UNKNOWN}.
+ * An event the adapter could not name is one whose host channels nobody
+ * established, so claiming any of them is the same fail-open `assertGatedKinds`
+ * refuses for the veto: the caller reads a mutation as applied while the host
+ * ignores the key it was written into.
+ */
+export const UNRENDERED_ON_UNKNOWN = readonlySet(VERDICT_CONTENT_FIELDS);
 
 /**
  * The translator for one agent's protocol. `parse` maps a native event to a
@@ -325,6 +469,8 @@ export function classifyCallClass(tool, native) {
  * @property {Record<string, "covered"|"partial"|"uncovered"|"unknown">} COVERAGE per-{@link CallClass} hook-coverage status; must classify every {@link CALL_CLASSES} entry
  * @property {(native: any) => ToolCallEvent} parse
  * @property {(verdict: Verdict, event: ToolCallEvent, options?: { soleGate?: boolean }) => NativeResponse} render
+ * @property {Record<string, string|undefined>} [NATIVE_EVENT_FOR] the native event name this host uses for each {@link EventKind}, for a conformance probe of a kind no fixture produced. Optional: a kind absent here (`unknown` always, plus any kind this transport does not carry) is probed with a marker name, which takes the adapter's unrecognized-event branch. Never read at runtime — `parse` stamps the real name on `meta.native_event`.
+ * @property {Record<string, ReadonlySet<string>|undefined>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. SCOPE — a row describes the ALLOW path only. An enforceable deny may drop more: Gemini's exit-2 System Block returns no stdout at all, so a deny there carries no `additional_context` whatever the row says. Do not read this map to infer what a deny delivers. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
  */
 
 /**
@@ -355,6 +501,16 @@ export function makeEvent({
   if (typeof this_call_vetoable !== "boolean")
     throw new TypeError(
       `control-plane: makeEvent this_call_vetoable must be a boolean, got ${typeof this_call_vetoable}`,
+    );
+  // The same fail-open seam, one step further: an event the adapter could not
+  // name is one whose host response nobody established, so a veto reported for
+  // it is a block the render claims and the host never performs. Refused HERE
+  // because every adapter builds its event through this call, so an adapter that
+  // computes the flag without `vetoableFor` cannot reach the wire either.
+  if (event === EventKind.UNKNOWN && this_call_vetoable)
+    throw new Error(
+      "control-plane: makeEvent got a vetoable UNKNOWN event — an unmodelled " +
+        "event has no host response to veto, so reporting one is a false block",
     );
   /** @type {ToolCallEvent} */
   const evt = {
@@ -518,6 +674,65 @@ export function collectPassthrough(native, consumed) {
     if (!consumed.has(key)) rest[key] = val;
   }
   return rest;
+}
+
+/**
+ * The optional {@link EventMeta} string fields a host may carry, and the SSOT
+ * {@link baseMeta} reads off every native payload.
+ *
+ * PROBLEM CLASS — an adapter drops a normalized metadata field. Each adapter
+ * hand-copied these, one copy omitted `permission_mode`, and a guardrail keyed
+ * on `event.meta.permission_mode` then read `undefined` for that agent alone and
+ * took its no-value branch. Nothing distinguished "this host never sends the
+ * field" from "this adapter forgot it". Every adapter now maps the WHOLE set
+ * through {@link baseMeta}, so a field a host does not send is simply absent and
+ * no adapter carries an omission of its own.
+ */
+export const STANDARD_META_FIELDS = Object.freeze([
+  "session_id",
+  "cwd",
+  "permission_mode",
+  "transcript_path",
+]);
+
+/**
+ * Build the {@link EventMeta} base every adapter shares: the four required
+ * fields, whichever {@link STANDARD_META_FIELDS} the payload carries, and the
+ * unmodelled remainder in `passthrough`. A mapped field is consumed here too, so
+ * a value that reached `meta` can never also appear in `meta.passthrough`.
+ *
+ * A non-string value leaves its field ABSENT rather than stamping a number or
+ * null onto a contract field consumers read as text. The result is deliberately
+ * mutable: the caller adds the agent-specific `native_tool` after the base.
+ * @param {{ agent: string, native_event: string, integration_mode: string, primary_gate_present: boolean, native: Record<string, unknown>, consumed: Set<string> }} parts
+ * @returns {EventMeta}
+ */
+export function baseMeta({
+  agent,
+  native_event,
+  integration_mode,
+  primary_gate_present,
+  native,
+  consumed,
+}) {
+  /** @type {EventMeta} */
+  const meta = {
+    agent,
+    native_event,
+    integration_mode: /** @type {EventMeta["integration_mode"]} */ (
+      integration_mode
+    ),
+    primary_gate_present,
+    passthrough: collectPassthrough(
+      native,
+      new Set([...consumed, ...STANDARD_META_FIELDS]),
+    ),
+  };
+  for (const field of STANDARD_META_FIELDS) {
+    const value = lookup(native, field);
+    if (typeof value === "string") Object.assign(meta, { [field]: value });
+  }
+  return meta;
 }
 
 // ─── Coercion primitives ─────────────────────────────────────────────────────

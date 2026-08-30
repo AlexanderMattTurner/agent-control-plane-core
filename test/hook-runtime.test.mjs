@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { demoJudge, renderHookResponse } from "../bin/hook-runtime.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
 import { ampAdapter } from "../src/adapters/amp.mjs";
@@ -83,6 +86,50 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     assert.match(written[0], /SyntaxError/);
   });
 
+  it("clamps a malformed judge decision to ask instead of failing open", () => {
+    // The failure this closes: `normalizeVerdict` throws on a decision outside
+    // allow/deny/ask, that throw lands in the pipeline catch, and the catch
+    // returns the host's fail-safe — exit 0 for claude. So a judge that MEANT
+    // deny but spelled it "denied" used to let the tool run.
+    const malformed = () => ({
+      decision: "denied",
+      reason: "blocked by policy",
+    });
+    const out = renderHookResponse(
+      claudeAdapter,
+      claudePayload("ls"),
+      FAIL,
+      malformed,
+    );
+    assert.notEqual(out, FAIL, "malformed verdict took the fail-open path");
+    assert.equal(
+      out.stdout.hookSpecificOutput.permissionDecision,
+      "ask",
+      "malformed decision did not clamp to ask",
+    );
+    // The clamp names the rejected value, so an operator can see what the judge
+    // actually said rather than a bare prompt.
+    assert.match(
+      out.stdout.hookSpecificOutput.permissionDecisionReason,
+      /clamped to "ask"/,
+    );
+  });
+
+  it("still renders a well-formed judge verdict untouched", () => {
+    // Positive marker: the clamp is not swallowing ordinary verdicts, so the
+    // case above is the malformed path and not a blanket rewrite.
+    const denying = () => ({ decision: "deny", reason: "no" });
+    const out = renderHookResponse(
+      claudeAdapter,
+      claudePayload("ls"),
+      FAIL,
+      denying,
+    );
+    assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "deny");
+    assert.equal(out.enforced, true);
+    assert.notEqual(out.exit_code, 0);
+  });
+
   it("carries the adapter's transport through (amp = pure exit code)", () => {
     const ampFail = {
       transport: "external_hook",
@@ -97,4 +144,31 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     assert.equal(out.exit_code, 2);
     assert.equal(out.stdout, undefined);
   });
+});
+
+// A deny body can exceed a pipe buffer (a judge quoting the offending input into
+// `reason`, or a large `mutated_input`). `emit` must deliver ALL of it: a
+// truncated JSON body is an enforced deny the host cannot parse — a silent
+// deny→allow. Driven as a subprocess because the bug only exists on a real
+// non-blocking pipe.
+describe("emit: writes a body larger than the pipe buffer in full", () => {
+  const fixture = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "fixtures",
+    "emit-large-body-fixture.mjs",
+  );
+
+  for (const padBytes of [200_000, 2_000_000]) {
+    it(`delivers a ${padBytes}-byte deny reason intact (exit 2)`, () => {
+      const res = spawnSync("node", [fixture, `--pad=${padBytes}`], {
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      assert.equal(res.error, undefined, `spawn failed: ${res.error?.message}`);
+      assert.equal(res.status, 2, `stderr: ${res.stderr}`);
+      const body = JSON.parse(res.stdout).hookSpecificOutput;
+      assert.equal(body.permissionDecision, "deny");
+      assert.equal(body.permissionDecisionReason.length, padBytes);
+    });
+  }
 });

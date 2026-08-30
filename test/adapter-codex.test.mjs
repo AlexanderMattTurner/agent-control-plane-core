@@ -10,6 +10,7 @@ import {
   MIN_ENFORCING_VERSION,
 } from "../src/adapters/codex.mjs";
 import { runAdapterConformance } from "../src/conformance.mjs";
+import { EventKind } from "../src/control-plane.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtures = JSON.parse(
@@ -174,12 +175,94 @@ describe("canEnforce version gate (≥ v0.135)", () => {
     });
   }
 
-  // Drift guard: derive the boundary versions from MIN_ENFORCING_VERSION so a
-  // threshold bump can't leave the hardcoded table above asserting a stale
-  // boundary. At-threshold enforces; the highest patch of the prior minor does not.
+  // drift-guard-ok: the table above is a set of concrete, readable exemplar
+  // versions kept for regression value — deriving it algorithmically would lose
+  // that readability. This test instead derives the BOUNDARY from
+  // MIN_ENFORCING_VERSION so a threshold bump can't leave the hardcoded table
+  // asserting a stale boundary. At-threshold enforces; the highest patch of the
+  // prior minor does not.
   it("derives the boundary from MIN_ENFORCING_VERSION", () => {
     const [maj, min] = MIN_ENFORCING_VERSION;
     assert.equal(canEnforce(`${maj}.${min}.0`), true);
     assert.equal(canEnforce(`${maj}.${min - 1}.999`), false);
+  });
+});
+
+describe("codex: an unmodelled event is never vetoable, even on an enforcing version", () => {
+  // Codex routes EVERY event other than PreToolUse/PermissionRequest into
+  // EventKind.UNKNOWN, so this is its ordinary path rather than drift. On an
+  // enforcing version the coverage map alone answered "vetoable", and the render
+  // then claimed a block Codex never performs for a SessionStart payload.
+  for (const nativeEvent of ["SessionStart", "PostToolUse", "Notification"]) {
+    it(`${nativeEvent} parses unknown and renders no enforced block`, () => {
+      const event = codexAdapter.parse({
+        hook_event_name: nativeEvent,
+        version: "9999.0.0",
+        tool_name: "Bash",
+        tool_input: { command: "ls" },
+      });
+      assert.equal(event.event, EventKind.UNKNOWN);
+      assert.equal(event.this_call_vetoable, false);
+      const out = codexAdapter.render({ decision: "deny", reason: "r" }, event);
+      assert.equal(out.enforced, false);
+      assert.equal(out.exit_code, 0);
+    });
+  }
+
+  // Positive marker: the same enforcing version DOES veto the event Codex gates,
+  // so the cases above are the event kind being read and not the version gate
+  // answering for it.
+  it("the same version still enforces a PreToolUse deny", () => {
+    const event = codexAdapter.parse({
+      hook_event_name: "PreToolUse",
+      version: "9999.0.0",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    });
+    assert.equal(event.this_call_vetoable, true);
+    assert.equal(
+      codexAdapter.render({ decision: "deny", reason: "r" }, event).enforced,
+      true,
+    );
+  });
+});
+
+describe("codex render: an unmodelled event claims no content channel", () => {
+  // Codex routes every native event but PreToolUse/PermissionRequest into
+  // EventKind.UNKNOWN — PostToolUse included. `updatedInput` there names a key
+  // the host ignores while reading to the caller as a mutation applied.
+  const unknown = codexAdapter.parse({
+    hook_event_name: "PostToolUse",
+    version: "9999.0.0",
+    tool_name: "Bash",
+    tool_input: { command: "echo hi" },
+  });
+
+  it("parses PostToolUse as UNKNOWN", () => {
+    assert.equal(unknown.event, "unknown");
+  });
+
+  it("drops mutated_input there, but still carries it on PreToolUse", () => {
+    const dropped = codexAdapter.render(
+      { decision: "allow", mutated_input: { command: "echo safe" } },
+      unknown,
+    );
+    assert.equal(
+      Object.hasOwn(dropped.stdout.hookSpecificOutput, "updatedInput"),
+      false,
+    );
+    const preTool = codexAdapter.parse({
+      hook_event_name: "PreToolUse",
+      version: "9999.0.0",
+      tool_name: "Bash",
+      tool_input: { command: "echo hi" },
+    });
+    assert.deepEqual(
+      codexAdapter.render(
+        { decision: "allow", mutated_input: { command: "echo safe" } },
+        preTool,
+      ).stdout.hookSpecificOutput.updatedInput,
+      { command: "echo safe" },
+    );
   });
 });

@@ -12,6 +12,67 @@ the prose from the release's commits.
 
 ## Unreleased
 
+### Fixed
+
+- Every adapter now maps the whole optional `EventMeta` set — `session_id`, `cwd`, `permission_mode`, `transcript_path` — through the contract's new `baseMeta`. Each adapter used to assemble that meta by hand, the Gemini copy omitted `permission_mode` and the Amp copy omitted both `permission_mode` and `transcript_path`, so a guardrail keyed on `event.meta.permission_mode` read `undefined` for those agents alone while Claude and Codex answered. A mapped field is also consumed, so it can never appear a second time in `meta.passthrough`.
+- The Gemini adapter renames a builtin tool and its input keys together, or does neither. `read_file` was renamed to `Read` unconditionally while the `absolute_path` → `file_path` rename only fired when the payload supplied `absolute_path`, so a payload without it produced `event.tool: "Read"` with no `input.file_path` — a judge told "this is a Read" read `undefined` and allowed. The alias now applies only when the renamed input carries the key the canonical name advertises; otherwise the call keeps its native name, which promises nothing. This covers `write_file` → `Write` too, where no input rename exists and the native payload may still omit `file_path`.
+- The Amp adapter carries an enforced deny's `reason` on `NativeResponse.stderr`, which `emit` writes to fd 2. Amp's delegate is a PATH helper whose stderr Amp surfaces, so the render dropping the reason meant a blocked call reached the user with no rationale. Non-enforced renders still say nothing on fd 2: they have blocked nothing.
+
+- A `mutated_output` redaction verdict on a Gemini CLI `AfterTool` event rendered a bare exit 0, so the UNREDACTED tool output reached the model with nothing saying so. Gemini documents no output-rewrite field, so the adapter now declares the drop and renders a `systemMessage` warning telling the model the output above it is unvetted. A guardrail that must actually redact has to deny the call on this host.
+- The Gemini adapter no longer emits `hookSpecificOutput.tool_input` on `AfterTool`, and the Claude adapter no longer emits `hookSpecificOutput.updatedToolOutput` on `UserPromptSubmit`/`SessionStart`. Both named a channel the host ignores, which read back to the caller as a mutation that was applied.
+- No adapter writes a verdict's content into an `EventKind.UNKNOWN` render any more. An event the adapter could not name has no established host channel, so Codex's `updatedInput`, Gemini's `systemMessage` and Claude's `additionalContext` are all dropped there. Codex routes every native event but `PreToolUse`/`PermissionRequest` into UNKNOWN, `PostToolUse` included, so this was its ordinary path rather than drift.
+
+### Added
+
+- `VERDICT_CONTENT_FIELDS` and `UNRENDERED_ON_UNKNOWN` on the contract, and `POST_TOOL_REDACTION_UNSUPPORTED` on the barrel. Every adapter exports `UNRENDERED_FIELDS`, declaring for every `EventKind` which `Verdict` content fields the host has no native channel for. Conformance rule ⑩ holds each adapter to its declaration in both directions and refuses a missing row, so a field that reaches no channel must be declared and a declared drop that still ships the value fails. The Codex adapter declares `mutated_output` and `additional_context` dropped; Amp declares all three.
+
+### Changed
+
+- `UNRENDERED_FIELDS` is REQUIRED on every adapter, so a third-party adapter needs one row per `EventKind` before it passes conformance — `UNRENDERED_ON_UNKNOWN` for a kind whose transport carries none, `readonlySet([])` for one that carries all three. The wire shapes are unchanged, so `CONTROL_PLANE_SCHEMA` stays `control-plane/v1`; the break is in the adapter interface, and the harness names the missing member rather than throwing from inside itself.
+- An optional `NATIVE_EVENT_FOR` on the adapter, naming the native event each `EventKind` uses. Conformance carries it on a probe for a kind no fixture produced, so a render that picks its output schema from the native name is exercised on the branch that kind really takes. A kind the adapter names none for — `unknown` always — is probed with a marker name that takes the unrecognized-event branch.
+- Rule ⑩ probes each content field in every shape its contract allows, and probes all three together. `mutated_output` may be a structured tool result as well as a string, and an adapter can drop one field only when another shares its native channel — neither state a single-field string probe reaches.
+- The combined content probe runs once per value shape, not once with the first. An adapter can drop one SHAPE only when another field shares the channel, and pinning the combination to the string tested that state for the string alone. `mutated_output` also probes a bare NUMBER: it is the tool's output verbatim, so a render that type-switches on string and object drops a numeric tool result. Rule ⓪ reads a content field's channel off the render positions that VARY as the value changes, and requires ONE of them to hold each value. `mutated_input` and `mutated_output` must be held VERBATIM — same type, same structure — so a render that stringifies, flattens `{ content: X }` to `X`, or drops an empty replacement now fails where marker containment passed it. `additional_context` only has to reach the wire intact inside a varying path, because a host with one message channel may compose it with its own text, as Gemini does with the post-tool warning. ONE varying path suffices, so an adapter may annotate the output it carries. Every field is probed alone and again with the other content fields held, and the HELD fields take every COMBINATION of their shapes, since an adapter can lose one channel only for a particular pairing of the other two. A field's values may reach DIFFERENT native paths, so a host may split its channels by shape, but each path must carry at least two of them — a path matching one value alone is a coincidence, not a channel. `mutated_input` is probed with a non-command record and an empty one, since the contract permits any record and not only a shell invocation, and with a record whose members are FALSY, which a render filtering on `Boolean(value)` silently empties. It is also probed with POPULATED NESTED members, two levels deep and including a record inside an array. Every other probe's members are primitives or empty, so a render that swaps a nested value for a placeholder passed. `additional_context` is probed with newlines and punctuation, which a render folding it onto one native line silently rewrites — an adapter can lose one channel only for a particular shape of another, such as dropping the context exactly when the output is an array. A row's mutators must also leave the row UNCHANGED when they throw: one that inserts and then throws has already rewritten the declaration for a caller that catches it.
+- `UNRENDERED_FIELDS` must be a frozen map, not only a map of immutable rows. An immutable row stops a consumer editing one row's members; only a frozen map stops it replacing a whole row with one that claims a channel the render drops, after conformance certified the adapter. Rule ⑩ also probes `mutated_output` as a LIST of content blocks, so an adapter that forwards strings and objects but drops arrays no longer passes.
+- Conformance refuses an `UNRENDERED_FIELDS` row that does not behave as a `ReadonlySet` of `VERDICT_CONTENT_FIELDS`. A `null` row answered nothing at every `has`, so the adapter claimed every channel; a has-only stand-in and a `Map` both carried the members while handing a consumer the wrong thing; a reader that throws passed while only its presence was checked; and a misspelled field name declared nothing while reading as a declaration. Every reader is now exercised, including the row `forEach` hands its callback, and `has` must agree with iteration for every `VERDICT_CONTENT_FIELDS` entry rather than only the iterated ones. A row must also be genuinely immutable and carry each member once: a plain `Set` exposes `clear()`, and `Object.freeze` does not stop it, so a certified declaration could be emptied afterwards.
+- A synthesized conformance probe for a kind no fixture produces now drops `meta.native_tool` on a kind that carries no tool, and seeds a tool kind from a tool-bearing event. Both were events no `parse` produces, so a renderer that reads either could be certified on the wrong branch.
+- A synthesized conformance probe is never vetoable. Nothing says an adapter gates a kind no fixture produced, and `makeEvent` refuses a vetoable `unknown` outright, so seeding either from a vetoable tool event claimed a block the host never performs.
+
+## [0.3.0] - 2026-08-10
+
+### Added
+
+- An `agent-control-plane-core/contract` subpath export carrying `Decision`, `EventKind`, `normalizeVerdict` and `makeEvent`. It reaches no adapter, no registry and no conformance module, so a consumer that needs only the contract pays 9 ms of import work instead of the barrel's 31 ms. A guardrail hook is one process per tool call, which is where that difference is spent.
+
+## [0.2.18] - 2026-08-10
+
+### Fixed
+
+- Restored the executable bit on the scripts the GitHub contents API had written back without it.
+
+## [0.2.17] - 2026-08-10
+
+### Fixed
+
+- `.hooks/pre-push` computes the pushed range before it demands `pre-commit`, so a push with nothing new to check — a release tag on a commit the remote already has — is no longer refused on a runner without the tool.
+
+## [0.2.16] - 2026-08-10
+
+### Fixed
+
+- The live-capture env map is built without a prototype, so an env var named after an `Object.prototype` member can no longer be read as an inherited value.
+- template-sync no longer writes a trailing space into `.template-sync-conflicts`.
+- Restored the executable bit on the two hook scripts, and the verbatim bytes of two files a worktree round-trip had re-encoded.
+
+### Changed
+
+- The hook entry-point check comes from `cli-args` instead of a second local implementation; declarations regenerated to match.
+
+## [0.2.15] - 2026-08-03
+
+### Changed
+
+- Synced the automation template (`.claude`, `.hooks`, `.github`).
+
 ## [0.2.14] - 2026-08-03
 
 ### Fixed

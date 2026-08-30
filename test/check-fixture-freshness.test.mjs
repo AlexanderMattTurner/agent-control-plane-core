@@ -55,7 +55,7 @@ describe("reportFreshness gate: drift decides the exit code (the CI break)", () 
     assert.ok(out.lines.some((l) => l.startsWith("[DRIFT]")));
   });
 
-  it("treats a rolling release as fresh (never drifts the gate)", () => {
+  it("treats a rolling release as fresh (does not fail the gate)", () => {
     const out = capture();
     const err = capture();
     assert.equal(reportFreshness([row({ rolling: true })], out, err), 0);

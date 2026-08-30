@@ -19,12 +19,12 @@ SCRIPT = REPO_ROOT / ".github" / "scripts" / "template-sync.sh"
 
 def write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
 
 
 def parse_outputs(github_output: Path) -> dict[str, str]:
     """Parse a GITHUB_OUTPUT file. Supports both key=value and key<<EOF blocks."""
-    text = github_output.read_text()
+    text = github_output.read_text(encoding="utf-8")
     result: dict[str, str] = {}
     lines = text.splitlines()
     i = 0
@@ -68,7 +68,7 @@ def run_sync(
     subprocess.run(["cp", "-a", str(template), str(template_copy)], check=True)
 
     output_file = child.parent / f"github_output_{child.name}.txt"
-    output_file.write_text("")
+    output_file.write_text("", encoding="utf-8")
     work = child.parent / f"work_{child.name}"
     work.mkdir(exist_ok=True)
 
@@ -122,7 +122,7 @@ def test_3way_merge_outcomes(
     write(template / "config" / "a.txt", base)
     prev_sha = commit_all(template)
     write(child / "config" / "a.txt", local)
-    (child / ".template-version").write_text(prev_sha)
+    (child / ".template-version").write_text(prev_sha, encoding="utf-8")
     commit_all(child)
     write(template / "config" / "a.txt", template_after)
     commit_all(template)
@@ -132,7 +132,7 @@ def test_3way_merge_outcomes(
 
     outputs = parse_outputs(output_file)
     assert outputs["has_conflicts"] == expect_conflicts
-    body = (child / "config" / "a.txt").read_text()
+    body = (child / "config" / "a.txt").read_text(encoding="utf-8")
     if expect_local_after is not None:
         assert body == expect_local_after
     else:
@@ -150,11 +150,47 @@ def test_adds_new_file_from_template(workdir: Path) -> None:
     result, output_file = run_sync(child, template, sync_paths="config")
     assert result.returncode == 0, result.stderr
 
-    assert (child / "config" / "hello.txt").read_text() == "from template\n"
+    assert (child / "config" / "hello.txt").read_text(
+        encoding="utf-8"
+    ) == "from template\n"
     outputs = parse_outputs(output_file)
     assert outputs["has_changes"] == "true"
     assert outputs["has_conflicts"] == "false"
     assert outputs["has_deletions"] == "false"
+
+
+def test_adds_a_single_file_sync_path_entry(workdir: Path) -> None:
+    """SYNC_PATHS carries `.github/tool-versions.sh`, a FILE that no directory
+    entry covers. `.github/scripts` syncs install-mergiraf.sh, which sources that
+    pin, so the entry that brings it must work on its own."""
+    child = workdir / "child"
+    template = workdir / "template"
+    write(template / ".github" / "tool-versions.sh", "MERGIRAF_VERSION=v0.0.1\n")
+    commit_all(template)
+
+    result, output_file = run_sync(
+        child, template, sync_paths=".github/tool-versions.sh"
+    )
+    assert result.returncode == 0, result.stderr
+
+    synced = child / ".github" / "tool-versions.sh"
+    assert synced.read_text(encoding="utf-8") == "MERGIRAF_VERSION=v0.0.1\n"
+    assert parse_outputs(output_file)["has_changes"] == "true"
+
+
+def test_a_file_sync_path_absent_from_the_template_is_skipped(workdir: Path) -> None:
+    """A template that has not added the file yet must leave the rest of the sync
+    running, not abort it."""
+    child = workdir / "child"
+    template = workdir / "template"
+    write(template / "config" / "a.txt", "same\n")
+    commit_all(template)
+
+    result, _ = run_sync(child, template, sync_paths="config .github/tool-versions.sh")
+    assert result.returncode == 0, result.stderr
+    assert "not found in template, skipping" in result.stdout
+    assert (child / "config" / "a.txt").read_text(encoding="utf-8") == "same\n"
+    assert not (child / ".github" / "tool-versions.sh").exists()
 
 
 def test_no_changes_when_files_identical(workdir: Path) -> None:
@@ -165,7 +201,7 @@ def test_no_changes_when_files_identical(workdir: Path) -> None:
     write(child / "config" / "a.txt", "same\n")
     # The sync script writes the SHA with a trailing newline; match it here so
     # rewriting the file doesn't itself count as a change.
-    (child / ".template-version").write_text(f"{sha}\n")
+    (child / ".template-version").write_text(f"{sha}\n", encoding="utf-8")
     commit_all(child)
 
     result, output_file = run_sync(child, template, sync_paths="config")
@@ -183,7 +219,7 @@ def test_keeps_local_when_only_local_changed(workdir: Path) -> None:
     write(template / "config" / "a.txt", "shared\n")
     prev_sha = commit_all(template)
     write(child / "config" / "a.txt", "local-customized\n")
-    (child / ".template-version").write_text(prev_sha)
+    (child / ".template-version").write_text(prev_sha, encoding="utf-8")
     commit_all(child)
     # Template advances with an unrelated commit so the SHA differs.
     write(template / "other.txt", "noop\n")
@@ -194,7 +230,9 @@ def test_keeps_local_when_only_local_changed(workdir: Path) -> None:
 
     outputs = parse_outputs(output_file)
     assert outputs["has_conflicts"] == "false"
-    assert (child / "config" / "a.txt").read_text() == "local-customized\n"
+    assert (child / "config" / "a.txt").read_text(
+        encoding="utf-8"
+    ) == "local-customized\n"
 
 
 def test_no_base_conflict_when_local_differs_without_prev_sha(workdir: Path) -> None:
@@ -215,7 +253,9 @@ def test_no_base_conflict_when_local_differs_without_prev_sha(workdir: Path) -> 
     # The script overwrites the local file with the template version and
     # emits a diff in conflict_report for human review — the report content
     # is load-bearing for the downstream PR template.
-    assert (child / "config" / "a.txt").read_text() == "template version\n"
+    assert (child / "config" / "a.txt").read_text(
+        encoding="utf-8"
+    ) == "template version\n"
     assert "local version" in outputs["conflict_report"]
     assert "template version" in outputs["conflict_report"]
 
@@ -229,7 +269,7 @@ def test_detects_deleted_files(workdir: Path) -> None:
     prev_sha = commit_all(template)
     write(child / "config" / "a.txt", "x\n")
     write(child / "config" / "b.txt", "y\n")
-    (child / ".template-version").write_text(prev_sha)
+    (child / ".template-version").write_text(prev_sha, encoding="utf-8")
     commit_all(child)
     (template / "config" / "b.txt").unlink()
     commit_all(template)
@@ -276,7 +316,7 @@ def test_per_file_excludes_within_synced_directory(workdir: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
 
-    assert (child / "config" / "keep.txt").read_text() == "keep this\n"
+    assert (child / "config" / "keep.txt").read_text(encoding="utf-8") == "keep this\n"
     assert not (child / "config" / "skip.txt").exists()
 
 
@@ -289,7 +329,7 @@ def test_per_file_exclude_suppresses_deletion_report(workdir: Path) -> None:
     prev_sha = commit_all(template)
     write(child / "config" / "a.txt", "x\n")
     write(child / "config" / "b.txt", "y\n")
-    (child / ".template-version").write_text(prev_sha)
+    (child / ".template-version").write_text(prev_sha, encoding="utf-8")
     commit_all(child)
     (template / "config" / "b.txt").unlink()
     commit_all(template)
@@ -316,7 +356,7 @@ def test_writes_template_version_with_trailing_newline(workdir: Path) -> None:
 
     result, _ = run_sync(child, template, sync_paths="config")
     assert result.returncode == 0, result.stderr
-    assert (child / ".template-version").read_text() == f"{sha}\n"
+    assert (child / ".template-version").read_text(encoding="utf-8") == f"{sha}\n"
 
 
 def test_fails_loudly_without_github_output(workdir: Path) -> None:
@@ -359,13 +399,13 @@ def test_survives_self_overwrite_with_longer_file(workdir: Path) -> None:
     child = workdir / "child"
     template = workdir / "template"
     script_rel = ".github/scripts/template-sync.sh"
-    script_bytes = SCRIPT.read_text()
+    script_bytes = SCRIPT.read_text(encoding="utf-8")
 
     # Base == the current script; child adopts it verbatim (Case 5 later).
     write(template / script_rel, script_bytes)
     prev_sha = commit_all(template)
     write(child / script_rel, script_bytes)
-    (child / ".template-version").write_text(prev_sha)
+    (child / ".template-version").write_text(prev_sha, encoding="utf-8")
     commit_all(child)
 
     # Template advances to an identical prefix + a longer, broken tail. Because
@@ -378,7 +418,7 @@ def test_survives_self_overwrite_with_longer_file(workdir: Path) -> None:
     template_copy = child / "_template"
     subprocess.run(["cp", "-a", str(template), str(template_copy)], check=True)
     output_file = child.parent / "github_output_selfoverwrite.txt"
-    output_file.write_text("")
+    output_file.write_text("", encoding="utf-8")
     work = child.parent / "work_selfoverwrite"
     work.mkdir(exist_ok=True)
     env = {
@@ -395,4 +435,4 @@ def test_survives_self_overwrite_with_longer_file(workdir: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     # The child's on-disk copy was overwritten with the longer template version.
-    assert (child / script_rel).read_text().endswith(broken_tail)
+    assert (child / script_rel).read_text(encoding="utf-8").endswith(broken_tail)

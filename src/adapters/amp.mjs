@@ -8,7 +8,8 @@
  *
  * This adapter is what proves the transport split earns its keep: the normalized
  * ToolCallEvent/Verdict are identical to Claude's, but `render` carries the
- * decision in `exit_code` with no `stdout` at all.
+ * decision in `exit_code` with no `stdout` at all. An enforced deny's `reason`
+ * goes to the helper's STDERR, which Amp surfaces.
  */
 
 import {
@@ -18,20 +19,28 @@ import {
   CallClass,
   CoverageStatus,
   classifyCallClass,
-  coverageAllowsVeto,
+  vetoableFor,
+  assertGatedKinds,
   canonicalTool,
+  lookup,
   makeEvent,
   normalizeVerdict,
   nativeResponse,
-  collectPassthrough,
+  readonlySet,
+  VERDICT_CONTENT_FIELDS,
+  baseMeta,
   asObject,
   asStringOrNull,
 } from "../control-plane.mjs";
 
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
-/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
+// Re-exported on this subpath even though no signature below names it:
+// tsc turns each @typedef into an `export type` in the generated .d.mts,
+// so dropping this line breaks `import type { EventMeta } from "…/<agent>"`
+// for every TypeScript consumer.
+/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 
 export const AGENT = "amp";
 export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
@@ -52,9 +61,52 @@ export const COVERAGE = Object.freeze({
   [CallClass.RESUMED]: CoverageStatus.UNKNOWN,
 });
 
+/**
+ * The event kinds this host can actually gate. Amp invokes the delegate for a tool call and nothing else, so parse only ever emits PRE_TOOL.
+ * A kind absent here parses non-vetoable, so an unmodelled event never renders as
+ * an enforced block the host will not perform. Module-private: `Object.freeze` does
+ * not stop `Set.add`, so an exported set would let a consumer add UNKNOWN back
+ * after `assertGatedKinds` has already run.
+ */
+const GATED_EVENTS = Object.freeze(new Set([EventKind.PRE_TOOL]));
+
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. Amp's observer names every event `delegate` and reaches no
+ * other kind.
+ * @type {Record<string, string|undefined>}
+ */
+export const NATIVE_EVENT_FOR = Object.freeze({
+  [EventKind.PRE_TOOL]: "delegate",
+});
+assertGatedKinds(GATED_EVENTS, AGENT);
+
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel, so `render`
+ * drops them. Amp's transport is the exit code and nothing else — there is no
+ * stdout body to carry a replacement input, a replacement output or extra
+ * context, so ALL THREE are dropped on every kind. A guardrail that needs any of
+ * them cannot use Amp as its only integration. `reason` is not one of them and
+ * is NOT dropped: an enforced deny writes it to the helper's stderr, which Amp
+ * surfaces (see {@link render}). Built over every
+ * {@link EventKind} rather than the one `parse` emits: a row this adapter cannot
+ * reach is still the honest answer for a caller that asks.
+ * @type {Record<string, ReadonlySet<string>|undefined>}
+ */
+export const UNRENDERED_FIELDS = Object.freeze(
+  Object.fromEntries(
+    Object.values(EventKind).map((kind) => [
+      kind,
+      readonlySet(VERDICT_CONTENT_FIELDS),
+    ]),
+  ),
+);
+
 // Amp invokes the delegate for a tool call; the payload carries the tool name +
-// input and the session context. Pinned by fixtures/amp.json.
-const CONSUMED = new Set(["tool", "input", "session_id", "cwd"]);
+// input. The session context is the STANDARD_META_FIELDS set `baseMeta`
+// consumes, so it is not listed here. Pinned by fixtures/amp.json.
+const CONSUMED = new Set(["tool", "input"]);
 
 /**
  * @param {any} native
@@ -62,16 +114,14 @@ const CONSUMED = new Set(["tool", "input", "session_id", "cwd"]);
  */
 export function parse(native) {
   const raw = asObject(native);
-  /** @type {EventMeta} */
-  const meta = {
+  const meta = baseMeta({
     agent: AGENT,
     native_event: "delegate",
     integration_mode: INTEGRATION_MODE,
     primary_gate_present: true,
-    passthrough: collectPassthrough(raw, CONSUMED),
-  };
-  if (typeof raw.session_id === "string") meta.session_id = raw.session_id;
-  if (typeof raw.cwd === "string") meta.cwd = raw.cwd;
+    native: raw,
+    consumed: CONSUMED,
+  });
   const nativeTool = asStringOrNull(raw.tool);
   if (nativeTool !== null) meta.native_tool = nativeTool;
   return makeEvent({
@@ -80,7 +130,9 @@ export function parse(native) {
     input: asObject(raw.input),
     response: undefined,
     // Classify on the NATIVE name (MCP detection keys on `mcp__…`).
-    this_call_vetoable: coverageAllowsVeto(
+    this_call_vetoable: vetoableFor(
+      EventKind.PRE_TOOL,
+      GATED_EVENTS,
       COVERAGE[classifyCallClass(nativeTool, raw)],
     ),
     meta,
@@ -88,21 +140,101 @@ export function parse(native) {
 }
 
 /**
+ * The EXHAUSTIVE (decision × `this_call_vetoable`) → exit-code table for Amp's
+ * pure exit-code transport: 0 allow / 1 ask / 2 reject.
+ *
+ * Written as a total table rather than a ternary chain because the chain's
+ * fall-through case was ALLOW: an unenforceable deny — a deny on a call this
+ * guardrail cannot veto — silently rendered as exit 0, Amp's "run it". A
+ * combination this table forgets is a construction error (below), not a silent
+ * approval.
+ *
+ * The non-vetoable DENY row is exit 1 (ask), not 0. Amp has a real ask tier, so
+ * the honest render of "I object but cannot block" is to put the call in front
+ * of the human rather than wave it through. It is still `enforced: false` — the
+ * guardrail is not claiming a veto it does not have; it is declining to spend
+ * its one remaining signal on an approval.
+ *
+ * @type {Readonly<Record<string, Readonly<Record<string, number>>>>}
+ */
+const EXIT_CODE_BY_DECISION = Object.freeze({
+  [Decision.ALLOW]: Object.freeze({ true: 0, false: 0 }),
+  [Decision.DENY]: Object.freeze({ true: 2, false: 1 }),
+  [Decision.ASK]: Object.freeze({ true: 1, false: 1 }),
+});
+
+/**
+ * Totality check at IMPORT: every {@link Decision} must have a row and every row
+ * both vetoable columns. A decision added to the contract breaks this module
+ * loudly at load instead of silently defaulting to exit 0.
+ */
+for (const decision of Object.values(Decision)) {
+  const row = lookup(EXIT_CODE_BY_DECISION, decision);
+  if (row === undefined)
+    throw new Error(
+      `amp adapter: exit-code table has no row for decision ${JSON.stringify(decision)}`,
+    );
+  for (const vetoable of ["true", "false"]) {
+    if (typeof lookup(row, vetoable) === "number") continue;
+    throw new Error(
+      `amp adapter: exit-code table row ${JSON.stringify(decision)} has no this_call_vetoable=${vetoable} column`,
+    );
+  }
+}
+
+/**
  * Render into Amp's pure exit-code transport: the decision is the exit code,
- * with no stdout body. `reason` has no native channel here, so it is dropped
- * (Amp surfaces the helper's own stderr). No `soleGate` option — an allow
- * already renders as exit 0 either way, so there's no distinct "real approve"
- * signal for this transport to opt into.
+ * with no stdout body. An ENFORCED deny also carries its `reason` on
+ * `NativeResponse.stderr`, which `emit` writes to fd 2: the delegate is a PATH
+ * helper whose stderr Amp surfaces, and this render is what that helper writes,
+ * so a block that reached the user with no rationale was the adapter throwing
+ * the reason away. Only the enforced path — a deny this call cannot veto and an
+ * ask have blocked nothing, and `stderr` is the contract's block-reason channel.
+ * No `soleGate` option — an allow already renders as exit 0 either way, so
+ * there's no distinct "real approve" signal for this transport to opt into.
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
  * @returns {NativeResponse}
  */
 export function render(verdict, event) {
   const vd = normalizeVerdict(verdict);
-  const enforced = vd.decision === Decision.DENY && event.this_call_vetoable;
-  const exit_code = enforced ? 2 : vd.decision === Decision.ASK ? 1 : 0;
-  return nativeResponse({ transport: INTEGRATION_MODE, exit_code, enforced });
+  const vetoable = event.this_call_vetoable;
+  // `makeEvent` already rejects a non-boolean, so reaching this means a
+  // hand-built event — and guessing whether it can be vetoed is how fail-open
+  // starts. The string "true" is the case that makes this a real check rather
+  // than a formality: it would otherwise index the vetoable column.
+  if (typeof vetoable !== "boolean")
+    throw new Error(
+      `amp adapter: this_call_vetoable must be a boolean, got ${JSON.stringify(vetoable)}`,
+    );
+  const enforced = vd.decision === Decision.DENY && vetoable;
+  const exit_code = lookup(
+    lookup(EXIT_CODE_BY_DECISION, vd.decision) ?? {},
+    String(vetoable),
+  );
+  // Unreachable while the import-time totality check and `normalizeVerdict` both
+  // hold; kept because the alternative to throwing is `exit_code: undefined`,
+  // which `process.exit` renders as 0 — the exact silent allow this table exists
+  // to eliminate.
+  if (exit_code === undefined)
+    throw new Error(
+      `amp adapter: exit-code table has no entry for decision ${JSON.stringify(vd.decision)} / this_call_vetoable ${JSON.stringify(vetoable)}`,
+    );
+  return nativeResponse({
+    transport: INTEGRATION_MODE,
+    exit_code,
+    enforced,
+    ...(enforced && vd.reason !== undefined ? { stderr: vd.reason } : {}),
+  });
 }
 
 /** @type {import("../control-plane.mjs").Adapter} */
-export const ampAdapter = { AGENT, INTEGRATION_MODE, COVERAGE, parse, render };
+export const ampAdapter = {
+  AGENT,
+  INTEGRATION_MODE,
+  COVERAGE,
+  UNRENDERED_FIELDS,
+  NATIVE_EVENT_FOR,
+  parse,
+  render,
+};

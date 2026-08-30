@@ -28,6 +28,9 @@ permissions:
   contents: write
   # Required for npm OIDC trusted publishing (`pnpm publish --provenance`).
   id-token: write
+  # Lets version-bump.sh open a release-docs PR when a branch ruleset rejects
+  # its direct push to main (see the step below).
+  pull-requests: write
 
 jobs:
   version-and-publish:
@@ -57,6 +60,10 @@ jobs:
           # a recent npm) and point it at the npm registry so provenance works.
           node-version: 24
           registry-url: https://registry.npmjs.org
+          # uv, so .hooks/pre-push can run pre-commit over the release-docs
+          # commit this job pushes. Without it the push is refused, the commit
+          # never reaches main, and every release loses its CHANGELOG section.
+          setup-python: true
 
       - name: Bump version and publish if commits warrant a release
         # The changelog-prose call walks the anthropic-ladder.bash credential
@@ -70,4 +77,14 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_5 }}
           CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_6 }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Only the release-docs PR fallback uses this. A GITHUB_TOKEN-opened PR
+          # cannot trigger other pull_request workflows (GitHub's loop guard), so
+          # its required checks would never report and auto-merge would never
+          # fire — TEMPLATE_SYNC_TOKEN_ORG is the org PAT already used elsewhere
+          # in this repo for exactly that reason (see template-sync.yaml). It is
+          # safe here because the fallback only opens a PR from a new branch; it
+          # never pushes to main directly (that stays on GITHUB_TOKEN above).
+          # token-fallback-ok: deliberate — the fallback only opens a PR from a
+          # new branch, never pushes to main (see the comment above).
+          GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN_ORG || secrets.GITHUB_TOKEN }}
         run: bash .github/scripts/version-bump.sh

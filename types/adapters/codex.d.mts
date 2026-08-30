@@ -3,6 +3,17 @@
  * `semver.coerce` normalizes a patch/prerelease/build-tagged version to its
  * release core; anything it can't coerce to a valid version (missing, empty,
  * garbage) yields `null` and is treated as too old — fail closed to advisory.
+ *
+ * TRUST BOUNDARY (sandbox, not adapter): `version` is read from the hook stdin
+ * payload, so a payload that under-reports it downgrades enforcement to advisory
+ * (a deny renders exit 0). The adapter cannot distinguish a spoofed version from
+ * a genuinely old Codex — the ground-truth version lives outside the payload —
+ * so anti-spoofing belongs to the sandbox that controls what the hook is fed
+ * (the same "pin it from outside" posture the managed-config mount enforces for
+ * the hook binary; see docs/monitor-invariants.md §Invariant 1). Coercing an
+ * absent/garbage version to enforcing HERE would break the legitimate old-Codex
+ * case (rendering an exit-2 block a pre-0.135 Codex ignores, while dishonestly
+ * marking it `enforced`), so the adapter stays faithful to what the payload says.
  * @param {unknown} version
  * @returns {boolean}
  */
@@ -35,8 +46,8 @@ export function render(verdict: Verdict, event: ToolCallEvent, { soleGate }?: {
 }): NativeResponse;
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
-/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
+/** @typedef {import("../control-plane.mjs").EventMeta} EventMeta */
 export const AGENT: "codex";
 export const INTEGRATION_MODE: "external_hook";
 /**
@@ -48,11 +59,33 @@ export const INTEGRATION_MODE: "external_hook";
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;
+/**
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel, so `render`
+ * drops them. Codex documents one content channel, `updatedInput` on
+ * PreToolUse. It documents no PostToolUse output-rewrite field and no context
+ * injection field at all, so `mutated_output` and `additional_context` are
+ * dropped on every kind. A redaction verdict
+ * therefore does NOT reach the model here: the unredacted output stands, and a
+ * guardrail that must redact has to deny the call instead. Inventing a native
+ * key would be worse than the visible gap, because the host ignores it and the
+ * caller reads the render as a redaction applied.
+ * @type {Record<string, ReadonlySet<string>|undefined>}
+ */
+export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION: readonly number[];
+/**
+ * The native event a conformance probe should carry for each kind — this
+ * adapter's own answer, so an every-kind probe exercises the branch that kind
+ * really takes. Codex routes every other native event into `unknown`, which has
+ * no native name, so `pre_tool` is the only row.
+ * @type {Record<string, string|undefined>}
+ */
+export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
+export const DEFAULT_DENY_REASON: "blocked by monitor";
 /** @type {import("../control-plane.mjs").Adapter} */
 export const codexAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;
 export type Verdict = import("../control-plane.mjs").Verdict;
-export type EventMeta = import("../control-plane.mjs").EventMeta;
 export type NativeResponse = import("../control-plane.mjs").NativeResponse;
+export type EventMeta = import("../control-plane.mjs").EventMeta;
