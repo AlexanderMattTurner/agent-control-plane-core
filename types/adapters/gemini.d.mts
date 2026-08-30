@@ -42,9 +42,10 @@ export const INTEGRATION_MODE: "external_hook";
  *
  * Only the MCP row is fail-closed in practice: `parse` reads it, because
  * {@link classifyCallClass} detects MCP from the tool name or `mcp_context`.
- * The SUBAGENT and RESUMED rows are DECLARATIVE ONLY — a lone pre-tool payload
- * carries no signal for either class, so the classifier never returns them and
- * such a call is judged by the BUILTIN row (COVERED, i.e. vetoable). They
+ * The SUBAGENT and RESUMED rows are DECLARATIVE ONLY — the classifier reads no
+ * signal for either class, so it never returns them and such a call is judged by
+ * the row its TOOL selects: BUILTIN (COVERED, i.e. vetoable), or the MCP row
+ * above when the name or `mcp_context` says so. They
  * record the matrix verdict for a consumer reading COVERAGE directly, and
  * become load-bearing only once an item-⑤ probe supplies a classifier signal.
  */

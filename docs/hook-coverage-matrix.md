@@ -220,10 +220,14 @@ the class vetoable:**
 
 **How far the ❓-is-❌ rule actually reaches today:** an adapter applies its
 coverage row through `classifyCallClass`, which can only return `builtin` or
-`mcp` — a lone pre-tool payload carries no subagent or resumed-session signal in
-any host modelled here. So a ❓ on the **subagent** or **resumed** row is
-recorded but never selected: such a call is classified `builtin` and judged by
-that row, and on Codex, Gemini CLI, and Amp it parses vetoable. Only the
+`mcp`: it keys on the tool name and `mcp_context` alone and reads no subagent or
+resumed-session marker, and no adapter passes one. Claude's payload does carry
+`agent_id`/`agent_type` ([C3]) — a signal a future classifier could key on, but
+one nothing reads today, and Claude's four cells are ✅ anyway. So a ❓ on the
+**subagent** or **resumed** row is recorded but never selected: a call from a
+subagent or a resumed session is classified by its TOOL, and judged by that row —
+`builtin`, so on Codex, Gemini CLI and Amp it parses vetoable, or `mcp` when the
+name or `mcp_context` says so, where Codex ❌ and Gemini ❓ still bite. Only the
 `builtin` and `mcp` rows degrade a call to `notify` today; the other two are
 documentation until item ⑤ supplies a signal to classify on. Honouring them
 without one would mean taking the minimum status across the classes the

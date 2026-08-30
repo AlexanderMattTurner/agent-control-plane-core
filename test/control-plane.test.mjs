@@ -276,9 +276,11 @@ describe("classifyCallClass detects MCP, defaults undetectable to builtin", () =
   }
 
   // The adapters' SUBAGENT/RESUMED coverage rows are documentation, not a gate:
-  // no payload shape selects them, so a subagent's or a resumed session's call
-  // is judged by the BUILTIN row. If a classifier signal is ever added, this
-  // fails and the adapter comments saying "declarative only" must be revisited.
+  // no payload shape selects them, so a subagent's or a resumed session's call is
+  // judged by the row its TOOL selects. Claude's real payload carries
+  // `agent_id`/`agent_type` (first case), so the signal a future classifier could
+  // key on exists on at least one host — it is simply not read. If it ever is,
+  // this fails and every "declarative only" comment must be revisited.
   for (const native of [
     { agent_id: "a1", agent_type: "explorer" },
     { subagent: true },

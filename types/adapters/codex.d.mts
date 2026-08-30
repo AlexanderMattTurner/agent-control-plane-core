@@ -71,9 +71,9 @@ export const INTEGRATION_MODE: "external_hook";
  * payload carries no signal for either class, so {@link classifyCallClass}
  * never returns them and `parse` never reads these two entries — a subagent's
  * shell call is classified BUILTIN and judged by the PARTIAL row, i.e. parses
- * vetoable. They record the matrix verdict for a consumer reading COVERAGE
- * directly; they become load-bearing only once an item-⑤ probe supplies a
- * classifier signal.
+ * vetoable (an MCP-named one still takes the UNCOVERED MCP row). They record the
+ * matrix verdict for a consumer reading COVERAGE directly; they become
+ * load-bearing only once an item-⑤ probe supplies a classifier signal.
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;

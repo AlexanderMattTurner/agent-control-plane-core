@@ -335,7 +335,8 @@ export function isCoverageStatus(status) {
  * The fail-closed reading of a ❓ row therefore reaches only the classes this
  * function can return, BUILTIN and MCP. An adapter's SUBAGENT/RESUMED rows are
  * never selected here, so declaring them UNKNOWN does not make a subagent's or
- * a resumed session's call non-vetoable: it is judged by the BUILTIN row.
+ * a resumed session's call non-vetoable: it is judged by the row its TOOL
+ * selects, BUILTIN or MCP.
  * Honouring those rows would mean taking the minimum status across the classes
  * this classifier cannot separate — which collapses BUILTIN to UNKNOWN and
  * disables enforcement outright for every adapter that has a ❓ there, so it is

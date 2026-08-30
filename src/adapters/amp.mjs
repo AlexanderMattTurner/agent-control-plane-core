@@ -53,11 +53,16 @@ export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
  * Resumed-thread firing is a strong-but-uncited structural argument, so it is
  * held at UNKNOWN until an item-⑤ probe confirms it.
  *
- * That RESUMED row is DECLARATIVE ONLY: a lone delegate invocation carries no
+ * That UNKNOWN is this adapter's own fail-closed reading, NOT a transcription of
+ * the matrix cell, which reads `✅ struct. [A4]` in the table and appears in the
+ * same document's ❓ list: an uncited structural ✅ is held at UNKNOWN here until
+ * a probe cites it.
+ *
+ * The row is DECLARATIVE ONLY either way: a lone delegate invocation carries no
  * signal for a resumed thread, so {@link classifyCallClass} never returns
  * RESUMED and `parse` never reads the entry — a call in a resumed thread is
- * classified BUILTIN (or MCP) and judged COVERED, i.e. parses vetoable. It
- * records the matrix verdict for a consumer reading COVERAGE directly, and
+ * classified by its TOOL, BUILTIN or MCP, and both are COVERED, so it parses
+ * vetoable. The entry is there for a consumer reading COVERAGE directly, and
  * becomes load-bearing only once an item-⑤ probe supplies a classifier signal.
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
