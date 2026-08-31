@@ -55,15 +55,27 @@ the monitor may only notify, never block.
 Rows = call classes. Columns = the five hosts we have or plan `{parse, render}`
 adapters for. Legend: **✅** pre-tool hook fires (call is vetoable) · **❌** does
 not fire (un-vetoable) · **⚠️** partial (only some tools in the class fire) ·
-**❓** unknown — undocumented, needs a live probe (item ⑤). An honest ❓ is the
-point: a guessed ✅ is a silent fail-open.
+**❓** unknown — undocumented, needs a live probe (item ⑤) · **✅ struct.**
+structurally implied but UNCITED — no source addresses this cell directly, and
+the ✅ is an inference from a documented mechanism (config reloaded per session,
+permissions evaluated per call). An honest ❓ is the point: a guessed ✅ is a
+silent fail-open.
 
-| Call class                    | Claude Code | Codex CLI             | Amp               | opencode        | Gemini CLI               |
-| ----------------------------- | ----------- | --------------------- | ----------------- | --------------- | ------------------------ |
-| **Builtin tool**              | ✅ [C1]     | ⚠️ Bash only [X1][X2] | ✅ [A1]           | ✅ [O1]         | ✅ (v0.26+) [G1]         |
-| **MCP-server tool**           | ✅ [C2]     | ❌ [X1][X2]           | ✅ [A2]           | ❌ #2319 [O2]   | ✅ likely, med-conf [G2] |
-| **Subagent-spawned tool**     | ✅ [C3]     | ⚠️ Bash only [X3]     | ✅ (context) [A3] | ❓ [O3]         | ⚠️ load-bug [G3]         |
-| **Resumed/continued session** | ✅ [C4]     | ⚠️ Bash only [X4]     | ✅ struct. [A4]   | ✅ struct. [O4] | ❓ [G4]                  |
+**`✅ struct.` is a claim about the EVIDENCE, not an instruction to an adapter.**
+It says "no one measured this, and the mechanism makes firing the likely answer"
+— so each adapter states its own reading of that evidence, and two adapters may
+read the same class differently. They do today: Claude's resumed row is COVERED
+and Amp's is UNKNOWN (see [C4], [A4]). Neither is wrong, because on every host
+this row is declarative — `classifyCallClass` never returns `resumed`, so no
+call is judged by it — and neither becomes load-bearing until a probe supplies
+both a signal and a citation.
+
+| Call class                    | Claude Code     | Codex CLI             | Amp               | opencode        | Gemini CLI               |
+| ----------------------------- | --------------- | --------------------- | ----------------- | --------------- | ------------------------ |
+| **Builtin tool**              | ✅ [C1]         | ⚠️ Bash only [X1][X2] | ✅ [A1]           | ✅ [O1]         | ✅ (v0.26+) [G1]         |
+| **MCP-server tool**           | ✅ [C2]         | ❌ [X1][X2]           | ✅ [A2]           | ❌ #2319 [O2]   | ✅ likely, med-conf [G2] |
+| **Subagent-spawned tool**     | ✅ [C3]         | ⚠️ Bash only [X3]     | ✅ (context) [A3] | ❓ [O3]         | ⚠️ load-bug [G3]         |
+| **Resumed/continued session** | ✅ struct. [C4] | ⚠️ Bash only [X4]     | ✅ struct. [A4]   | ✅ struct. [O4] | ❓ [G4]                  |
 
 ### Per-cell reasons + citations
 
@@ -238,8 +250,23 @@ the class vetoable:**
 - opencode **subagent** firing (its MCP gap is reason for suspicion, not proof).
 - Gemini CLI **MCP** firing (upgrade medium→confirmed), **subagent** firing for
   a successfully loaded agent, and **resumed-session** firing.
-- Amp **resumed-session** firing (structural argument is strong but uncited).
 - OpenHands sub-agent security-layer inheritance.
+
+**Structurally implied but uncited (`✅ struct.`) — a probe would harden these,
+but the mechanism already argues for firing, so they are NOT ❓:**
+
+- Claude Code **resumed-session** firing [C4] — hooks are re-read from settings
+  on session load.
+- Amp **resumed-session** firing [A4] — permissions are evaluated per tool call
+  at call time.
+- opencode **resumed-session** firing [O4] — the plugin intercepts in-process
+  executions for the life of the process (its MCP gap [O2] still applies).
+
+The distinction is load-bearing for the ❓-is-❌ rule: it degrades a cell whose
+behavior is **unknown**, and every cell above has a documented mechanism that
+answers it. An adapter may still hold one at UNKNOWN as its own fail-closed
+reading — Amp does — but the doctrine does not compel it, and the difference
+costs nothing today because the row is unreachable from a lone tool event.
 
 **How far the ❓-is-❌ rule actually reaches today:** an adapter applies its
 coverage row through `classifyCallClass`, which returns `mcp` (tool name or

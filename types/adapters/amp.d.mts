@@ -33,9 +33,11 @@ export const INTEGRATION_MODE: "external_hook";
  * held at UNKNOWN until an item-⑤ probe confirms it.
  *
  * That UNKNOWN is this adapter's own fail-closed reading, NOT a transcription of
- * the matrix cell, which reads `✅ struct. [A4]` in the table and appears in the
- * same document's ❓ list: an uncited structural ✅ is held at UNKNOWN here until
- * a probe cites it.
+ * the matrix cell, which reads `✅ struct. [A4]` — structurally implied but
+ * uncited. That marker describes the EVIDENCE and does not dictate a coverage
+ * value, so an adapter may read it either way: Claude's resumed row is COVERED
+ * on the same class of argument, and this one is held at UNKNOWN until a probe
+ * cites it. The difference is free today, for the reason below.
  *
  * The row is DECLARATIVE ONLY either way: no host marks a lone tool event as
  * belonging to a resumed session, so {@link classifyCallClass} never returns
