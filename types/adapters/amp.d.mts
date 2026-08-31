@@ -33,9 +33,12 @@ export const INTEGRATION_MODE: "external_hook";
  * held at UNKNOWN until an item-⑤ probe confirms it.
  *
  * That UNKNOWN is this adapter's own fail-closed reading, NOT a transcription of
- * the matrix cell, which reads `✅ struct. [A4]` in the table and appears in the
- * same document's ❓ list: an uncited structural ✅ is held at UNKNOWN here until
- * a probe cites it.
+ * the matrix cell, which reads `✅ struct. [A4]` — COVERED, on evidence the
+ * `struct.` suffix marks as uncited. A cell is a CEILING: an adapter may never
+ * claim more than it, but declaring LESS is always safe, since every step down
+ * degrades a deny toward notify. This row takes that conservative option until a
+ * probe cites it; Claude's takes the cell at face value on the same class of
+ * argument. The difference is free today, for the reason below.
  *
  * The row is DECLARATIVE ONLY either way: no host marks a lone tool event as
  * belonging to a resumed session, so {@link classifyCallClass} never returns
