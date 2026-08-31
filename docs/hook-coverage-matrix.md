@@ -17,8 +17,10 @@ classifies exactly the canonical `CALL_CLASSES`; a fixture case tagged with a
 treated as ❌ via `coverageAllowsVeto`) MUST parse `this_call_vetoable: false`;
 and each adapter's `parse` derives vetoability from its own row, so an MCP-sourced
 call on a host whose MCP cell is not ✅ (Codex ❌, Gemini ❓) parses non-vetoable.
-Subagent/resumed cells stay advisory-only in code until an item-⑤ probe supplies a
-detectable signal — the tables below remain the SSOT for what each cell claims.
+The subagent cell is live on hosts that stamp `agent_type` (Claude Code, Codex);
+the resumed cell stays advisory-only in code, because no host marks a lone tool
+event as belonging to a resumed session — the tables below remain the SSOT for
+what each cell claims.
 
 ## Why "hook fires?" is exactly `this_call_vetoable`
 
@@ -60,8 +62,8 @@ point: a guessed ✅ is a silent fail-open.
 | ----------------------------- | ----------- | --------------------- | ----------------- | --------------- | ------------------------ |
 | **Builtin tool**              | ✅ [C1]     | ⚠️ Bash only [X1][X2] | ✅ [A1]           | ✅ [O1]         | ✅ (v0.26+) [G1]         |
 | **MCP-server tool**           | ✅ [C2]     | ❌ [X1][X2]           | ✅ [A2]           | ❌ #2319 [O2]   | ✅ likely, med-conf [G2] |
-| **Subagent-spawned tool**     | ✅ [C3]     | ❓ [X3]               | ✅ (context) [A3] | ❓ [O3]         | ⚠️ load-bug [G3]         |
-| **Resumed/continued session** | ✅ [C4]     | ❓ [X4]               | ✅ struct. [A4]   | ✅ struct. [O4] | ❓ [G4]                  |
+| **Subagent-spawned tool**     | ✅ [C3]     | ⚠️ Bash only [X3]     | ✅ (context) [A3] | ❓ [O3]         | ⚠️ load-bug [G3]         |
+| **Resumed/continued session** | ✅ [C4]     | ⚠️ Bash only [X4]     | ✅ struct. [A4]   | ✅ struct. [O4] | ❓ [G4]                  |
 
 ### Per-cell reasons + citations
 
@@ -94,17 +96,33 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   [OpenAI Codex hooks docs](https://developers.openai.com/codex/hooks).
 - **[X2] MCP ❌** — MCP tool calls are explicitly outside `PreToolUse` coverage.
   Same sources as [X1]. This is a confirmed un-vetoable class today.
-- **[X3] subagent ❓** — subagent/delegation calls are not listed as covered, and
-  even if a subagent's calls did reach `PreToolUse`, only its _Bash_ calls would
-  (per [X1]). No source confirms firing either way ⇒ unknown, resolve by probe.
-  Note the cell is also unreachable at runtime today: Codex's tool events carry
-  no `agent_id`/`agent_type`, so `classifyCallClass` cannot tell a subagent's
-  call from the main thread's and this ❓ never answers.
-  [openai/codex#16226](https://github.com/openai/codex/issues/16226) (open) asks
-  for exactly that field; a correlating hook could record it at `SubagentStart`
-  instead, which is state this package does not keep.
-- **[X4] resumed ❓** — no source on whether a resumed Codex session re-arms the
-  hook surface. Unknown.
+- **[X3] subagent ⚠️ Bash only (probe-confirmed)** — no source documented this
+  either way, so it was ❓ until an item-⑤ probe ran it. The probe drove a real
+  subagent and reports `subagent_pretooluse=covered`: `PreToolUse` fires for a
+  subagent's shell call, under the same Bash-only limit as [X1] ⇒ PARTIAL, not
+  ❓. The probe also settled the RUNTIME question the docs answered wrongly:
+  a subagent's `PreToolUse` payload carries `agent_id` and `agent_type`
+  (`agent_type=default`, `agent_id` equal to the one `SubagentStart` announced),
+  and both are ABSENT from a main-thread call's — so `classifyCallClass` reads
+  this row from one payload, no correlation needed. The published field list and
+  [openai/codex#16226](https://github.com/openai/codex/issues/16226) (still open,
+  asking for exactly these fields) are both stale on this point; the measurement
+  wins. Probe runs `33346707822`, `33347870937` on `claude/sbx-codex-support-gtknyl`.
+- **[X4] resumed ⚠️ Bash only (probe-confirmed)** — same probe:
+  `resumed_pretooluse=covered`, so a `codex exec resume` session re-arms the hook
+  surface and its new calls fire `PreToolUse` ⇒ PARTIAL. Its SESSION does
+  announce itself — `session_start_sources=startup,resume,startup` across the
+  probe's three legs, i.e. `SessionStart` carries `source: "resume"` — but the
+  tool payloads carry no resume marker of their own, so `classifyCallClass`
+  cannot answer RESUMED from a lone pre-tool event and such a call is classified
+  by its tool. Correlating the two events would need cross-event state, which
+  `parse` deliberately does not keep.
+- **[X6] sandbox note (same probe)** — `codex exec resume` ignores `-C`: the
+  workdir is restored from the session record, not taken from the invocation, so
+  a resumed session's write boundary is inherited from wherever the session was
+  first created. Resuming from inside a narrow directory does **not** narrow it.
+  Relevant to any deployment that treats the sandbox as the backstop for the
+  classes this matrix leaves un-gated (see `docs/monitor-invariants.md`).
 - **[X5] scope of [X1]–[X4]** — these four rows describe `PreToolUse` routing;
   that is what the sources speak about. `PostToolUse` has a wider surface: it
   "runs after supported tools produce output", `apply_patch` and MCP calls
@@ -217,7 +235,6 @@ event never arrives), and a monitor MUST degrade `deny → notify`:**
 **Unknown — needs a live-conformance probe (item ⑤) before an adapter may mark
 the class vetoable:**
 
-- Codex **subagent** and **resumed-session** firing.
 - opencode **subagent** firing (its MCP gap is reason for suspicion, not proof).
 - Gemini CLI **MCP** firing (upgrade medium→confirmed), **subagent** firing for
   a successfully loaded agent, and **resumed-session** firing.
@@ -232,19 +249,21 @@ out through the host's MCP surface, the axis most often left un-gated.
 
 So the **subagent** row bites exactly on the hosts that stamp that field. Claude
 Code does, on every hook input ([C3]) — and its cells are ✅, so nothing changes
-there. Codex does **not**: its tool events fire identically for main and
-subagent sessions, and `agent_type` rides `SubagentStart`/`SubagentStop` only
-([openai/codex#16226](https://github.com/openai/codex/issues/16226), open), so
-[X3]'s ❓ cannot reach a Codex tool call until that lands — a Codex subagent's
-shell call still classifies `builtin` and parses vetoable. Gemini CLI documents
-no such field either, so [G3] is in the same position. The wiring is in place in
-all three: the row answers the day the payload names an agent.
+there. Codex does too, contrary to what the docs and
+[openai/codex#16226](https://github.com/openai/codex/issues/16226) (open) still
+say: the item-⑤ probe behind [X3] read `agent_type=default` and an `agent_id`
+matching `SubagentStart`'s off a subagent's `PreToolUse` payload, and
+`agent_type=absent` off the main thread's — the absence is what makes the field
+a discriminator. Gemini CLI documents no such field, so [G3] is still waiting on
+a probe; the wiring is in place, and the row answers the day the payload names
+an agent.
 
-The **resumed** row has no signal on any host — nothing marks a lone tool event
-as belonging to a resumed session — so it stays documentation. Honouring it
-without one would mean taking the minimum status across the classes the
-classifier cannot separate, which collapses `builtin` to ❓ and disables
-enforcement for those adapters outright.
+The **resumed** row has no signal on any host — a resumed Codex session
+announces itself on `SessionStart` (`source: "resume"`, per [X4]'s probe), not
+on its tool payloads, and `parse` keeps no cross-event state — so it stays
+documentation. Honouring it would mean taking the minimum status across the
+classes the classifier cannot separate, which collapses `builtin` to ❓ and
+disables enforcement for those adapters outright.
 
 **The risk of assuming coverage a host doesn't provide:** if an adapter reports
 `this_call_vetoable: true` for a class the host never routes through the hook,

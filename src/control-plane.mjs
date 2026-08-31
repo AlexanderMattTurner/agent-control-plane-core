@@ -331,26 +331,30 @@ export function isCoverageStatus(status) {
  *   surface, and that is the axis a host most often leaves un-gated.
  * - SUBAGENT, from a non-empty `agent_type` on the payload — the field a host
  *   stamps on a call made by a subagent rather than the main thread. Claude Code
- *   carries it (with `agent_id`) on every hook input; Codex does NOT today —
- *   its `agent_type` rides SubagentStart/SubagentStop only, and its tool events
- *   fire identically for main and subagent sessions (openai/codex#16226, open),
- *   so this branch stays unreachable there until that lands.
+ *   carries it (with `agent_id`) on its hook inputs, and a live Codex probe
+ *   ([X3] in `docs/hook-coverage-matrix.md`) found both fields present on a
+ *   subagent's `PreToolUse` and ABSENT on the main thread's, with the `agent_id`
+ *   matching the one `SubagentStart` announced. Absence is what makes the field
+ *   a DISCRIMINATOR rather than decoration, which is why it is read here.
  *
- * RESUMED is still not detectable: no host marks a lone tool event as belonging
- * to a resumed session, so such a call falls through to BUILTIN (or MCP) and an
- * adapter whose host leaves that class un-gated relies on the sandbox, not this
- * classifier. An adapter feeds the result into `coverageAllowsVeto(this.
- * COVERAGE[class])` so a call in an uncovered/unknown class parses non-vetoable.
+ * RESUMED is not detectable from a tool payload on any host measured so far.
+ * Codex does announce a resumed session — `SessionStart` carries
+ * `source: "resume"` ([X4]) — but that is a different event, and correlating it
+ * would mean keeping cross-event state this package deliberately does not have:
+ * `parse` is a pure function of one payload. So a resumed session's call falls
+ * through to BUILTIN (or MCP) and is judged by that row. An adapter feeds the
+ * result into `coverageAllowsVeto(this.COVERAGE[class])` so a call in an
+ * uncovered/unknown class parses non-vetoable.
  *
  * The fail-closed reading of a ❓ row therefore reaches BUILTIN, MCP, and — on a
  * host that stamps `agent_type` — SUBAGENT. An adapter's RESUMED row is still
- * never selected, so declaring it UNKNOWN does not make a resumed session's call
- * non-vetoable: it is judged by the row its TOOL selects. Honouring that row
- * would mean taking the minimum status across the classes this classifier
+ * never selected, so declaring it UNKNOWN would not make a resumed session's
+ * call non-vetoable: it is judged by the row its TOOL selects. Honouring that
+ * row would mean taking the minimum status across the classes this classifier
  * cannot separate — which collapses BUILTIN to UNKNOWN and disables enforcement
  * outright for every adapter that has a ❓ there, so it is deliberately not
- * done. Until a signal exists, that gap is the sandbox's to cover, and the row
- * stands as documentation.
+ * done. Where a host's resumed coverage is unmeasured, that gap is the
+ * sandbox's to cover, and the row stands as documentation.
  * @param {string|null} tool tool name (null for non-tool events)
  * @param {Record<string, unknown>} [native] the raw native payload, for `mcp_context` and `agent_type`
  * @returns {string} a {@link CallClass} value
@@ -366,7 +370,9 @@ export function classifyCallClass(tool, native) {
     return CallClass.MCP;
   // A NON-EMPTY string only: a host that stamps the key with `""` or `null` on a
   // main-thread call is saying "no subagent", and reading that as one would
-  // degrade every ordinary call on a host whose SUBAGENT row is ❓.
+  // degrade every ordinary call on a host whose SUBAGENT row is ❓. Codex's
+  // probed value for its default subagent is the literal "default" — a real
+  // agent type, not an empty marker, so it classifies as one.
   if (typeof native?.agent_type === "string" && native.agent_type !== "")
     return CallClass.SUBAGENT;
   return CallClass.BUILTIN;

@@ -208,6 +208,126 @@
       }
     },
     {
+      "name": "PreToolUse v0.151 from a subagent (agent_type present)",
+      "call_class": "subagent",
+      "native": {
+        "hook_event_name": "PreToolUse",
+        "version": "0.151.0",
+        "session_id": "c-sub",
+        "cwd": "/w",
+        "permission_mode": "default",
+        "transcript_path": "/r.jsonl",
+        "tool_name": "shell",
+        "tool_input": {
+          "command": ["ls", "-la"]
+        },
+        "agent_id": "agt_7f3",
+        "agent_type": "default",
+        "model": "gpt-5-codex",
+        "tool_use_id": "call_1",
+        "turn_id": "turn_3"
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "shell",
+        "input": {
+          "command": ["ls", "-la"]
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "codex",
+          "native_event": "PreToolUse",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {
+            "agent_id": "agt_7f3",
+            "agent_type": "default",
+            "model": "gpt-5-codex",
+            "tool_use_id": "call_1",
+            "turn_id": "turn_3"
+          },
+          "session_id": "c-sub",
+          "cwd": "/w",
+          "permission_mode": "default",
+          "transcript_path": "/r.jsonl",
+          "native_tool": "shell"
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse"
+              }
+            }
+          }
+        },
+        "input_mutation": {
+          "verdict": {
+            "decision": "allow",
+            "mutated_input": {
+              "command": ["ls"]
+            }
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "updatedInput": {
+                  "command": ["ls"]
+                }
+              }
+            }
+          }
+        },
+        "deny": {
+          "verdict": {
+            "decision": "deny",
+            "reason": "subagent shell blocked"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "subagent shell blocked"
+              }
+            }
+          }
+        },
+        "ask": {
+          "verdict": {
+            "decision": "ask"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "ask"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "PermissionRequest round-trips the native event name",
       "native": {
         "hook_event_name": "PermissionRequest",
