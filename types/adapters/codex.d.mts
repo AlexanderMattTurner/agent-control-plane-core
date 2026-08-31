@@ -58,8 +58,10 @@ export const INTEGRATION_MODE: "external_hook";
 /**
  * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). `PreToolUse`
  * intercepts the shell (Bash) tool ONLY — other builtins and MCP tools never
- * reach it — so builtin is PARTIAL and MCP is UNCOVERED. Subagent and resumed
- * firing are undocumented ⇒ UNKNOWN.
+ * reach it — so builtin is PARTIAL and MCP is UNCOVERED. A live probe
+ * ([X3]/[X4]) fired `PreToolUse` for a SUBAGENT's call and for a call in a
+ * RESUMED session, so both are PARTIAL too: covered, under the same Bash-only
+ * limit as [X1], rather than the ❓ the matrix carried before the probe ran.
  *
  * These rows describe PRE-TOOL routing, which is the only thing the matrix's
  * [X1]/[X2] sources speak about. `parse` applies them to a pre-tool event only
@@ -67,19 +69,19 @@ export const INTEGRATION_MODE: "external_hook";
  * never sees, so a post-tool event judged by the MCP row would drop a block
  * Codex documents it honours.
  *
- * The SUBAGENT row is WIRED but unreachable on Codex today, and the reason is
- * the host's: {@link classifyCallClass} returns SUBAGENT for a payload carrying
- * a non-empty `agent_type`, and Codex's tool events fire identically for main
- * and subagent sessions and carry no such field — it rides SubagentStart /
- * SubagentStop only (openai/codex#16226, open). So a Codex subagent's shell call
- * still classifies BUILTIN and takes the PARTIAL row, i.e. parses vetoable; the
- * moment Codex stamps the field, this UNKNOWN row answers instead with no change
- * here. An MCP-named call takes the UNCOVERED MCP row either way.
+ * The SUBAGENT row is the one the classifier now reaches on this host: the same
+ * probe found `agent_id`/`agent_type` present on a subagent's `PreToolUse`
+ * payload and ABSENT on the main thread's, so {@link classifyCallClass} answers
+ * SUBAGENT from that payload alone. It is PARTIAL, so such a call stays vetoable
+ * — the row's job here is to be honest, not to degrade. An MCP-named call takes
+ * the UNCOVERED MCP row either way, subagent or not.
  *
- * The RESUMED row is DECLARATIVE ONLY: no host marks a lone tool event as
- * belonging to a resumed session, so the classifier never returns it and `parse`
- * never reads the entry. It records the matrix verdict for a consumer reading
- * COVERAGE directly, and becomes load-bearing only once a signal exists.
+ * The RESUMED row is DECLARATIVE ONLY, for a reason no longer about coverage: a
+ * resumed session announces itself on `SessionStart` (`source: "resume"`), not on
+ * its tool payloads, and this package keeps no cross-event state — so the
+ * classifier cannot answer RESUMED from a lone pre-tool event and such a call is
+ * judged by the row its TOOL selects. Both rows are PARTIAL, so that reads the
+ * same either way.
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;
