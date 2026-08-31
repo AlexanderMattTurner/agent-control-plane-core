@@ -54,12 +54,13 @@ export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
  * for builtins, for MCP tools (surfaced as `mcp__<server>__<tool>` through the
  * same hook), and for every tool a subagent uses (subagents do not inherit the
  * parent's permissions, so the hook is often their only gate). Resumed sessions
- * re-read hooks from settings and fire per new call — `✅ struct. [C4]`, i.e.
- * structurally implied but uncited: no source addresses resumed sessions
- * directly, and COVERED is this adapter's reading of the mechanism. Amp reads
- * the same class of argument the other way and holds its row at UNKNOWN; both
- * are free today, since `classifyCallClass` never returns RESUMED and no call
- * is judged by this entry.
+ * re-read hooks from settings and fire per new call — `✅ struct. [C4]`, where
+ * the `struct.` suffix marks the status as uncited: no source addresses resumed
+ * sessions directly, and COVERED is an inference from the reload mechanism. This
+ * row takes the cell at face value. Amp holds the equivalent row at UNKNOWN,
+ * which the matrix permits — a cell is a ceiling, and declaring less coverage
+ * than it is always the safe direction. Both are free today, since
+ * `classifyCallClass` never returns RESUMED and no call is judged by this entry.
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE = Object.freeze({

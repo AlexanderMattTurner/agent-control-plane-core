@@ -55,27 +55,34 @@ the monitor may only notify, never block.
 Rows = call classes. Columns = the five hosts we have or plan `{parse, render}`
 adapters for. Legend: **✅** pre-tool hook fires (call is vetoable) · **❌** does
 not fire (un-vetoable) · **⚠️** partial (only some tools in the class fire) ·
-**❓** unknown — undocumented, needs a live probe (item ⑤) · **✅ struct.**
-structurally implied but UNCITED — no source addresses this cell directly, and
-the ✅ is an inference from a documented mechanism (config reloaded per session,
+**❓** unknown — undocumented, needs a live probe (item ⑤) · **struct.** (suffix)
+the cell's status is UNCITED — no source addresses it directly, and the status is
+an inference from a documented mechanism (config reloaded per session,
 permissions evaluated per call). An honest ❓ is the point: a guessed ✅ is a
 silent fail-open.
 
-**`✅ struct.` is a claim about the EVIDENCE, not an instruction to an adapter.**
-It says "no one measured this, and the mechanism makes firing the likely answer"
-— so each adapter states its own reading of that evidence, and two adapters may
-read the same class differently. They do today: Claude's resumed row is COVERED
-and Amp's is UNKNOWN (see [C4], [A4]). Neither is wrong, because on every host
-this row is declarative — `classifyCallClass` never returns `resumed`, so no
-call is judged by it — and neither becomes load-bearing until a probe supplies
-both a signal and a citation.
+`struct.` annotates the EVIDENCE behind a cell; the SYMBOL it is attached to
+still carries the status, and it translates to `CoverageStatus` exactly as it
+always did (✅ → COVERED, ⚠️ → PARTIAL, ❌ → UNCOVERED, ❓ → UNKNOWN).
 
-| Call class                    | Claude Code     | Codex CLI             | Amp               | opencode        | Gemini CLI               |
-| ----------------------------- | --------------- | --------------------- | ----------------- | --------------- | ------------------------ |
-| **Builtin tool**              | ✅ [C1]         | ⚠️ Bash only [X1][X2] | ✅ [A1]           | ✅ [O1]         | ✅ (v0.26+) [G1]         |
-| **MCP-server tool**           | ✅ [C2]         | ❌ [X1][X2]           | ✅ [A2]           | ❌ #2319 [O2]   | ✅ likely, med-conf [G2] |
-| **Subagent-spawned tool**     | ✅ [C3]         | ⚠️ Bash only [X3]     | ✅ (context) [A3] | ❓ [O3]         | ⚠️ load-bug [G3]         |
-| **Resumed/continued session** | ✅ struct. [C4] | ⚠️ Bash only [X4]     | ✅ struct. [A4]   | ✅ struct. [O4] | ❓ [G4]                  |
+**A cell is a CEILING, not an exact value.** An adapter may not claim more
+coverage than its cell — that is the fail-open this document exists to prevent —
+but it may always declare LESS, because every step down the ladder degrades a
+`deny` toward notify and is therefore safe. So `✅ struct.` translating to
+COVERED is what the table asserts, and an adapter holding the same cell at
+UNKNOWN is exercising the conservative option rather than contradicting it.
+Both readings are live today: Claude's resumed row is COVERED and Amp's is
+UNKNOWN (see [C4], [A4]). The divergence is invisible at runtime — on every host
+this row is declarative, since `classifyCallClass` never returns `resumed`, so
+no call is judged by it — and it stops being a judgement call at all once a
+probe supplies both a signal and a citation.
+
+| Call class                    | Claude Code     | Codex CLI             | Amp               | opencode                     | Gemini CLI               |
+| ----------------------------- | --------------- | --------------------- | ----------------- | ---------------------------- | ------------------------ |
+| **Builtin tool**              | ✅ [C1]         | ⚠️ Bash only [X1][X2] | ✅ [A1]           | ✅ [O1]                      | ✅ (v0.26+) [G1]         |
+| **MCP-server tool**           | ✅ [C2]         | ❌ [X1][X2]           | ✅ [A2]           | ❌ #2319 [O2]                | ✅ likely, med-conf [G2] |
+| **Subagent-spawned tool**     | ✅ [C3]         | ⚠️ Bash only [X3]     | ✅ (context) [A3] | ❓ [O3]                      | ⚠️ load-bug [G3]         |
+| **Resumed/continued session** | ✅ struct. [C4] | ⚠️ Bash only [X4]     | ✅ struct. [A4]   | ⚠️ builtin only struct. [O4] | ❓ [G4]                  |
 
 ### Per-cell reasons + citations
 
@@ -178,10 +185,12 @@ schema's reference case for `NativeResponse.throw_`)
   undocumented. Given the MCP wiring gap ([O2]) shows opencode's hook and
   tool-dispatch surfaces are not uniformly wired, do **not** assume ✅ — mark
   unknown, resolve by probe.
-- **[O4] resumed ✅ (structural)** — the plugin is loaded into the process and
-  intercepts in-process tool executions; a resumed session's new **builtin**
-  calls still fire `tool.execute.before` (MCP still won't, per [O2]). Structural,
-  not separately cited.
+- **[O4] resumed ⚠️ builtin only (structural)** — the plugin is loaded into the
+  process and intercepts in-process tool executions, so a resumed session's new
+  **builtin** calls still fire `tool.execute.before`. Its MCP calls do not, per
+  [O2] — that gap is not repaired by resuming, so this class is PARTIAL for the
+  same reason Codex's is: only some of the tools in it reach the hook. Structural
+  as to the builtin half, not separately cited.
 
 **Gemini CLI** (`external_hook`; `BeforeTool`/`AfterTool`/`AfterAgent`
 subprocess hooks, stdin/stdout JSON — needs its own version gate + fail-open
@@ -252,15 +261,16 @@ the class vetoable:**
   a successfully loaded agent, and **resumed-session** firing.
 - OpenHands sub-agent security-layer inheritance.
 
-**Structurally implied but uncited (`✅ struct.`) — a probe would harden these,
-but the mechanism already argues for firing, so they are NOT ❓:**
+**Uncited but structurally implied (`struct.`) — a probe would harden these, but
+the mechanism already argues for the status shown, so they are NOT ❓:**
 
 - Claude Code **resumed-session** firing [C4] — hooks are re-read from settings
   on session load.
 - Amp **resumed-session** firing [A4] — permissions are evaluated per tool call
   at call time.
-- opencode **resumed-session** firing [O4] — the plugin intercepts in-process
-  executions for the life of the process (its MCP gap [O2] still applies).
+- opencode **resumed-session** firing [O4], ⚠️ rather than ✅ — the plugin
+  intercepts in-process executions for the life of the process, but its MCP gap
+  [O2] survives the resume, so only the builtin half of the class fires.
 
 The distinction is load-bearing for the ❓-is-❌ rule: it degrades a cell whose
 behavior is **unknown**, and every cell above has a documented mechanism that
