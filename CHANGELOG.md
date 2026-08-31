@@ -42,6 +42,88 @@ the prose from the release's commits.
 - A synthesized conformance probe for a kind no fixture produces now drops `meta.native_tool` on a kind that carries no tool, and seeds a tool kind from a tool-bearing event. Both were events no `parse` produces, so a renderer that reads either could be certified on the wrong branch.
 - A synthesized conformance probe is never vetoable. Nothing says an adapter gates a kind no fixture produced, and `makeEvent` refuses a vetoable `unknown` outright, so seeding either from a vetoable tool event claimed a block the host never performs.
 
+## [0.5.3] - 2026-08-18
+
+### Fixed
+
+- The release-docs fallback pull request keeps its own checks running, so a release that cannot push to `main` still reports.
+- `auto-version` opens a release-docs pull request when a branch ruleset blocks the direct push to `main`.
+
+## [0.5.2] - 2026-08-18
+
+### Changed
+
+- The merge-conflict resolver is called from its own repository, pinned by SHA.
+
+### Fixed
+
+- The auto-resolve path no longer receives a metered API key.
+- Restored the protected-set coverage, and corrected the citations in `git-auth`.
+- The called auto-resolve workflow runs under a permissions ceiling.
+- `template-sync` stages the resolver, so the model tier still runs.
+
+## [0.5.1] - 2026-08-17
+
+### Fixed
+
+- The control plane refuses a vetoable `UNKNOWN` at the constructor instead of in conformance.
+- The conformance drift probe bites on the Codex adapter, and the gated sets stay private.
+
+## [0.5.0] - 2026-08-17
+
+### Changed
+
+- **Breaking:** an unmodelled event never reports an enforced block.
+
+## [0.4.3] - 2026-08-17
+
+### Fixed
+
+- The hook runtime writes the whole response body, instead of one short `writeSync`.
+- An adapter renders an unenforceable deny as `ask`, never as Amp's allow.
+
+## [0.4.2] - 2026-08-17
+
+### Fixed
+
+- The conformance aliased-input check runs against a live `parse`, not the fixture file.
+
+## [0.4.1] - 2026-08-17
+
+### Fixed
+
+- The release job gets `uv`, so its docs commit can be pushed.
+- `.github/tool-versions.sh` is synced from the template.
+
+## [0.4.0] - 2026-08-17
+
+### Changed
+
+- **Breaking:** the Gemini adapter canonicalizes an aliased tool's INPUT, and the `web_fetch` alias is dropped.
+- `MODELED_TOOLS` is derived from the input-key map, and the new export is pinned.
+
+### Fixed
+
+- A malformed judge verdict is clamped to `ask`, and conformance asserts that a deny must block.
+
+## [0.3.2] - 2026-08-10
+
+### Fixed
+
+- The sync installs `.github/tool-versions.sh`, the pin file `install-mergiraf.sh` sources.
+- The local zizmor hook runs offline.
+
+## [0.3.1] - 2026-08-10
+
+### Fixed
+
+- `template-sync` syncs the pin files that the synced scripts source.
+- The release job gets the pre-commit that the pre-push hook demands.
+
+### Changed
+
+- The documentation says which `SYNC_PATHS` entries are load-bearing, and records the releases the stranded docs push lost.
+
 ## [0.3.0] - 2026-08-10
 
 ### Added
