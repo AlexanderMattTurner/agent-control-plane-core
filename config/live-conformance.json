@@ -14,7 +14,7 @@
       "agent": "codex",
       "package": "@openai/codex",
       "versioning": "semver",
-      "captured_version": "0.142.5",
+      "captured_version": "0.151.0",
       "event_name": "PreToolUse",
       "tool_matcher": "^Bash$",
       "secret": "OPENAI_API_KEY"

@@ -323,27 +323,40 @@ export function isCoverageStatus(status) {
 
 /**
  * Classify a tool call into a {@link CallClass} from what a single pre-tool
- * payload reveals. Only MCP is reliably detectable here — from the tool NAME
- * (`mcp__server__tool` / `mcp_server_tool`) or an explicit `mcp_context` object
- * on the native payload. Subagent- and resumed-session calls carry no universal
- * signal in a lone pre-tool event (detecting them needs the live probe of
- * item ⑤), so they are NOT distinguished here and fall through to BUILTIN — an
- * adapter whose host leaves those classes un-gated relies on the sandbox, not
- * this classifier. An adapter feeds the result into `coverageAllowsVeto(this.
- * COVERAGE[class])` so a call in an uncovered/unknown class parses non-vetoable.
+ * payload reveals. Two classes are detectable here:
  *
- * The fail-closed reading of a ❓ row therefore reaches only the classes this
- * function can return, BUILTIN and MCP. An adapter's SUBAGENT/RESUMED rows are
- * never selected here, so declaring them UNKNOWN does not make a subagent's or
- * a resumed session's call non-vetoable: it is judged by the row its TOOL
- * selects, BUILTIN or MCP.
- * Honouring those rows would mean taking the minimum status across the classes
- * this classifier cannot separate — which collapses BUILTIN to UNKNOWN and
- * disables enforcement outright for every adapter that has a ❓ there, so it is
- * deliberately not done. Until item ⑤ supplies a signal, that gap is the
- * sandbox's to cover, and the rows stand as documentation.
+ * - MCP, from the tool NAME (`mcp__server__tool` / `mcp_server_tool`) or an
+ *   explicit `mcp_context` object on the native payload. Checked FIRST: an MCP
+ *   call made from inside a subagent is still routed through the host's MCP
+ *   surface, and that is the axis a host most often leaves un-gated.
+ * - SUBAGENT, from a non-empty `agent_type` on the payload — the field a host
+ *   stamps on a call made by a subagent rather than the main thread. Claude Code
+ *   carries it (with `agent_id`) on its hook inputs, and a live Codex probe
+ *   ([X3] in `docs/hook-coverage-matrix.md`) found both fields present on a
+ *   subagent's `PreToolUse` and ABSENT on the main thread's, with the `agent_id`
+ *   matching the one `SubagentStart` announced. Absence is what makes the field
+ *   a DISCRIMINATOR rather than decoration, which is why it is read here.
+ *
+ * RESUMED is not detectable from a tool payload on any host measured so far.
+ * Codex does announce a resumed session — `SessionStart` carries
+ * `source: "resume"` ([X4]) — but that is a different event, and correlating it
+ * would mean keeping cross-event state this package deliberately does not have:
+ * `parse` is a pure function of one payload. So a resumed session's call falls
+ * through to BUILTIN (or MCP) and is judged by that row. An adapter feeds the
+ * result into `coverageAllowsVeto(this.COVERAGE[class])` so a call in an
+ * uncovered/unknown class parses non-vetoable.
+ *
+ * The fail-closed reading of a ❓ row therefore reaches BUILTIN, MCP, and — on a
+ * host that stamps `agent_type` — SUBAGENT. An adapter's RESUMED row is still
+ * never selected, so declaring it UNKNOWN would not make a resumed session's
+ * call non-vetoable: it is judged by the row its TOOL selects. Honouring that
+ * row would mean taking the minimum status across the classes this classifier
+ * cannot separate — which collapses BUILTIN to UNKNOWN and disables enforcement
+ * outright for every adapter that has a ❓ there, so it is deliberately not
+ * done. Where a host's resumed coverage is unmeasured, that gap is the
+ * sandbox's to cover, and the row stands as documentation.
  * @param {string|null} tool tool name (null for non-tool events)
- * @param {Record<string, unknown>} [native] the raw native payload, for `mcp_context`
+ * @param {Record<string, unknown>} [native] the raw native payload, for `mcp_context` and `agent_type`
  * @returns {string} a {@link CallClass} value
  */
 export function classifyCallClass(tool, native) {
@@ -355,6 +368,13 @@ export function classifyCallClass(tool, native) {
   // and silently downgrades a legitimate veto).
   if (ctx !== null && typeof ctx === "object" && !Array.isArray(ctx))
     return CallClass.MCP;
+  // A NON-EMPTY string only: a host that stamps the key with `""` or `null` on a
+  // main-thread call is saying "no subagent", and reading that as one would
+  // degrade every ordinary call on a host whose SUBAGENT row is ❓. Codex's
+  // probed value for its default subagent is the literal "default" — a real
+  // agent type, not an empty marker, so it classifies as one.
+  if (typeof native?.agent_type === "string" && native.agent_type !== "")
+    return CallClass.SUBAGENT;
   return CallClass.BUILTIN;
 }
 

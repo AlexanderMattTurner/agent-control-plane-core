@@ -108,6 +108,37 @@ call class and checks whether the hook fired converts a `❓` into a confirmed
 `this_call_vetoable` value. Until then, per that doc, an unconfirmed cell is
 treated as un-vetoable (degrade `deny` → notify), never assumed covered.
 
+### Tier-2 probes that have run
+
+**Codex, subagent + resumed `PreToolUse` (matrix [X3]/[X4]/[X6]).** Three legs —
+a main-thread shell call, the same call inside a resumed session
+(`codex exec resume`), and one made by a subagent — each dropped a marker from
+the hook. All three came back covered
+(`baseline_builtin_pretooluse=covered`, `resumed_pretooluse=covered`,
+`subagent_pretooluse=covered`), so neither row is `❓` any longer; both are
+PARTIAL, under the same Bash-only limit as the builtin row.
+
+Three findings the probe settled that the docs had wrong:
+
+1. A subagent's `PreToolUse` payload **does** carry `agent_id` and `agent_type`
+   (`agent_type=default`, `agent_id` equal to the one `SubagentStart`
+   announced), and the baseline and resumed legs both reported
+   `agent_type=absent`. The absence on the main thread is what makes the field a
+   discriminator, so `classifyCallClass` reads it and returns `SUBAGENT`. The
+   Codex docs and [openai/codex#16226](https://github.com/openai/codex/issues/16226)
+   (still open) say otherwise and are stale; `src/fixtures/codex.json` carries
+   the captured key set as a `call_class: "subagent"` golden case.
+2. A resumed session announces itself on `SessionStart` (`source: "resume"`), not
+   on its tool payloads — the probe read
+   `session_start_sources=startup,resume,startup`. Since `parse` keeps no
+   cross-event state, `RESUMED` remains unreachable from a lone tool event and
+   the row stays declarative.
+3. `codex exec resume` ignores `-C` (see
+   [`monitor-invariants.md`](./monitor-invariants.md) §Invariant 1). The probe's
+   own first run failed on this: its marker directory sat outside the model's
+   writable workspace, and Codex's `workspace-write` permits writes only under
+   the leg's workdir.
+
 ## Sources
 
 - Claude Code hooks — [code.claude.com/docs/en/hooks](https://code.claude.com/docs/en/hooks) · [npm](https://www.npmjs.com/package/@anthropic-ai/claude-code)

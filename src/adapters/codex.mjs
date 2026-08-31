@@ -52,8 +52,10 @@ export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
 /**
  * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). `PreToolUse`
  * intercepts the shell (Bash) tool ONLY — other builtins and MCP tools never
- * reach it — so builtin is PARTIAL and MCP is UNCOVERED. Subagent and resumed
- * firing are undocumented ⇒ UNKNOWN.
+ * reach it — so builtin is PARTIAL and MCP is UNCOVERED. A live probe
+ * ([X3]/[X4]) fired `PreToolUse` for a SUBAGENT's call and for a call in a
+ * RESUMED session, so both are PARTIAL too: covered, under the same Bash-only
+ * limit as [X1], rather than the ❓ the matrix carried before the probe ran.
  *
  * These rows describe PRE-TOOL routing, which is the only thing the matrix's
  * [X1]/[X2] sources speak about. `parse` applies them to a pre-tool event only
@@ -61,20 +63,26 @@ export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
  * never sees, so a post-tool event judged by the MCP row would drop a block
  * Codex documents it honours.
  *
- * The SUBAGENT and RESUMED rows are DECLARATIVE ONLY: a lone Codex pre-tool
- * payload carries no signal for either class, so {@link classifyCallClass}
- * never returns them and `parse` never reads these two entries — a subagent's
- * shell call is classified BUILTIN and judged by the PARTIAL row, i.e. parses
- * vetoable (an MCP-named one still takes the UNCOVERED MCP row). They record the
- * matrix verdict for a consumer reading COVERAGE directly; they become
- * load-bearing only once an item-⑤ probe supplies a classifier signal.
+ * The SUBAGENT row is the one the classifier now reaches on this host: the same
+ * probe found `agent_id`/`agent_type` present on a subagent's `PreToolUse`
+ * payload and ABSENT on the main thread's, so {@link classifyCallClass} answers
+ * SUBAGENT from that payload alone. It is PARTIAL, so such a call stays vetoable
+ * — the row's job here is to be honest, not to degrade. An MCP-named call takes
+ * the UNCOVERED MCP row either way, subagent or not.
+ *
+ * The RESUMED row is DECLARATIVE ONLY, for a reason no longer about coverage: a
+ * resumed session announces itself on `SessionStart` (`source: "resume"`), not on
+ * its tool payloads, and this package keeps no cross-event state — so the
+ * classifier cannot answer RESUMED from a lone pre-tool event and such a call is
+ * judged by the row its TOOL selects. Both rows are PARTIAL, so that reads the
+ * same either way.
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE = Object.freeze({
   [CallClass.BUILTIN]: CoverageStatus.PARTIAL,
   [CallClass.MCP]: CoverageStatus.UNCOVERED,
-  [CallClass.SUBAGENT]: CoverageStatus.UNKNOWN,
-  [CallClass.RESUMED]: CoverageStatus.UNKNOWN,
+  [CallClass.SUBAGENT]: CoverageStatus.PARTIAL,
+  [CallClass.RESUMED]: CoverageStatus.PARTIAL,
 });
 
 /**

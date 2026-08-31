@@ -37,12 +37,14 @@ export const INTEGRATION_MODE: "external_hook";
  * same document's ❓ list: an uncited structural ✅ is held at UNKNOWN here until
  * a probe cites it.
  *
- * The row is DECLARATIVE ONLY either way: a lone delegate invocation carries no
- * signal for a resumed thread, so {@link classifyCallClass} never returns
+ * The row is DECLARATIVE ONLY either way: no host marks a lone tool event as
+ * belonging to a resumed session, so {@link classifyCallClass} never returns
  * RESUMED and `parse` never reads the entry — a call in a resumed thread is
  * classified by its TOOL, BUILTIN or MCP, and both are COVERED, so it parses
- * vetoable. The entry is there for a consumer reading COVERAGE directly, and
- * becomes load-bearing only once an item-⑤ probe supplies a classifier signal.
+ * vetoable. (The SUBAGENT row is reachable — the classifier answers it for a
+ * payload carrying `agent_type` — but Amp's subagent coverage is COVERED too,
+ * so it changes nothing here either.) The entry is there for a consumer reading
+ * COVERAGE directly, and becomes load-bearing only once a signal exists.
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;

@@ -70,6 +70,13 @@ adapter:**
   pinned system settings file even when that file is read-only. Locking the file
   is not enough on Gemini CLI; the launcher must also fix the env/argv the agent
   can't rewrite.
+- **`codex exec resume` ignores `-C`.** A resumed Codex session inherits the
+  write boundary of the directory the session was FIRST created in, so resuming
+  from inside a narrow directory does not narrow it (measured by the item-⑤
+  probe behind [X4]/[X6] in
+  [`hook-coverage-matrix.md`](./hook-coverage-matrix.md)). A sandbox that relies
+  on `-C` to confine a session must therefore confine it at creation; a
+  per-resume `-C` is not a boundary at all.
 - Claude Code strips a managed entry that fails schema validation and keeps the
   rest, so a single malformed key can't disable the surrounding policy
   ([code.claude.com/docs/en/settings](https://code.claude.com/docs/en/settings))

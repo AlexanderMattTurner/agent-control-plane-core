@@ -11,7 +11,12 @@ import {
   MIN_ENFORCING_VERSION,
 } from "../src/adapters/codex.mjs";
 import { runAdapterConformance } from "../src/conformance.mjs";
-import { CallClass, CoverageStatus, EventKind } from "../src/control-plane.mjs";
+import {
+  CallClass,
+  classifyCallClass,
+  CoverageStatus,
+  EventKind,
+} from "../src/control-plane.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtures = JSON.parse(
@@ -228,34 +233,41 @@ describe("codex: an unmodelled event is never vetoable, even on an enforcing ver
   });
 });
 
-describe("codex: the SUBAGENT coverage row is inert, so a subagent shell call is judged BUILTIN", () => {
-  // COVERAGE[SUBAGENT] is UNKNOWN and reads as fail-closed, but nothing selects
-  // it: classifyCallClass has no subagent signal in a lone PreToolUse payload,
-  // so the PARTIAL builtin row answers and the call parses vetoable. Adding a
-  // subagent signal to the classifier flips this case, which is the point:
-  // reviewing this expectation is how that change gets noticed.
-  const subagentCall = {
+describe("codex: a subagent's call takes the SUBAGENT row, not the BUILTIN one", () => {
+  // A live item-⑤ probe drove a real Codex subagent and read back
+  // agent_type=default / agent_id=<the one SubagentStart announced> on its
+  // PreToolUse payload, with agent_type absent on the main thread's — so the
+  // field discriminates, and the SUBAGENT row is PARTIAL (the hook fires, under
+  // the same Bash-only limit as the BUILTIN row) rather than UNKNOWN.
+  const shellCall = {
     hook_event_name: "PreToolUse",
-    version: "0.135.0",
-    tool_name: "shell",
+    version: "0.151.0",
+    tool_name: "Bash",
     tool_input: { command: ["ls"] },
-    agent_id: "sub-1",
-    agent_type: "explorer",
   };
 
-  it("parses vetoable despite COVERAGE[subagent] being unknown", () => {
-    assert.equal(COVERAGE[CallClass.SUBAGENT], CoverageStatus.UNKNOWN);
-    assert.equal(codexAdapter.parse(subagentCall).this_call_vetoable, true);
+  it("a main-thread shell call carries no agent_type and takes the BUILTIN row", () => {
+    assert.equal(COVERAGE[CallClass.BUILTIN], CoverageStatus.PARTIAL);
+    assert.equal(classifyCallClass("Bash", shellCall), CallClass.BUILTIN);
+    assert.equal(codexAdapter.parse(shellCall).this_call_vetoable, true);
   });
 
-  // Positive marker: the row that IS reachable does bite on the same payload,
-  // so the case above is the classifier's blind spot and not a dead coverage map.
-  it("an MCP-named tool on the same payload parses non-vetoable", () => {
-    const event = codexAdapter.parse({
-      ...subagentCall,
-      tool_name: "mcp__github__create_issue",
-    });
-    assert.equal(event.this_call_vetoable, false);
+  it("the same call carrying agent_type classifies SUBAGENT and stays vetoable", () => {
+    assert.equal(COVERAGE[CallClass.SUBAGENT], CoverageStatus.PARTIAL);
+    const raw = { ...shellCall, agent_id: "sub-1", agent_type: "default" };
+    assert.equal(classifyCallClass("Bash", raw), CallClass.SUBAGENT);
+    assert.equal(codexAdapter.parse(raw).this_call_vetoable, true);
+  });
+
+  it("an MCP-named tool takes the MCP row whether or not a subagent made it", () => {
+    for (const extra of [{}, { agent_type: "default" }]) {
+      const event = codexAdapter.parse({
+        ...shellCall,
+        ...extra,
+        tool_name: "mcp__github__create_issue",
+      });
+      assert.equal(event.this_call_vetoable, false);
+    }
   });
 });
 
