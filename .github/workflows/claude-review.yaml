@@ -142,6 +142,7 @@ jobs:
     permissions:
       contents: read # checkout the trusted base branch
       pull-requests: write # post the review
+      statuses: write # re-derive the head's review-findings verdict
     steps:
       - name: Checkout base (trusted) branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -272,6 +273,22 @@ jobs:
           # RUNNER_TEMP default path if the output is empty).
           EXECUTION_FILE: ${{ steps.claude_review.outputs.execution_file }}
         run: bash .github/scripts/post-pr-review.sh
+
+      - name: Re-derive the review-findings verdict on the head
+        # The review just posted with GITHUB_TOKEN, and that token's events
+        # start no workflow run. So nothing else recomputes the gate: a re-review
+        # through `needs-auto-review` or an `[opus-review]` push would leave a
+        # green status standing over fresh unresolved findings until the
+        # half-hourly reconciler caught it. `always()` so a refused or partly
+        # posted review still gets a fresh verdict rather than a stale one.
+        if: always() && steps.prepare.outputs.oversized != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          REPORT_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/review-findings-gate.sh
 
   # Auto-approve the PRs the reviewer deliberately SKIPS (see `decide` above:
   # low-risk chore/style by title, machine-cut `release:` PRs, and
