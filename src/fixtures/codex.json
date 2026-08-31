@@ -217,7 +217,7 @@
         "cwd": "/w",
         "permission_mode": "default",
         "transcript_path": "/r.jsonl",
-        "tool_name": "shell",
+        "tool_name": "Bash",
         "tool_input": {
           "command": ["ls", "-la"]
         },
@@ -230,7 +230,7 @@
       "event": {
         "schema_version": 1,
         "event": "pre_tool",
-        "tool": "shell",
+        "tool": "Bash",
         "input": {
           "command": ["ls", "-la"]
         },
@@ -251,7 +251,7 @@
           "cwd": "/w",
           "permission_mode": "default",
           "transcript_path": "/r.jsonl",
-          "native_tool": "shell"
+          "native_tool": "Bash"
         }
       },
       "render": {

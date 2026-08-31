@@ -242,20 +242,20 @@ describe("codex: a subagent's call takes the SUBAGENT row, not the BUILTIN one",
   const shellCall = {
     hook_event_name: "PreToolUse",
     version: "0.151.0",
-    tool_name: "shell",
+    tool_name: "Bash",
     tool_input: { command: ["ls"] },
   };
 
   it("a main-thread shell call carries no agent_type and takes the BUILTIN row", () => {
     assert.equal(COVERAGE[CallClass.BUILTIN], CoverageStatus.PARTIAL);
-    assert.equal(classifyCallClass("shell", shellCall), CallClass.BUILTIN);
+    assert.equal(classifyCallClass("Bash", shellCall), CallClass.BUILTIN);
     assert.equal(codexAdapter.parse(shellCall).this_call_vetoable, true);
   });
 
   it("the same call carrying agent_type classifies SUBAGENT and stays vetoable", () => {
     assert.equal(COVERAGE[CallClass.SUBAGENT], CoverageStatus.PARTIAL);
     const raw = { ...shellCall, agent_id: "sub-1", agent_type: "default" };
-    assert.equal(classifyCallClass("shell", raw), CallClass.SUBAGENT);
+    assert.equal(classifyCallClass("Bash", raw), CallClass.SUBAGENT);
     assert.equal(codexAdapter.parse(raw).this_call_vetoable, true);
   });
 
