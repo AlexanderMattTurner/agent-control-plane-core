@@ -276,10 +276,10 @@ jobs:
   # Auto-approve the PRs the reviewer deliberately SKIPS (see `decide` above:
   # low-risk chore/style by title, machine-cut `release:` PRs, and
   # bot-authored PRs like Dependabot). Under a review-required ruleset the Claude
-  # review IS the approval for the PRs it reads (looks_good -> APPROVE), so a class
-  # it never reads would otherwise be stranded with no approving review and never
-  # auto-merge. This posts that approval so the ruleset can let them through, and
-  # its body points a human at the `needs-auto-review` label to force a real Opus
+  # review IS the approval for the PRs it reads, so a class it never reads would
+  # otherwise be stranded with no approving review and never auto-merge. This
+  # posts that approval so the ruleset can let them through, and a separate
+  # comment points a human at the `needs-auto-review` label to force a real Opus
   # read when one is wanted. Draft PRs are excluded — they
   # can't merge anyway and get reviewed on `ready_for_review`. Fires only on the
   # first-look events (opened/ready_for_review), never on `synchronize`: it relies
@@ -317,11 +317,19 @@ jobs:
           # decide/review jobs: the script is trusted repo content, no PR code runs.
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
-          sparse-checkout: .github/scripts/auto-approve-skipped-pr.sh
+          # The approver sources lib/review-skip-set.bash, which sources the
+          # retry helper; a narrower list dies at the `source` under `set -e`.
+          sparse-checkout: .github/scripts
           sparse-checkout-cone-mode: false
       - name: Approve so a review-required ruleset doesn't strand a skipped PR
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GitHub refuses addPullRequestReview outright for an Actions token,
+          # so this step stands down on every skipped PR without a PAT. Take the
+          # same candidates in the same order as approve-if-reviewer-hold-clear
+          # below, the sibling that approves the PRs the reviewer DOES read.
+          # Every candidate is an identity this repository's owner controls.
+          # token-fallback-ok: designed graceful degradation, not an accident.
+          GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN_ORG || secrets.TEMPLATE_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: bash .github/scripts/auto-approve-skipped-pr.sh
