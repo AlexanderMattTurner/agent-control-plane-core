@@ -43,3 +43,6 @@ __pycache__/
 *.pyc
 .venv/
 .uv/
+
+# Claude Code agent worktrees (isolation scratch space, not repo content)
+.claude/worktrees/

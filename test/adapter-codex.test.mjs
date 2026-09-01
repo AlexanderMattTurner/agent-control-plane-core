@@ -6,11 +6,17 @@ import { fileURLToPath } from "node:url";
 import {
   codexAdapter,
   canEnforce,
+  COVERAGE,
   DEFAULT_DENY_REASON,
   MIN_ENFORCING_VERSION,
 } from "../src/adapters/codex.mjs";
 import { runAdapterConformance } from "../src/conformance.mjs";
-import { EventKind } from "../src/control-plane.mjs";
+import {
+  CallClass,
+  classifyCallClass,
+  CoverageStatus,
+  EventKind,
+} from "../src/control-plane.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtures = JSON.parse(
@@ -189,11 +195,11 @@ describe("canEnforce version gate (≥ v0.135)", () => {
 });
 
 describe("codex: an unmodelled event is never vetoable, even on an enforcing version", () => {
-  // Codex routes EVERY event other than PreToolUse/PermissionRequest into
-  // EventKind.UNKNOWN, so this is its ordinary path rather than drift. On an
+  // Codex routes every event other than PreToolUse/PermissionRequest/PostToolUse
+  // into EventKind.UNKNOWN, so this is its ordinary path rather than drift. On an
   // enforcing version the coverage map alone answered "vetoable", and the render
   // then claimed a block Codex never performs for a SessionStart payload.
-  for (const nativeEvent of ["SessionStart", "PostToolUse", "Notification"]) {
+  for (const nativeEvent of ["SessionStart", "Stop", "Notification"]) {
     it(`${nativeEvent} parses unknown and renders no enforced block`, () => {
       const event = codexAdapter.parse({
         hook_event_name: nativeEvent,
@@ -227,18 +233,141 @@ describe("codex: an unmodelled event is never vetoable, even on an enforcing ver
   });
 });
 
-describe("codex render: an unmodelled event claims no content channel", () => {
-  // Codex routes every native event but PreToolUse/PermissionRequest into
-  // EventKind.UNKNOWN — PostToolUse included. `updatedInput` there names a key
-  // the host ignores while reading to the caller as a mutation applied.
-  const unknown = codexAdapter.parse({
+describe("codex: a subagent's call takes the SUBAGENT row, not the BUILTIN one", () => {
+  // A live item-⑤ probe drove a real Codex subagent and read back
+  // agent_type=default / agent_id=<the one SubagentStart announced> on its
+  // PreToolUse payload, with agent_type absent on the main thread's — so the
+  // field discriminates, and the SUBAGENT row is PARTIAL (the hook fires, under
+  // the same Bash-only limit as the BUILTIN row) rather than UNKNOWN.
+  const shellCall = {
+    hook_event_name: "PreToolUse",
+    version: "0.151.0",
+    tool_name: "Bash",
+    tool_input: { command: ["ls"] },
+  };
+
+  it("a main-thread shell call carries no agent_type and takes the BUILTIN row", () => {
+    assert.equal(COVERAGE[CallClass.BUILTIN], CoverageStatus.PARTIAL);
+    assert.equal(classifyCallClass("Bash", shellCall), CallClass.BUILTIN);
+    assert.equal(codexAdapter.parse(shellCall).this_call_vetoable, true);
+  });
+
+  it("the same call carrying agent_type classifies SUBAGENT and stays vetoable", () => {
+    assert.equal(COVERAGE[CallClass.SUBAGENT], CoverageStatus.PARTIAL);
+    const raw = { ...shellCall, agent_id: "sub-1", agent_type: "default" };
+    assert.equal(classifyCallClass("Bash", raw), CallClass.SUBAGENT);
+    assert.equal(codexAdapter.parse(raw).this_call_vetoable, true);
+  });
+
+  it("an MCP-named tool takes the MCP row whether or not a subagent made it", () => {
+    for (const extra of [{}, { agent_type: "default" }]) {
+      const event = codexAdapter.parse({
+        ...shellCall,
+        ...extra,
+        tool_name: "mcp__github__create_issue",
+      });
+      assert.equal(event.this_call_vetoable, false);
+    }
+  });
+});
+
+describe("codex: PostToolUse parses post_tool and blocks on the post-tool schema", () => {
+  const postCall = {
     hook_event_name: "PostToolUse",
+    version: "0.151.0",
+    tool_name: "Bash",
+    tool_input: { command: "cat .env" },
+    tool_response: "OPENAI_API_KEY=sk-live-1",
+  };
+
+  it("carries tool_response into response and parses vetoable", () => {
+    const event = codexAdapter.parse(postCall);
+    assert.equal(event.event, EventKind.POST_TOOL);
+    assert.equal(event.response, "OPENAI_API_KEY=sk-live-1");
+    assert.equal(event.this_call_vetoable, true);
+  });
+
+  it("renders a deny as decision:block + exit 2, never permissionDecision", () => {
+    const out = codexAdapter.render(
+      { decision: "deny", reason: "leaked credential" },
+      codexAdapter.parse(postCall),
+    );
+    assert.equal(out.enforced, true);
+    assert.equal(out.exit_code, 2);
+    assert.equal(out.stdout.decision, "block");
+    assert.equal(out.stdout.reason, "leaked credential");
+    // permissionDecision is parsed but inert on PostToolUse, so emitting it
+    // would read as a block that never bites.
+    assert.equal(
+      Object.hasOwn(out.stdout.hookSpecificOutput, "permissionDecision"),
+      false,
+    );
+  });
+
+  it("guarantees a non-empty reason on a reasonless enforced block", () => {
+    const out = codexAdapter.render(
+      { decision: "deny" },
+      codexAdapter.parse(postCall),
+    );
+    assert.equal(out.stdout.reason, DEFAULT_DENY_REASON);
+  });
+
+  it("carries additional_context but drops mutated_output", () => {
+    const out = codexAdapter.render(
+      {
+        decision: "allow",
+        additional_context: "1 secret in this output",
+        mutated_output: "[REDACTED]",
+      },
+      codexAdapter.parse(postCall),
+    );
+    assert.equal(
+      out.stdout.hookSpecificOutput.additionalContext,
+      "1 secret in this output",
+    );
+    assert.deepEqual(Object.keys(out.stdout), ["hookSpecificOutput"]);
+    assert.equal(
+      Object.hasOwn(out.stdout.hookSpecificOutput, "updatedToolOutput"),
+      false,
+    );
+  });
+
+  it("stays advisory on a pre-0.135 Codex", () => {
+    const event = codexAdapter.parse({ ...postCall, version: "0.134.0" });
+    assert.equal(event.this_call_vetoable, false);
+    const out = codexAdapter.render({ decision: "deny", reason: "r" }, event);
+    assert.equal(out.enforced, false);
+    assert.equal(out.exit_code, 0);
+  });
+
+  // The COVERAGE rows describe which calls reach PreToolUse. A PostToolUse
+  // payload is proof the post-tool hook fired for THIS call, so the pre-tool MCP
+  // row must not answer for it — the pre-tool half is the positive marker that
+  // the row is still live where it applies.
+  it("an MCP tool is vetoable post-tool though COVERAGE[mcp] is uncovered", () => {
+    const mcp = { ...postCall, tool_name: "mcp__github__create_issue" };
+    assert.equal(COVERAGE[CallClass.MCP], CoverageStatus.UNCOVERED);
+    assert.equal(codexAdapter.parse(mcp).this_call_vetoable, true);
+    assert.equal(
+      codexAdapter.parse({ ...mcp, hook_event_name: "PreToolUse" })
+        .this_call_vetoable,
+      false,
+    );
+  });
+});
+
+describe("codex render: an unmodelled event claims no content channel", () => {
+  // An event the adapter could not name has no channel it can claim: `updatedInput`
+  // there names a key the host ignores while reading to the caller as a mutation
+  // applied.
+  const unknown = codexAdapter.parse({
+    hook_event_name: "PreCompact",
     version: "9999.0.0",
     tool_name: "Bash",
     tool_input: { command: "echo hi" },
   });
 
-  it("parses PostToolUse as UNKNOWN", () => {
+  it("parses PreCompact as UNKNOWN", () => {
     assert.equal(unknown.event, "unknown");
   });
 

@@ -89,8 +89,8 @@ describe("public API surface (index barrel)", () => {
     assert.deepEqual(pkg.codexAdapter.COVERAGE, {
       builtin: "partial",
       mcp: "uncovered",
-      subagent: "unknown",
-      resumed: "unknown",
+      subagent: "partial",
+      resumed: "partial",
     });
     assert.deepEqual(pkg.ampAdapter.COVERAGE, {
       builtin: "covered",

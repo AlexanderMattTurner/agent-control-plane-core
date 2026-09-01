@@ -76,16 +76,40 @@ export function assertGatedKinds(kinds: Set<string>, agent: string): void;
 export function isCoverageStatus(status: unknown): boolean;
 /**
  * Classify a tool call into a {@link CallClass} from what a single pre-tool
- * payload reveals. Only MCP is reliably detectable here — from the tool NAME
- * (`mcp__server__tool` / `mcp_server_tool`) or an explicit `mcp_context` object
- * on the native payload. Subagent- and resumed-session calls carry no universal
- * signal in a lone pre-tool event (detecting them needs the live probe of
- * item ⑤), so they are NOT distinguished here and fall through to BUILTIN — an
- * adapter whose host leaves those classes un-gated relies on the sandbox, not
- * this classifier. An adapter feeds the result into `coverageAllowsVeto(this.
- * COVERAGE[class])` so a call in an uncovered/unknown class parses non-vetoable.
+ * payload reveals. Two classes are detectable here:
+ *
+ * - MCP, from the tool NAME (`mcp__server__tool` / `mcp_server_tool`) or an
+ *   explicit `mcp_context` object on the native payload. Checked FIRST: an MCP
+ *   call made from inside a subagent is still routed through the host's MCP
+ *   surface, and that is the axis a host most often leaves un-gated.
+ * - SUBAGENT, from a non-empty `agent_type` on the payload — the field a host
+ *   stamps on a call made by a subagent rather than the main thread. Claude Code
+ *   carries it (with `agent_id`) on its hook inputs, and a live Codex probe
+ *   ([X3] in `docs/hook-coverage-matrix.md`) found both fields present on a
+ *   subagent's `PreToolUse` and ABSENT on the main thread's, with the `agent_id`
+ *   matching the one `SubagentStart` announced. Absence is what makes the field
+ *   a DISCRIMINATOR rather than decoration, which is why it is read here.
+ *
+ * RESUMED is not detectable from a tool payload on any host measured so far.
+ * Codex does announce a resumed session — `SessionStart` carries
+ * `source: "resume"` ([X4]) — but that is a different event, and correlating it
+ * would mean keeping cross-event state this package deliberately does not have:
+ * `parse` is a pure function of one payload. So a resumed session's call falls
+ * through to BUILTIN (or MCP) and is judged by that row. An adapter feeds the
+ * result into `coverageAllowsVeto(this.COVERAGE[class])` so a call in an
+ * uncovered/unknown class parses non-vetoable.
+ *
+ * The fail-closed reading of a ❓ row therefore reaches BUILTIN, MCP, and — on a
+ * host that stamps `agent_type` — SUBAGENT. An adapter's RESUMED row is still
+ * never selected, so declaring it UNKNOWN would not make a resumed session's
+ * call non-vetoable: it is judged by the row its TOOL selects. Honouring that
+ * row would mean taking the minimum status across the classes this classifier
+ * cannot separate — which collapses BUILTIN to UNKNOWN and disables enforcement
+ * outright for every adapter that has a ❓ there, so it is deliberately not
+ * done. Where a host's resumed coverage is unmeasured, that gap is the
+ * sandbox's to cover, and the row stands as documentation.
  * @param {string|null} tool tool name (null for non-tool events)
- * @param {Record<string, unknown>} [native] the raw native payload, for `mcp_context`
+ * @param {Record<string, unknown>} [native] the raw native payload, for `mcp_context` and `agent_type`
  * @returns {string} a {@link CallClass} value
  */
 export function classifyCallClass(tool: string | null, native?: Record<string, unknown>): string;

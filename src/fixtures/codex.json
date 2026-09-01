@@ -208,6 +208,126 @@
       }
     },
     {
+      "name": "PreToolUse v0.151 from a subagent (agent_type present)",
+      "call_class": "subagent",
+      "native": {
+        "hook_event_name": "PreToolUse",
+        "version": "0.151.0",
+        "session_id": "c-sub",
+        "cwd": "/w",
+        "permission_mode": "default",
+        "transcript_path": "/r.jsonl",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": ["ls", "-la"]
+        },
+        "agent_id": "agt_7f3",
+        "agent_type": "default",
+        "model": "gpt-5-codex",
+        "tool_use_id": "call_1",
+        "turn_id": "turn_3"
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "pre_tool",
+        "tool": "Bash",
+        "input": {
+          "command": ["ls", "-la"]
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "codex",
+          "native_event": "PreToolUse",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {
+            "agent_id": "agt_7f3",
+            "agent_type": "default",
+            "model": "gpt-5-codex",
+            "tool_use_id": "call_1",
+            "turn_id": "turn_3"
+          },
+          "session_id": "c-sub",
+          "cwd": "/w",
+          "permission_mode": "default",
+          "transcript_path": "/r.jsonl",
+          "native_tool": "Bash"
+        }
+      },
+      "render": {
+        "allow": {
+          "verdict": {
+            "decision": "allow"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse"
+              }
+            }
+          }
+        },
+        "input_mutation": {
+          "verdict": {
+            "decision": "allow",
+            "mutated_input": {
+              "command": ["ls"]
+            }
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "updatedInput": {
+                  "command": ["ls"]
+                }
+              }
+            }
+          }
+        },
+        "deny": {
+          "verdict": {
+            "decision": "deny",
+            "reason": "subagent shell blocked"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "subagent shell blocked"
+              }
+            }
+          }
+        },
+        "ask": {
+          "verdict": {
+            "decision": "ask"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "ask"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "PermissionRequest round-trips the native event name",
       "native": {
         "hook_event_name": "PermissionRequest",
@@ -313,6 +433,131 @@
                 "permissionDecision": "deny",
                 "permissionDecisionReason": "advisory only"
               }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "PostToolUse v0.151 blocks on the post-tool schema",
+      "native": {
+        "hook_event_name": "PostToolUse",
+        "version": "0.151.0",
+        "session_id": "c2",
+        "cwd": "/w",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cat .env"
+        },
+        "tool_response": "OPENAI_API_KEY=sk-live-1",
+        "tool_use_id": "call_9"
+      },
+      "event": {
+        "schema_version": 1,
+        "event": "post_tool",
+        "tool": "Bash",
+        "input": {
+          "command": "cat .env"
+        },
+        "this_call_vetoable": true,
+        "meta": {
+          "agent": "codex",
+          "native_event": "PostToolUse",
+          "integration_mode": "external_hook",
+          "primary_gate_present": true,
+          "passthrough": {
+            "tool_use_id": "call_9"
+          },
+          "session_id": "c2",
+          "cwd": "/w",
+          "native_tool": "Bash"
+        },
+        "response": "OPENAI_API_KEY=sk-live-1"
+      },
+      "render": {
+        "context": {
+          "verdict": {
+            "decision": "allow",
+            "additional_context": "1 secret in this output"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": "1 secret in this output"
+              }
+            }
+          }
+        },
+        "output_mutation": {
+          "verdict": {
+            "decision": "allow",
+            "mutated_output": "[REDACTED]"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PostToolUse"
+              }
+            }
+          }
+        },
+        "ask": {
+          "verdict": {
+            "decision": "ask",
+            "reason": "secret in output"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 0,
+            "enforced": false,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PostToolUse"
+              },
+              "decision": "block",
+              "reason": "secret in output"
+            }
+          }
+        },
+        "deny": {
+          "verdict": {
+            "decision": "deny",
+            "reason": "leaked credential"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PostToolUse"
+              },
+              "decision": "block",
+              "reason": "leaked credential"
+            }
+          }
+        },
+        "deny_no_reason": {
+          "verdict": {
+            "decision": "deny"
+          },
+          "native": {
+            "transport": "external_hook",
+            "exit_code": 2,
+            "enforced": true,
+            "stdout": {
+              "hookSpecificOutput": {
+                "hookEventName": "PostToolUse"
+              },
+              "decision": "block",
+              "reason": "blocked by monitor"
             }
           }
         }

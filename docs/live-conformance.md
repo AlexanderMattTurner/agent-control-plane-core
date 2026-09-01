@@ -37,11 +37,26 @@ signal to **re-capture against that version and re-run adapter conformance**. Th
 job is **advisory** — schedule/dispatch only, never `pull_request`:
 
 - It compares against a **moving** `latest`, so gating a PR on it would turn the
-  PR red for a version bump unrelated to its diff. A red run means "a newer CLI
-  shipped, go re-verify," not "this repo is broken."
+  PR red for a version bump unrelated to its diff.
 - The SSOT's own well-formedness _is_ gated on every PR, by
   `test/check-fixture-freshness.test.mjs` under the normal Node tests (the drift
   math, the rolling-release branch, and the shape of the shipped config).
+
+**Drift and breakage are different signals, and the job keeps them apart.**
+
+- **Drift exits 0.** An actively developed CLI publishes continuously, so drift
+  is the normal state between re-captures. It reaches you as a single tracking
+  issue that the scheduled run opens, rewrites and closes on its own
+  (`.github/scripts/fixture-drift-issue.js`), plus the same table in the job
+  summary. The issue carries no `ci-failure` label: nothing failed.
+- **A red run means the check could not run** — a broken checkout, a dead npm
+  registry, a malformed SSOT. That is a real failure with no PR to surface it,
+  so `Fixture freshness` sits on `ci-failure-notify.yaml`'s `workflows:` list
+  with no opt-out marker, and a red run files the usual `ci-failure` issue.
+
+Folding the two together is what the earlier shape got wrong: with drift exiting
+non-zero, a registry outage and a routine CLI release were the same red, and
+nothing downstream could tell them apart.
 
 `versioning: "rolling"` adapters (Amp — no semver release story) are reported
 informationally and never marked drifted; comparing a rolling release against a
@@ -107,6 +122,37 @@ are exactly what a live capture answers. A canned session that exercises each
 call class and checks whether the hook fired converts a `❓` into a confirmed
 `this_call_vetoable` value. Until then, per that doc, an unconfirmed cell is
 treated as un-vetoable (degrade `deny` → notify), never assumed covered.
+
+### Tier-2 probes that have run
+
+**Codex, subagent + resumed `PreToolUse` (matrix [X3]/[X4]/[X6]).** Three legs —
+a main-thread shell call, the same call inside a resumed session
+(`codex exec resume`), and one made by a subagent — each dropped a marker from
+the hook. All three came back covered
+(`baseline_builtin_pretooluse=covered`, `resumed_pretooluse=covered`,
+`subagent_pretooluse=covered`), so neither row is `❓` any longer; both are
+PARTIAL, under the same Bash-only limit as the builtin row.
+
+Three findings the probe settled that the docs had wrong:
+
+1. A subagent's `PreToolUse` payload **does** carry `agent_id` and `agent_type`
+   (`agent_type=default`, `agent_id` equal to the one `SubagentStart`
+   announced), and the baseline and resumed legs both reported
+   `agent_type=absent`. The absence on the main thread is what makes the field a
+   discriminator, so `classifyCallClass` reads it and returns `SUBAGENT`. The
+   Codex docs and [openai/codex#16226](https://github.com/openai/codex/issues/16226)
+   (still open) say otherwise and are stale; `src/fixtures/codex.json` carries
+   the captured key set as a `call_class: "subagent"` golden case.
+2. A resumed session announces itself on `SessionStart` (`source: "resume"`), not
+   on its tool payloads — the probe read
+   `session_start_sources=startup,resume,startup`. Since `parse` keeps no
+   cross-event state, `RESUMED` remains unreachable from a lone tool event and
+   the row stays declarative.
+3. `codex exec resume` ignores `-C` (see
+   [`monitor-invariants.md`](./monitor-invariants.md) §Invariant 1). The probe's
+   own first run failed on this: its marker directory sat outside the model's
+   writable workspace, and Codex's `workspace-write` permits writes only under
+   the leg's workdir.
 
 ## Sources
 

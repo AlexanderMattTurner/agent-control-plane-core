@@ -38,8 +38,18 @@ export const INTEGRATION_MODE: "external_hook";
  * builtins on v0.26+ (COVERED). MCP routing through the same matcher is only
  * MEDIUM-confidence and unproven, subagent firing for a loaded agent is
  * undocumented, and resumed-session behavior has no source — all three are
- * UNKNOWN, held at fail-closed until an item-⑤ probe upgrades them. A guessed ✅
- * here would be a silent fail-open.
+ * UNKNOWN. A guessed ✅ here would be a silent fail-open.
+ *
+ * Only the MCP row is fail-closed in practice: `parse` reads it, because
+ * {@link classifyCallClass} detects MCP from the tool name or `mcp_context`.
+ * The SUBAGENT row answers only for a payload carrying a non-empty `agent_type`
+ * ({@link classifyCallClass}); Gemini CLI documents no such field, so a
+ * subagent's call is judged today by the row its TOOL selects — BUILTIN
+ * (COVERED, i.e. vetoable), or the MCP row above when the name or `mcp_context`
+ * says so. The RESUMED row has no signal at all and is DECLARATIVE ONLY. Both
+ * record the matrix verdict for a consumer reading COVERAGE directly; the
+ * subagent one starts biting the moment a payload names an agent, which is what
+ * an item-⑤ probe of [G3] would establish.
  */
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;
