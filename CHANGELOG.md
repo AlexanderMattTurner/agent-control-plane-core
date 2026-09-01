@@ -12,6 +12,12 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.6.1] - 2026-09-01
+
+### Fixed
+
+- Separate fixture drift detection from freshness check failures to prevent false CI failures when only the fixture drift advisory is triggered.
+
 ## [0.6.0] - 2026-08-31
 
 ### Fixed
