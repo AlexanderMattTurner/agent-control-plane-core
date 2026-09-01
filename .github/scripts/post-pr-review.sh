@@ -16,7 +16,7 @@ set -euo pipefail
 : "${PR_INPUT_DIR:?PR_INPUT_DIR required}"
 
 # A non-zero exit from the reader means the reviewer produced no valid
-# review.json — it crashed before writing its verdict. Surface that as a RED step
+# review.json — it crashed before writing its output. Surface that as a RED step
 # (fail loud) rather than the reader's old silent green, so a broken reviewer
 # can't masquerade as a clean pass. `if !` suspends set -e for the substitution so
 # we can react to the failure instead of dying on it.
