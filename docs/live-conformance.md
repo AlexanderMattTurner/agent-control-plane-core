@@ -42,6 +42,12 @@ job is **advisory** — schedule/dispatch only, never `pull_request`:
 - The SSOT's own well-formedness _is_ gated on every PR, by
   `test/check-fixture-freshness.test.mjs` under the normal Node tests (the drift
   math, the rolling-release branch, and the shape of the shipped config).
+- The job carries `# cron-alert: false` on its `schedule:` trigger, so a red run
+  does not file a `ci-failure` issue. An actively developed CLI publishes
+  continuously, so the drift red is the normal state between re-captures; an
+  issue tracking it could never be closed by a commit in this repo. Read the
+  drift from the workflow's own run history, and act on it with the refresh
+  procedure below.
 
 `versioning: "rolling"` adapters (Amp — no semver release story) are reported
 informationally and never marked drifted; comparing a rolling release against a

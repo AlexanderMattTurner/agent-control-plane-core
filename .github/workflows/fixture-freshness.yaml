@@ -14,6 +14,10 @@ name: Fixture freshness
 
 on:
   schedule:
+    # cron-alert: false  # A red run reports that an agent CLI published a newer
+    # release, which happens continuously for an actively developed CLI. The
+    # action is a maintainer re-capture, not a repair of this repo, so routing it
+    # to the ci-failure notifier files an issue no commit here can ever close.
     - cron: "17 9 * * 1" # Mondays 09:17 UTC
   workflow_dispatch:
 
