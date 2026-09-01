@@ -148,7 +148,24 @@ jobs:
           # A status description is capped at 140 characters, so this is where a
           # reader gets the finding list a red verdict names.
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash .github/scripts/review-findings-gate.sh
+        # The absent-script arm is the BOOTSTRAP, and every repo adopting this
+        # file hits it exactly once: the checkout above reads the default
+        # branch, so on the pull request that INTRODUCES the gate the script is
+        # not there yet. Reading it off the PR head instead would execute
+        # PR-authored code under pull_request_target, which is the one thing
+        # this trigger must never do. So report `pending` — not green, which
+        # would be fail-open, and not a 127 red, which sends a reader to
+        # diagnose an installation that is merely incomplete.
+        run: |
+          if [[ -f .github/scripts/review-findings-gate.sh ]]; then
+            bash .github/scripts/review-findings-gate.sh
+            exit 0
+          fi
+          gh api -X POST "repos/${GH_REPO}/statuses/${REPORT_SHA}" \
+            -f "state=pending" \
+            -f "context=Review findings resolved" \
+            -f "description=Gate not yet on the base branch; it arms when this merges" \
+            -f "target_url=${RUN_URL}" >/dev/null
       - name: Report red when the evaluation posted no verdict
         # The step above posts the required check only if it reaches its POST, so
         # an evaluation that dies first — an exhausted API retry ladder, a jq

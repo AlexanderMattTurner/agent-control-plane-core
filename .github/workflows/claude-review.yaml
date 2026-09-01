@@ -288,7 +288,19 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           REPORT_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: bash .github/scripts/review-findings-gate.sh
+        # Same bootstrap arm as review-findings-gate.yaml: this job checks out
+        # the default branch, so the pull request that INTRODUCES the gate finds
+        # no script there and must report `pending` rather than exit 127.
+        run: |
+          if [[ -f .github/scripts/review-findings-gate.sh ]]; then
+            bash .github/scripts/review-findings-gate.sh
+            exit 0
+          fi
+          gh api -X POST "repos/${GH_REPO}/statuses/${REPORT_SHA}" \
+            -f "state=pending" \
+            -f "context=Review findings resolved" \
+            -f "description=Gate not yet on the base branch; it arms when this merges" \
+            -f "target_url=${RUN_URL}" >/dev/null
 
   # Auto-approve the PRs the reviewer deliberately SKIPS (see `decide` above:
   # low-risk chore/style by title, machine-cut `release:` PRs, and
