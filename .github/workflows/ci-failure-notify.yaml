@@ -6,11 +6,9 @@ name: CI failure notify
 # deduplicated per workflow name: repeat failures comment on the existing issue.
 #
 # `workflow_run` has no wildcard, so `workflows:` below must name every
-# push/schedule workflow whose failure reaches a human by no other route
-# (matched by the workflow's `name:`). A workflow that carries a reasoned
-# `# cron-alert: false` on its trigger routes its failures deliberately
-# elsewhere and is left off. A ci-truth-serum hook
-# (check-failure-notifier-coverage) keeps this list in sync with the tree.
+# workflow in this repo with a `push:` or `schedule:` trigger (matched by the
+# workflow's `name:`). A ci-truth-serum hook (check-failure-notifier-coverage)
+# keeps this list in sync with the tree.
 # The dangerous-triggers finding targets workflows that check out or execute
 # the triggering ref's code with write credentials; this one checks out only
 # the default branch (credential-less) and gates on default-branch runs.
@@ -27,6 +25,7 @@ on: # zizmor: ignore[dangerous-triggers]
       - Auto version bump and publish
       - CI failure-rate report
       - Claude reviewer-hold sweeper
+      - Fixture freshness
       - Format check
       - Gitleaks Secret Scanning
       - Hook lifecycle

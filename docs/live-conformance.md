@@ -37,17 +37,26 @@ signal to **re-capture against that version and re-run adapter conformance**. Th
 job is **advisory** — schedule/dispatch only, never `pull_request`:
 
 - It compares against a **moving** `latest`, so gating a PR on it would turn the
-  PR red for a version bump unrelated to its diff. A red run means "a newer CLI
-  shipped, go re-verify," not "this repo is broken."
+  PR red for a version bump unrelated to its diff.
 - The SSOT's own well-formedness _is_ gated on every PR, by
   `test/check-fixture-freshness.test.mjs` under the normal Node tests (the drift
   math, the rolling-release branch, and the shape of the shipped config).
-- The job carries `# cron-alert: false` on its `schedule:` trigger, so a red run
-  does not file a `ci-failure` issue. An actively developed CLI publishes
-  continuously, so the drift red is the normal state between re-captures; an
-  issue tracking it could never be closed by a commit in this repo. Read the
-  drift from the workflow's own run history, and act on it with the refresh
-  procedure below.
+
+**Drift and breakage are different signals, and the job keeps them apart.**
+
+- **Drift exits 0.** An actively developed CLI publishes continuously, so drift
+  is the normal state between re-captures. It reaches you as a single tracking
+  issue that the scheduled run opens, rewrites and closes on its own
+  (`.github/scripts/fixture-drift-issue.js`), plus the same table in the job
+  summary. The issue carries no `ci-failure` label: nothing failed.
+- **A red run means the check could not run** — a broken checkout, a dead npm
+  registry, a malformed SSOT. That is a real failure with no PR to surface it,
+  so `Fixture freshness` sits on `ci-failure-notify.yaml`'s `workflows:` list
+  with no opt-out marker, and a red run files the usual `ci-failure` issue.
+
+Folding the two together is what the earlier shape got wrong: with drift exiting
+non-zero, a registry outage and a routine CLI release were the same red, and
+nothing downstream could tell them apart.
 
 `versioning: "rolling"` adapters (Amp — no semver release story) are reported
 informationally and never marked drifted; comparing a rolling release against a

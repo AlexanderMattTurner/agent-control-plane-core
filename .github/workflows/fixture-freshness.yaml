@@ -7,17 +7,19 @@ name: Fixture freshness
 #
 # Schedule + manual ONLY — deliberately NOT on pull_request. The check compares
 # against npm's moving `latest`, so a version bump between commit and CI would
-# turn a PR red for a reason unrelated to its diff. This is an advisory signal
-# ("a newer CLI shipped, go re-verify"), not a merge gate; the SSOT's own
+# turn a PR red for a reason unrelated to its diff; the SSOT's own
 # well-formedness is gated by test/check-fixture-freshness.test.mjs under the
-# normal Node tests. A red run here means "re-capture," not "this repo is broken."
+# normal Node tests.
+#
+# Drift and breakage are separate signals, and this job keeps them separate.
+# DRIFT — a newer CLI shipped — exits 0 and travels as the tracking issue the
+# last step opens, updates and closes, plus the table in the job summary. A RED
+# run means the check could not run: a broken checkout, a dead npm registry, a
+# malformed SSOT. That is a genuine failure with no PR to surface it, so this
+# workflow stays on ci-failure-notify.yaml's list with no opt-out marker.
 
 on:
   schedule:
-    # cron-alert: false  # A red run reports that an agent CLI published a newer
-    # release, which happens continuously for an actively developed CLI. The
-    # action is a maintainer re-capture, not a repair of this repo, so routing it
-    # to the ci-failure notifier files an issue no commit here can ever close.
     - cron: "17 9 * * 1" # Mondays 09:17 UTC
   workflow_dispatch:
 
@@ -32,6 +34,11 @@ jobs:
   fixture-freshness:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      # The last step owns the drift tracking issue: it opens, rewrites and
+      # closes it, so a maintainer never has to read run history to find drift.
+      issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,4 +48,27 @@ jobs:
         uses: ./.github/actions/setup-base-env
 
       - name: Check fixtures against latest published CLI versions
+        id: freshness
+        env:
+          DRIFT_TABLE_PATH: ${{ runner.temp }}/fixture-drift.md
         run: node .github/scripts/check-fixture-freshness.mjs
+
+      # Dispatch runs are a maintainer looking at the output directly, and they
+      # can fire on any ref; only the weekly schedule speaks for the repo's
+      # standing drift state, so only it may open or close the issue.
+      - name: Sync the drift tracking issue
+        if: github.event_name == 'schedule'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          DRIFTED: ${{ steps.freshness.outputs.drifted }}
+          DRIFT_TABLE_PATH: ${{ runner.temp }}/fixture-drift.md
+        with:
+          script: |
+            const run = require('./.github/scripts/fixture-drift-issue.js')
+            await run({
+              github,
+              context,
+              drifted: process.env.DRIFTED === 'true',
+              tablePath: process.env.DRIFT_TABLE_PATH,
+              runUrl: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            })
