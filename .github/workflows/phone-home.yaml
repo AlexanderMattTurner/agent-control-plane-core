@@ -74,7 +74,6 @@ jobs:
             const run = require('./.github/scripts/phone-home-extract.js')
             await run({github, context, core})
 
-<<<<<<< local
       - name: Cache gitleaks binary
         id: cache-gitleaks
         if: steps.extract.outputs.has_lessons == 'true'
@@ -83,47 +82,19 @@ jobs:
           path: /tmp/gitleaks-bin
           key: gitleaks-${{ runner.os }}-8.30.1
 
-      - name: Scan lessons for leaked secrets
-||||||| base
-      - name: Scan lessons for leaked secrets
-=======
       - name: Restore cached gitleaks binary
         id: gitleaks-cache
->>>>>>> template
         if: steps.extract.outputs.has_lessons == 'true'
-<<<<<<< local
-        env:
-          GITLEAKS_VERSION: "8.30.1"
-          CACHE_HIT: ${{ steps.cache-gitleaks.outputs.cache-hit }}
-||||||| base
-        env:
-          GITLEAKS_VERSION: "8.30.1"
-=======
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /usr/local/bin/gitleaks
           key: gitleaks-${{ runner.os }}-${{ env.GITLEAKS_VERSION }}
+          CACHE_HIT: ${{ steps.cache-gitleaks.outputs.cache-hit }}
 
       - name: Download gitleaks
         if: steps.extract.outputs.has_lessons == 'true' && steps.gitleaks-cache.outputs.cache-hit != 'true'
->>>>>>> template
         run: |
           set -euo pipefail
-<<<<<<< local
-          mkdir -p /tmp/gitleaks-bin
-          if [[ "$CACHE_HIT" != "true" ]]; then
-            curl --proto '=https' -fsSL --retry 6 --retry-all-errors --retry-delay 15 --connect-timeout 30 \
-              -o /tmp/gitleaks.tar.gz \
-              "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-            tar xz -C /tmp/gitleaks-bin -f /tmp/gitleaks.tar.gz gitleaks
-          fi
-          install -m 0755 /tmp/gitleaks-bin/gitleaks /usr/local/bin/gitleaks
-||||||| base
-          curl --proto '=https' -fsSL --retry 6 --retry-all-errors --retry-delay 15 --connect-timeout 30 \
-            -o /tmp/gitleaks.tar.gz \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          tar xz -C /usr/local/bin -f /tmp/gitleaks.tar.gz gitleaks
-=======
           curl --proto '=https' -fsSL --retry 6 --retry-all-errors --retry-delay 15 --connect-timeout 30 \
             -o /tmp/gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
@@ -134,7 +105,6 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x /usr/local/bin/gitleaks
->>>>>>> template
           gitleaks detect --no-git -s /tmp/phone-home -v
 
       - name: Submit to template repo
