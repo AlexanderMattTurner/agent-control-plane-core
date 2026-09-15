@@ -33,8 +33,12 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 # already has — still goes through).
 precommit_cmd=()
 if command -v uvx >/dev/null 2>&1; then
+  # First match via parameter expansion, NOT `| head -n1`: head exits after one
+  # line and SIGPIPEs sed, which `set -o pipefail` reports as a failure —
+  # aborting the push the moment the workflow grows a second matching line.
   pin=$(sed -n 's/.*uvx \(pre-commit==[0-9][0-9.]*\).*/\1/p' \
-    "$git_root/.github/workflows/pre-commit.yaml" | head -n1)
+    "$git_root/.github/workflows/pre-commit.yaml")
+  pin="${pin%%$'\n'*}"
   precommit_cmd=(uvx "${pin:-pre-commit}")
 elif command -v pre-commit >/dev/null 2>&1; then
   precommit_cmd=(pre-commit)
@@ -61,15 +65,28 @@ zero=0000000000000000000000000000000000000000
 exec 3<&0 0</dev/null
 while read -r -u 3 _local_ref local_sha _remote_ref remote_sha; do
   [[ "$local_sha" == "$zero" ]] && continue # branch deletion: nothing to check
+<<<<<<< local
   # A range endpoint must be a commit. An annotated tag pushes the TAG OBJECT's
   # sha, which never equals the base computed below, so an untagged comparison
   # reads a tag on an already-pushed commit as a range with new work in it.
   local_tip=$(git rev-parse --verify "${local_sha}^{commit}")
+||||||| base
+  if [[ ${#precommit_cmd[@]} -eq 0 ]]; then
+    gate_die_missing_tool pre-push pre-commit "install uv (https://docs.astral.sh/uv/) or 'pip install pre-commit' so the pushed range can be checked, then push again."
+  fi
+=======
+  # An ANNOTATED tag pushes the tag object's sha, not the commit's. That sha can
+  # never equal a ref the remote already has, so the emptiness test below would
+  # read every tag push as a new range. Peel to the commit; a lightweight tag or
+  # a branch tip peels to itself.
+  local_tip=$(git rev-parse --verify --quiet "${local_sha}^{commit}") || continue
+>>>>>>> template
   from_ref="$remote_sha"
   if [[ "$from_ref" == "$zero" ]]; then
     from_ref=$(git merge-base "$default_branch" "$local_tip" 2>/dev/null) ||
       from_ref=$(git hash-object -t tree /dev/null)
   fi
+<<<<<<< local
   [[ "$from_ref" == "$local_tip" ]] && continue # nothing new to push
   # The tool check belongs AFTER the range is known: a push that introduces no
   # commits has nothing for pre-commit to read, so demanding the tool there
@@ -79,6 +96,18 @@ while read -r -u 3 _local_ref local_sha _remote_ref remote_sha; do
   if [[ ${#precommit_cmd[@]} -eq 0 ]]; then
     gate_die_missing_tool pre-push pre-commit "install uv (https://docs.astral.sh/uv/) or 'pip install pre-commit' so the pushed range can be checked, then push again."
   fi
+||||||| base
+  [[ "$from_ref" == "$local_sha" ]] && continue # nothing new to push
+=======
+  [[ "$from_ref" == "$local_tip" ]] && continue # nothing new to push
+  # The tool check sits BELOW the emptiness skip. A push that introduces no
+  # commits has nothing for pre-commit to look at, so demanding the tool first
+  # refuses a release-tag push from a runner that has no pre-commit — which is
+  # every runner auto-version.yaml tags from.
+  if [[ ${#precommit_cmd[@]} -eq 0 ]]; then
+    gate_die_missing_tool pre-push pre-commit "install uv (https://docs.astral.sh/uv/) or 'pip install pre-commit' so the pushed range can be checked, then push again."
+  fi
+>>>>>>> template
   # Redirect stdin from /dev/null: git feeds this loop the ref list on stdin,
   # and pre-commit (and the tools it drives) would otherwise inherit and consume
   # it, so a multi-ref push would check only the first range.
