@@ -297,14 +297,6 @@ export async function main(read, write, listHeads = defaultListHeads) {
   );
 }
 
-<<<<<<< local
 if (isMainModule(import.meta.url)) {
-  void main(readStdinJson, (chunk) => process.stdout.write(chunk));
-||||||| base
-if (isMain(import.meta.url)) {
-  void main(readStdinJson, (chunk) => process.stdout.write(chunk));
-=======
-if (isMain(import.meta.url)) {
   await main(readStdinJson, (chunk) => process.stdout.write(chunk));
->>>>>>> template
 }

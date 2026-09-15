@@ -67,13 +67,7 @@ jobs:
     # (startup_failure) or that stalled on an approval (action_required) is
     # still a run nobody saw. Skipped/cancelled conclusions are not failures.
     if: >-
-<<<<<<< local
       contains(fromJSON('["failure","timed_out","startup_failure","action_required"]'), github.event.workflow_run.conclusion) &&
-||||||| base
-      github.event.workflow_run.conclusion == 'failure' &&
-=======
-      contains(fromJSON('["action_required", "failure", "startup_failure", "timed_out"]'), github.event.workflow_run.conclusion) &&
->>>>>>> template
       (github.event.workflow_run.event == 'push' ||
        github.event.workflow_run.event == 'schedule') &&
       github.event.workflow_run.head_branch == github.event.repository.default_branch
