@@ -25,8 +25,9 @@ const COMMITTED = "export const NATIVE_ASK_TIER: false;\n";
 /**
  * Run the gate over a repository whose committed `types/` holds {@link COMMITTED},
  * against a `pnpm` stub that does `build`.
- * @param {{writes?: string, fails?: boolean}} build what the stub leaves behind,
- *   and whether it reports failure. An omitted `writes` leaves the file alone.
+ * @param {{writes?: string, adds?: string, fails?: boolean}} build what the stub
+ *   leaves behind, and whether it reports failure. An omitted `writes` leaves
+ *   the committed file alone; `adds` writes a SECOND, never-committed file.
  */
 function gate(build) {
   const root = mkdtempSync(join(tmpdir(), "types-fresh-"));
@@ -47,12 +48,17 @@ function gate(build) {
   const stub = [
     "#!/usr/bin/env bash",
     `echo "$*" >> ${JSON.stringify(join(root, "pnpm-argv"))}`,
+    // %b, not %s: bash leaves `\n` inside a double-quoted word alone, so %s
+    // would write a literal backslash-n and no trailing newline.
     ...(build.writes === undefined
       ? []
       : [
-          // %b, not %s: bash leaves `\n` inside a double-quoted word alone, so
-          // %s would write a literal backslash-n and no trailing newline.
           `printf %b ${JSON.stringify(build.writes)} > ${JSON.stringify(join(root, "types/codex.d.mts"))}`,
+        ]),
+    ...(build.adds === undefined
+      ? []
+      : [
+          `printf %b ${JSON.stringify(build.adds)} > ${JSON.stringify(join(root, "types/added.d.mts"))}`,
         ]),
     `exit ${build.fails ? 1 : 0}`,
     "",
@@ -87,6 +93,19 @@ describe("the committed-declaration gate", () => {
     assert.equal(run.status, 1);
     assert.match(run.stdout, /^\+export const NATIVE_ASK_TIER: true;$/mu);
     assert.match(run.stdout, /^-export const NATIVE_ASK_TIER: false;$/mu);
+    assert.match(run.stderr, /types\/ is stale/u);
+  });
+
+  // The case a plain `git diff` cannot see. `git diff` reads the index, so a
+  // new source module whose declaration was never committed leaves an UNTRACKED
+  // file and the gate would report success over an incomplete `types/`.
+  it("fails on a declaration the build adds but nobody committed", () => {
+    const run = gate({
+      writes: COMMITTED,
+      adds: "export const ADDED: true;\n",
+    });
+    assert.equal(run.status, 1);
+    assert.match(run.stdout, /types\/added\.d\.mts/u);
     assert.match(run.stderr, /types\/ is stale/u);
   });
 

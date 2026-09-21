@@ -22,6 +22,13 @@ if ! pnpm build; then
   exit 1
 fi
 
+# `git diff` reads the index, and an UNTRACKED file is not in it — so a new
+# source module whose `.d.mts` was never committed leaves a file `git diff`
+# cannot see, and the gate would pass green over an incomplete `types/`. That is
+# the same drift this exists to close. `--intent-to-add` registers the path
+# without staging its content, which is exactly enough for the diff to report it.
+git add --intent-to-add -- types/
+
 if git diff --quiet --exit-code -- types/; then
   exit 0
 fi
