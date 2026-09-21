@@ -36,6 +36,19 @@ jobs:
         if: steps.check.outputs.configured == 'true'
         run: pnpm test
 
+      - name: Check if build script is configured
+        id: check-build
+        run: bash .github/scripts/script-configured-output.sh build configured
+
+      # Nothing else rebuilds the committed `types/`, so a source change landed
+      # without `pnpm build` leaves a declaration contradicting its own source.
+      # `types/adapters/codex.d.mts` carried `NATIVE_ASK_TIER: true` for a
+      # release cycle while the adapter said `false` — a consumer reading it
+      # would skip escalating an `ask` on a host with no ask tier.
+      - name: Committed declarations match a fresh build
+        if: steps.check-build.outputs.configured == 'true'
+        run: bash .github/scripts/check-types-fresh.sh
+
   # Stable Required check: runs even when `test` is cancelled/skipped, so a
   # protected branch never gets stuck on a check that never reports.
   node-tests-passed: # required-check: true
