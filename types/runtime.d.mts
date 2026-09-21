@@ -37,6 +37,21 @@ export function demoJudge(event: import("./control-plane.mjs").ToolCallEvent): i
  */
 export function renderHookResponse(adapter: import("./control-plane.mjs").Adapter, rawInput: string, onFailure: import("./control-plane.mjs").NativeResponse, judge?: (event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict): import("./control-plane.mjs").NativeResponse;
 /**
+ * Whether a failed `writeSync` is the one recoverable case: EAGAIN, meaning the
+ * non-blocking pipe is momentarily full because the host has not drained it
+ * yet. The caller sleeps 1ms and retries — the same wait a blocking write would
+ * have done in the kernel. Every other errno (EPIPE, EBADF, ...) propagates.
+ *
+ * A non-Error throw is NOT retryable, and is checked separately rather than
+ * left to the `code` comparison: a plain object carrying `code: "EAGAIN"` is
+ * not a write that the kernel asked us to repeat, and retrying one forever is a
+ * hang rather than a short write. Exported so a test can drive every branch —
+ * the real `writeSync` only ever throws an Error.
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+export function isRetryableWriteError(err: unknown): boolean;
+/**
  * Write `text` to `fd` IN FULL, looping until every byte lands.
  *
  * A single `writeSync` is not enough. When the host captures the hook, fd 1/2 is
@@ -54,22 +69,7 @@ export function renderHookResponse(adapter: import("./control-plane.mjs").Adapte
  * @param {number} fd
  * @param {string} text
  */
-/**
- * Whether a failed `writeSync` is the one recoverable case: EAGAIN, meaning the
- * non-blocking pipe is momentarily full because the host has not drained it
- * yet. The caller sleeps 1ms and retries — the same wait a blocking write would
- * have done in the kernel. Every other errno (EPIPE, EBADF, ...) propagates.
- *
- * A non-Error throw is NOT retryable, and is checked separately rather than
- * left to the `code` comparison: a plain object carrying `code: "EAGAIN"` is
- * not a write that the kernel asked us to repeat, and retrying one forever is a
- * hang rather than a short write. Exported so a test can drive every branch —
- * the real `writeSync` only ever throws an Error.
- * @param {unknown} err
- * @returns {boolean}
- */
-export function isRetryableWriteError(err: unknown): boolean;
-export function writeAllSync(fd: any, text: any): void;
+export function writeAllSync(fd: number, text: string): void;
 /**
  * Emit a {@link NativeResponse} to the host: write the native stdout body when
  * the transport has one, then exit with the transport's exit code.
