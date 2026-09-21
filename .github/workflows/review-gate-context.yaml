@@ -1,0 +1,39 @@
+name: Review gate (context)
+
+# Registers the required-check CONTEXT name, and nothing else.
+#
+# `sync-required-checks` derives the ruleset's required contexts from the `name:`
+# of every job carrying `# required-check: true`. The gate's verdict, though, is
+# a COMMIT STATUS posted by review-gate.yaml — a status has no job to annotate,
+# so some job has to carry the name. It cannot be the job that posts the status:
+# that job succeeds whenever it managed to post a verdict, including a RED one,
+# so sharing the name would let its green check run satisfy the context the red
+# status was meant to block.
+#
+# `merge_group` is the trigger precisely because this repository runs no merge
+# queue, so the job never fires and reports nothing that could compete with the
+# status.
+on:
+  merge_group:
+
+permissions: {}
+
+jobs:
+  review-posted:
+    # BYTE-IDENTICAL to `gate_context` in config/review-severities.json, which is
+    # where the gate script reads the context it posts under, and to the two
+    # `status-context:` inputs. YAML cannot read a file, so these are the only
+    # literals left; renaming one alone leaves every pull request waiting on a
+    # context nothing reports.
+    name: Automated review posted # required-check: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Fails closed. Turning a merge queue on makes this job fire, and the queue
+      # sha needs the same predicate the pull request head got — which nothing
+      # here evaluates. A green no-op would hand the queue an unconditional pass
+      # on the one context that holds an unresolved review finding.
+      - name: Refuse a merge queue this gate is not wired for
+        run: |
+          echo "::error::review-gate-context.yaml only registers a name; wire the queue leg before enabling a merge queue" >&2
+          exit 1

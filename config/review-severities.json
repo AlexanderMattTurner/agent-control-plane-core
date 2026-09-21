@@ -1,0 +1,10 @@
+{
+  "comment": "SSOT for the review-finding severity model, read by the reviewer this repository CALLS (AlexanderMattTurner/agent-review) rather than by any script here. `gating` lists the severities whose findings the reviewer anchors to a line even when it cannot find one, so the merge gate can hold the merge on the thread; a non-gating finding that cannot be anchored spills into the review body instead. `icons` maps every severity to the emoji its posted finding leads with. `gate_context` is the commit-status context the gate posts its verdict under, and the required-check name this repository's ruleset registers: one string that MUST be byte-identical in .github/workflows/review-gate-context.yaml's job name and in both `status-context:` inputs. Editing this file changes review behavior with no code change.",
+  "gate_context": "Automated review posted",
+  "gating": ["blocking", "warning"],
+  "icons": {
+    "blocking": "🔴",
+    "warning": "🟡",
+    "nit": "🔵"
+  }
+}

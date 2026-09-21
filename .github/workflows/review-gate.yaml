@@ -1,0 +1,67 @@
+name: Review gate
+
+# Evaluates the automated-review merge lever and posts it as the
+# "Automated review posted" commit status on the pull request head.
+#
+# This replaces the vendored reviewer's REQUEST_CHANGES hold. That hold was a
+# REVIEW, which GitHub keeps as the reviewer's latest state until the same
+# reviewer submits a new one — so it survived pushes that fixed its findings and
+# needed a resolver, an approver and an hourly sweep to lift. A commit status is
+# recomputed per head from the review's own unresolved threads, so it cannot
+# strand a verdict on a commit two pushes old.
+#
+# SECURITY — no pull-request code executes here: the called workflow runs
+# API-only scripts from a clone of the reviewer pinned on the `uses:` line, over
+# a checkout of THIS repository's default branch.
+on: # zizmor: ignore[dangerous-triggers] — no PR code executes: API-only scripts off a pinned clone and a default-branch checkout
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize, labeled]
+  # A HUMAN submitting or dismissing a review flips the predicate. The reviewer's
+  # own review cannot arrive this way: it posts with the workflow GITHUB_TOKEN,
+  # whose events start no workflow run, so the reviewer re-posts this verdict
+  # itself through claude-review.yaml's `post-review-command`.
+  pull_request_review:
+    types: [submitted, dismissed]
+  # A new review comment can open a gating thread. Resolving one fires no event
+  # at all, which is what the re-check label is for.
+  pull_request_review_comment:
+    types: [created]
+
+# Queue, never cancel, and keyed PER HEAD. Never cancel because the called job
+# posts a commit status, and a cancel between reading the state and posting it
+# leaves the head carrying a stale verdict on a REQUIRED context. Per head
+# because webhook delivery is unordered and this OUTER group is evaluated before
+# the called workflow's own: under a per-branch key, a late event for an old head
+# joins the same group as a queued run for the CURRENT head and displaces it.
+concurrency:
+  group: review-gate-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  # No job-level `if:`. This job posts a required check, so every run that can
+  # occupy the concurrency slot must post a verdict itself — a conditionally
+  # skipped run could displace a queued evaluation and then post nothing.
+  review-posted:
+    # The job name MUST NOT be the required-check context. This job's own check
+    # run lands on the head under its name, and it succeeds whenever it managed
+    # to post a verdict — including a RED one. Sharing the name would put a green
+    # check run and a red status under one required context, and the green would
+    # satisfy it. The context is registered by the never-firing job in
+    # review-gate-context.yaml instead.
+    name: Evaluate the automated-review gate # required-check: false  # reports whether the EVALUATION ran; the gate itself is the status it posts
+    permissions:
+      contents: read # the export sparse-checks-out the severity SSOT
+      statuses: write # post the verdict on the head
+      pull-requests: write # read the threads, free the re-check label
+    uses: AlexanderMattTurner/agent-review/.github/workflows/review-findings-gate.yaml@6791f8174011f569ad9bd8dfb15b139f21a96c09 # pin-comment-ok: agent-review cuts no release yet; re-pin at its first vX.Y
+    with:
+      reviewer-repository: AlexanderMattTurner/agent-review
+      reviewer-ref: 6791f8174011f569ad9bd8dfb15b139f21a96c09
+      # BYTE-IDENTICAL to `gate_context` in config/review-severities.json and to
+      # the job name in review-gate-context.yaml.
+      status-context: Automated review posted
+      # `failure`, not `pending`: a pending status does not appear in
+      # `gh pr checks` at all. Both block the required context.
+      unreviewed-state: failure
