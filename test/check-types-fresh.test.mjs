@@ -26,8 +26,9 @@ const COMMITTED = "export const NATIVE_ASK_TIER: false;\n";
  * Run the gate over a repository whose committed `types/` holds {@link COMMITTED},
  * against a `pnpm` stub that does `build`.
  * @param {{writes?: string, adds?: string, fails?: boolean}} build what the stub
- *   leaves behind, and whether it reports failure. An omitted `writes` leaves
- *   the committed file alone; `adds` writes a SECOND, never-committed file.
+ *   leaves behind, and whether it reports failure. An omitted `writes` writes
+ *   nothing at all, which is what a build whose source module was removed does;
+ *   `adds` writes a SECOND, never-committed file.
  */
 function gate(build) {
   const root = mkdtempSync(join(tmpdir(), "types-fresh-"));
@@ -70,13 +71,20 @@ function gate(build) {
     encoding: "utf8",
     env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
   });
-  let argv = "";
-  try {
-    argv = readFileSync(join(root, "pnpm-argv"), "utf8");
-  } catch {
-    argv = "";
-  }
-  return { status: res.status, stdout: res.stdout, stderr: res.stderr, argv };
+  const readOrEmpty = (path) => {
+    try {
+      return readFileSync(path, "utf8");
+    } catch {
+      return "";
+    }
+  };
+  return {
+    status: res.status,
+    stdout: res.stdout,
+    stderr: res.stderr,
+    argv: readOrEmpty(join(root, "pnpm-argv")),
+    restored: readOrEmpty(join(root, "types/codex.d.mts")),
+  };
 }
 
 describe("the committed-declaration gate", () => {
@@ -109,6 +117,18 @@ describe("the committed-declaration gate", () => {
     assert.match(run.stderr, /types\/ is stale/u);
   });
 
+  // The removal direction. `tsc` writes over `types/` and never deletes from
+  // it, so a declaration for a source module that was REMOVED stays behind,
+  // tracked and byte-identical — and a diff of the rebuilt tree calls that
+  // clean while the package still publishes an API for code that is gone. The
+  // stub writes nothing, which is exactly what that build does.
+  it("fails on a declaration whose source module is gone", () => {
+    const run = gate({});
+    assert.equal(run.status, 1);
+    assert.match(run.stdout, /^-export const NATIVE_ASK_TIER: false;$/mu);
+    assert.match(run.stderr, /types\/ is stale/u);
+  });
+
   // The build failing is NOT a clean tree. A gate that skipped straight to the
   // diff would find nothing changed and report success, so this case pins the
   // order as well as the status.
@@ -118,5 +138,8 @@ describe("the committed-declaration gate", () => {
     assert.equal(run.stdout, "");
     assert.match(run.stderr, /types\/ cannot be verified/u);
     assert.doesNotMatch(run.stderr, /types\/ is stale/u);
+    // The gate empties `types/` before it builds, so a build that died must
+    // hand the committed tree back rather than leave the caller with nothing.
+    assert.equal(run.restored, COMMITTED);
   });
 });

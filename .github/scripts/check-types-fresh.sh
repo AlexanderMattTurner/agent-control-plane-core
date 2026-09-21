@@ -17,7 +17,17 @@
 
 set -uo pipefail
 
+# `pnpm build` writes over `types/`; it never deletes from it. So a source
+# module that was REMOVED leaves its old declaration behind, tracked and
+# byte-identical, and a diff of the rebuilt tree reports clean while the package
+# still publishes an API for code that no longer exists. Emptying the directory
+# first makes the leftover show up as a deletion.
+find types -type f -delete 2>/dev/null
+
 if ! pnpm build; then
+  # The delete above already happened, so hand the committed tree back rather
+  # than leaving whoever ran this with no `types/` at all.
+  git checkout -- types/ 2>/dev/null
   echo "::error::pnpm build failed — types/ cannot be verified" >&2
   exit 1
 fi
@@ -29,10 +39,14 @@ fi
 # without staging its content, which is exactly enough for the diff to report it.
 git add --intent-to-add -- types/
 
-if git diff --quiet --exit-code -- types/; then
+# Against HEAD, not the index. `git add` records a REMOVAL in the index, so the
+# same command that registers an added declaration also stages a deleted one —
+# and a plain `git diff`, which compares the worktree to the index, then reports
+# a `types/` the build left empty as clean.
+if git diff --quiet --exit-code HEAD -- types/; then
   exit 0
 fi
 
-git diff -- types/
+git diff HEAD -- types/
 echo "::error::types/ is stale — run \`pnpm build\` and commit the result" >&2
 exit 1
