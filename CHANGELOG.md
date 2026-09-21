@@ -12,6 +12,10 @@ the prose from the release's commits.
 
 ## Unreleased
 
+### Fixed
+
+- The Claude Code adapter carries an enforced deny's `reason` on `NativeResponse.stderr`, which `emit` writes to fd 2. Claude Code parses hook stdout as JSON only on exit 0; an enforced deny exits 2, where the host discards the body and reads stderr instead — so the `permissionDecisionReason` in that body never reached the model and the call was blocked with no rationale. Non-enforced renders still say nothing on fd 2: an allow, an ask and a deny this call cannot veto have blocked nothing, and their exit-0 body is read.
+
 ## [0.6.1] - 2026-09-01
 
 ### Fixed

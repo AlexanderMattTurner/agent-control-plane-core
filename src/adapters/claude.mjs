@@ -7,7 +7,8 @@
  * agent shells out with stdin JSON and reads a deny body / exit code back.
  *
  * Deny signal (PreToolUse): `hookSpecificOutput.permissionDecision = "deny"`
- * AND exit 2. this_call_vetoable is true, but per the doctrine that is a
+ * AND exit 2. Exit 2 discards stdout, so an enforced deny repeats its reason on
+ * STDERR, which is where the host reads a block rationale. this_call_vetoable is true, but per the doctrine that is a
  * useful FIRST filter, never the boundary — the Verdict stays advisory to the
  * sandbox.
  */
@@ -221,7 +222,8 @@ export function parse(native) {
  * Render into Claude Code's native external-hook transport: a
  * `hookSpecificOutput` JSON body on stdout plus the exit code that carries the
  * decision (deny ⇒ exit 2). A deny only counts as `enforced` when the event's
- * `this_call_vetoable` holds.
+ * `this_call_vetoable` holds, and an enforced deny also carries its `reason` on
+ * `NativeResponse.stderr` (see below).
  *
  * `soleGate` (default `false`) is a dangerous, explicit opt-in: when `true` AND
  * the verdict is `allow`, the render emits Claude Code's REAL
@@ -253,6 +255,15 @@ export function render(verdict, event, { soleGate = false } = {}) {
     exit_code: enforced ? 2 : 0,
     enforced,
     stdout,
+    // An ENFORCED deny exits 2, and Claude Code parses hook stdout as JSON only
+    // on exit 0: on an exit-2 PreToolUse block it discards the body and reads
+    // STDERR instead. So `permissionDecisionReason` never reached the model on
+    // the one path that actually blocks, and the call was refused with no
+    // rationale. Carry the reason on `NativeResponse.stderr`, which `emit`
+    // writes to fd 2 — the same block-reason channel the Amp and Gemini
+    // adapters use. ONLY the enforced path: an allow, an ask, and a deny this
+    // call cannot veto have blocked nothing, and their exit-0 body is read.
+    ...(enforced && vd.reason !== undefined ? { stderr: vd.reason } : {}),
   });
 }
 

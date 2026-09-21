@@ -67,7 +67,8 @@
                 "permissionDecision": "deny",
                 "permissionDecisionReason": "blocked rm"
               }
-            }
+            },
+            "stderr": "blocked rm"
           }
         },
         "ask": {
@@ -244,7 +245,8 @@
               },
               "decision": "block",
               "reason": "leak"
-            }
+            },
+            "stderr": "leak"
           }
         },
         "ask": {
