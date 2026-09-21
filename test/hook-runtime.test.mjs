@@ -1,9 +1,17 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { closeSync, mkdtempSync, openSync, readFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  writeSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import {
   demoJudge,
@@ -274,6 +282,64 @@ describe("writeAllSync: a write it cannot repeat propagates", () => {
     const fd = openSync("/dev/null", "w");
     closeSync(fd);
     assert.throws(() => writeAllSync(fd, "x"), /EBADF/u);
+  });
+
+  // The EAGAIN retry, driven against a real full pipe rather than hoped for.
+  // The subprocess cases below reach it only when the parent happens to drain
+  // slower than the child writes, which on this machine held for 7 of 10 runs —
+  // so the retry was UNVERIFIED a third of the time. Filling the pipe BEFORE
+  // the call makes the first `writeSync` throw EAGAIN with no timing left in
+  // it: Linux gives a FIFO a 64 KiB buffer, and a non-blocking write past that
+  // has nothing else it can do.
+  it("retries a full non-blocking pipe until every byte lands", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "acp-eagain-"));
+    const fifo = join(dir, "pipe");
+    const captured = join(dir, "captured");
+    assert.equal(spawnSync("mkfifo", [fifo]).status, 0, "mkfifo failed");
+
+    // A reader must exist before a write-only open, or it fails ENXIO. This one
+    // never reads: it keeps the FIFO open so the fill below can reach EAGAIN.
+    const idleReader = openSync(
+      fifo,
+      constants.O_RDONLY | constants.O_NONBLOCK,
+    );
+    const fd = openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK);
+
+    // The drainer waits before it opens the FIFO, so the fill below always wins
+    // the race to a full buffer. Once it starts, the retry loop drains and the
+    // write completes — the real behavior the hook depends on.
+    const drainer = spawn("sh", [
+      "-c",
+      `sleep 0.5; exec cat "$1" > "$2"`,
+      "sh",
+      fifo,
+      captured,
+    ]);
+
+    const chunk = Buffer.alloc(8192, 0x41);
+    let filled = 0;
+    for (;;) {
+      try {
+        filled += writeSync(fd, chunk);
+      } catch (err) {
+        assert.ok(isRetryableWriteError(err), `unexpected errno: ${err?.code}`);
+        break;
+      }
+    }
+
+    const marker = "END-OF-DENY-BODY\n";
+    writeAllSync(fd, marker);
+    closeSync(fd);
+    closeSync(idleReader);
+    await once(drainer, "close");
+
+    const got = readFileSync(captured, "utf8");
+    assert.equal(
+      got.length,
+      filled + marker.length,
+      "a byte was dropped across the EAGAIN retry",
+    );
+    assert.equal(got.endsWith(marker), true, "the retried write was truncated");
   });
 });
 
