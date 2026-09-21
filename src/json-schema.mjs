@@ -283,8 +283,14 @@ function vetoImpossibleWhen(match) {
 export function verdictSchema() {
   /** @type {Record<string, unknown>} */
   const properties = { decision: { enum: Object.values(Decision) } };
+  // Cloned, not aliased. `Object.freeze` on VERDICT_FIELD_SCHEMAS freezes the
+  // outer object only, so assigning the nested `{type, description}` objects
+  // hands every caller the same two levels down: a consumer that tightens
+  // `properties.reason` on the document it was given would silently retighten
+  // every document produced afterwards. The other builders return fresh
+  // structures already.
   for (const [field, schema] of Object.entries(VERDICT_FIELD_SCHEMAS))
-    properties[field] = schema;
+    properties[field] = structuredClone(schema);
   return {
     $schema: JSON_SCHEMA_DIALECT,
     title: "Verdict",

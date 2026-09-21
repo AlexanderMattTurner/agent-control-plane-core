@@ -21,6 +21,7 @@ import {
   TOOL_INPUT_KEYS_FILE,
   assertVerdictFieldsDeclared,
   jsonSchemaDocuments,
+  verdictSchema,
   serializeSchema,
 } from "../src/json-schema.mjs";
 import { AGENT_IDS, adapterFor } from "../src/registry.mjs";
@@ -398,4 +399,24 @@ describe("the documents reject what the contract refuses", () => {
     it(`rejects ${label}`, () => {
       assert.ok(!validateVerdict(verdict));
     });
+});
+
+// A builder that hands out the module's own nested objects lets one consumer's
+// edit reach every document produced afterwards — including the bytes
+// `gen:schema` writes. `Object.freeze` on the table catches none of it: it
+// freezes the outer object only.
+describe("a document a consumer edits does not reach the next one", () => {
+  it("gives each call its own nested field schemas", () => {
+    const first = verdictSchema();
+    first.properties.reason.pattern = "^tightened$";
+    first.properties.reason.description = "edited";
+
+    const second = verdictSchema();
+    assert.equal("pattern" in second.properties.reason, false);
+    assert.notEqual(second.properties.reason.description, "edited");
+
+    const generated =
+      jsonSchemaDocuments()[`${SCHEMA_DIR}/${SCHEMA_FILES.Verdict}`];
+    assert.equal("pattern" in generated.properties.reason, false);
+  });
 });
