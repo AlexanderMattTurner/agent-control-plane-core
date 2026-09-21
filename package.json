@@ -61,12 +61,17 @@
     "./runtime": {
       "types": "./types/runtime.d.mts",
       "import": "./src/runtime.mjs"
+    },
+    "./json-schema": {
+      "types": "./types/json-schema.d.mts",
+      "import": "./src/json-schema.mjs"
     }
   },
   "files": [
     "src",
     "types",
-    "bin"
+    "bin",
+    "schema"
   ],
   "keywords": [
     "claude",
@@ -81,6 +86,7 @@
   "scripts": {
     "prepare": "node scripts/prepare.mjs",
     "build": "tsc -p tsconfig.build.json",
+    "gen:schema": "node scripts/gen-json-schema.mjs",
     "prepublishOnly": "pnpm build",
     "test": "node --test test/*.test.mjs",
     "test:coverage": "c8 node --test test/*.test.mjs",
@@ -129,6 +135,7 @@
     "@eslint/js": "^9.13.0",
     "@types/node": "^22.7.0",
     "@types/semver": "^7.5.8",
+    "ajv": "^8.20.0",
     "c8": "^10.1.2",
     "eslint": "^9.13.0",
     "fast-check": "^3.22.0",

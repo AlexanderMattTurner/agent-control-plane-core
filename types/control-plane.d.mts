@@ -279,9 +279,11 @@ export function nativeResponse({ transport, exit_code, enforced, stdout, stderr,
  * Dependency-free on purpose, so a fail-closed hook can import it without
  * dragging in eager config-file reads.
  *
- * VERSIONING — this module IS the frozen contract (its own SSOT, no parallel
- * schema file to drift). Adapters and guardrail consumers are built against it
- * in parallel, so its shapes are stable: {@link EventKind}, {@link Decision},
+ * VERSIONING — this module IS the frozen contract and its own SSOT. The JSON
+ * Schema documents under `schema/` are GENERATED from it by `pnpm gen:schema`
+ * and byte-compared in `json-schema.test.mjs`, so they are output rather than a
+ * second contract; never hand-edit one. Adapters and guardrail consumers are
+ * built against this module in parallel, so its shapes are stable: {@link EventKind}, {@link Decision},
  * {@link MODELED_TOOLS}, and {@link TOOL_ALIASES} are frozen, and
  * {@link SCHEMA_VERSION} / {@link CONTROL_PLANE_SCHEMA} are pinned
  * (control-plane.test.mjs asserts the exact values, so any shape change is a

@@ -12,6 +12,10 @@ the prose from the release's commits.
 
 ## Unreleased
 
+### Added
+
+- `ToolCallEvent` and `Verdict` are published as JSON Schema (draft 2020-12) under `schema/control-plane/v1/`, so a consumer that is not JavaScript validates against the contract instead of hand-writing the field names it reads — the drift that makes a renamed field read as `undefined` and sends the reader down its no-value branch without failing. `pnpm gen:schema` generates them from `src/control-plane.mjs`, and the suite byte-compares the result, so a contract change landed without the regeneration reds there. The same suite validates every adapter's LIVE output against the published bytes, so a renamed contract field reds too. `agent-control-plane-core/json-schema` builds the same documents in memory for a JavaScript caller. The event document encodes two claims a producer must not make, each a veto the host will never perform: a `this_call_vetoable` `unknown` event (which `makeEvent` also throws on) and a `this_call_vetoable` event on an `observe_only` transport, which reads a transcript and cannot pre-empt anything. `schema/control-plane/v1/tool-input-keys.json` publishes the input field a judge reads per canonical tool, as data beside the documents rather than as a vendor keyword inside one — a validator refuses an unknown keyword under its default options. `schema/` is in `.prettierignore` for the reason `types/` is: the generator owns those bytes and the suite compares them.
+
 ## [0.7.0] - 2026-09-21
 
 ### Added
