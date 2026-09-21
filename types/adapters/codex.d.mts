@@ -114,15 +114,16 @@ export const MIN_ENFORCING_VERSION: readonly number[];
  */
 export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
 /**
- * Codex honours a distinct ask tier on the pre-tool gate: `PermissionRequest` is
- * the event where it asks, and a hook answers either gate with
- * `hookSpecificOutput.permissionDecision`, whose `"ask"` value {@link preToolBody}
- * emits for every `ask` verdict. So a consumer must NOT escalate an `ask` to a
- * `deny` here. This says nothing about WHETHER the hook is honoured at all: a
- * pre-v0.135 Codex enforces nothing, which `parse` already carries on
- * `this_call_vetoable` and `meta.integration_mode`.
+ * Codex has NO ask tier. Its pre-tool output parser decodes
+ * `permissionDecision: "ask"`, classifies it unsupported, sets no block reason
+ * and runs the tool — upstream's own unit test for that path is named
+ * `unsupported_permission_decision_fails_open` (read at `rust-v0.155.1`, and
+ * byte-identical at `rust-v0.151.0`). `PermissionRequest` is no ask tier either:
+ * its behavior enum carries allow and deny only. So a verdict of `ask` has no
+ * channel here, and {@link render} sends it down the deny path rather than
+ * naming a key the host discards.
  */
-export const NATIVE_ASK_TIER: true;
+export const NATIVE_ASK_TIER: false;
 export const DEFAULT_DENY_REASON: "blocked by monitor";
 /** @type {import("../control-plane.mjs").Adapter} */
 export const codexAdapter: import("../control-plane.mjs").Adapter;

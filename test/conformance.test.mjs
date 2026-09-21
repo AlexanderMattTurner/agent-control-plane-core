@@ -8,6 +8,7 @@ import {
   assertCoverageWellFormed,
   assertToolAliasesCovered,
   assertAliasedInputsCanonical,
+  assertContentProbeValuesComplete,
 } from "../src/conformance.mjs";
 import {
   CallClass,
@@ -198,6 +199,92 @@ describe("conformance harness self-tests (drift honesty, item ⑨)", () => {
 
   it("reports the probe ran, so the rule cannot pass by never firing", () => {
     assert.equal(run(echoAdapter, fullFixtures()).unknownKindSeen, true);
+  });
+
+  // The same rule, reached through a FIXTURE case rather than the synthesized
+  // drift probe above: a real conformance run over a fixture whose own native
+  // payload parses to EventKind.UNKNOWN, not one the harness manufactures.
+  const unknownEvent = (vetoable) => ({
+    ...echoEvent(vetoable),
+    event: "unknown",
+  });
+  const unknownFixtures = (vetoable) => {
+    const fx = fullFixtures();
+    fx.cases.push({
+      name: "u",
+      native: { event: unknownEvent(vetoable) },
+      event: unknownEvent(vetoable),
+      render: {},
+    });
+    return fx;
+  };
+
+  it("passes a fixture whose native payload parses to a non-vetoable EventKind.UNKNOWN", () => {
+    const summary = run(echoAdapter, unknownFixtures(false));
+    assert.equal(summary.unknownKindSeen, true);
+  });
+
+  it("refuses a fixture whose unknown-kind event claims this_call_vetoable: true — the fail-open this rule exists to catch", () => {
+    assert.throws(
+      () => run(echoAdapter, unknownFixtures(true)),
+      /unmodelled event parsed as vetoable: u/,
+    );
+  });
+});
+
+describe("conformance harness self-tests (every-kind synthesis, coherentEvent)", () => {
+  // A missing post_tool kind is synthesized from the preferred pre_tool seed
+  // (see coherentEvent). When that seed itself carries a stray `response` key
+  // — a shape no real parse produces, but nothing stops a seed object from
+  // carrying one — the synthesized post_tool event must carry it forward.
+  it("carries a seed's own response field onto a synthesized post_tool probe", () => {
+    const fx = fullFixtures();
+    const seeded = { ...echoEvent(true), response: "stray" };
+    fx.cases[0].native = { event: seeded };
+    fx.cases[0].event = seeded;
+    assert.doesNotThrow(() => run(echoAdapter, fx));
+  });
+});
+
+describe("conformance harness self-tests (assertAliasedInputsCanonical failure message)", () => {
+  it("names an empty input set when the canonicalized event carries none at all", () => {
+    const fixturesList = [
+      {
+        agent: "t",
+        cases: [
+          {
+            name: "u",
+            event: { tool: "Read", meta: { native_tool: "read_file" } },
+          },
+        ],
+      },
+    ];
+    assert.throws(
+      () => assertAliasedInputsCanonical(fixturesList, assert),
+      /advertises input\.file_path, but the input carries \[\]/,
+    );
+  });
+});
+
+describe("conformance harness self-tests (CONTENT_PROBE_VALUES completeness)", () => {
+  it("passes a table with two or more values for every field", () => {
+    assert.doesNotThrow(() =>
+      assertContentProbeValuesComplete(["a", "b"], { a: [1, 2], b: [1, 2] }),
+    );
+  });
+
+  it("throws when a field has fewer than two probe values", () => {
+    assert.throws(
+      () => assertContentProbeValuesComplete(["a", "b"], { a: [1], b: [1, 2] }),
+      /CONTENT_PROBE_VALUES needs two or more values for each of a, b/,
+    );
+  });
+
+  it("throws when a field has no probe values at all", () => {
+    assert.throws(
+      () => assertContentProbeValuesComplete(["a"], {}),
+      /CONTENT_PROBE_VALUES needs two or more values/,
+    );
   });
 });
 
@@ -642,6 +729,32 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     assert.throws(
       () => run(scalarsOnly, fullFixtures()),
       /mutated_output alone: no native path carries mutated_output verbatim/s,
+    );
+  });
+
+  it("names the render root, not a sub-path, when the whole render IS the value and one shape is dropped", () => {
+    // Every other broken-render case here wraps the value in a native object,
+    // so the divergence sits at a nested key. An adapter whose render for this
+    // field IS the value itself has no such wrapper: the divergence sits at
+    // the render's own root, which is the path this failure message names
+    // "the render root" rather than a joined key path.
+    const rootIsTheValue = {
+      ...echoAdapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "additional_context"]),
+      }),
+      render: (/** @type {any} */ verdict, /** @type {any} */ event) =>
+        event.event === "pre_tool" &&
+        verdict.decision === "allow" &&
+        verdict.mutated_output !== undefined
+          ? verdict.mutated_output === 0
+            ? "corrupted"
+            : verdict.mutated_output
+          : echoAdapter.render(verdict, event),
+    };
+    assert.throws(
+      () => run(rootIsTheValue, fullFixtures()),
+      /mutated_output alone: no native path carries mutated_output verbatim.*At the render root/s,
     );
   });
 

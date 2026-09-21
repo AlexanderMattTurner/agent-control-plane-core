@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ampAdapter, render } from "../src/adapters/amp.mjs";
+import {
+  ampAdapter,
+  render,
+  assertExitCodeTableTotal,
+  exitCodeFor,
+} from "../src/adapters/amp.mjs";
 import { runAdapterConformance } from "../src/conformance.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -94,6 +99,51 @@ describe("amp render: the full (decision × this_call_vetoable) table", () => {
     assert.throws(
       () => render({ decision: "deny" }, eventFor("true")),
       /this_call_vetoable must be a boolean, got "true"/,
+    );
+  });
+});
+
+// The two load-bearing guards behind the exit-code table: a totality check at
+// import time, and a lookup that refuses to return `undefined` instead of
+// silently rendering as exit 0 (Amp's allow). Both are exported so a test can
+// drive the guard directly with a synthetic, deliberately incomplete table
+// rather than trying to smuggle a bad row past `normalizeVerdict`.
+describe("amp exit-code table guards", () => {
+  it("assertExitCodeTableTotal accepts a total table, throws on a missing row", () => {
+    assert.doesNotThrow(() =>
+      assertExitCodeTableTotal(["allow"], {
+        allow: { true: 0, false: 0 },
+      }),
+    );
+    assert.throws(
+      () =>
+        assertExitCodeTableTotal(["deny"], { allow: { true: 0, false: 0 } }),
+      /exit-code table has no row for decision "deny"/,
+    );
+  });
+
+  it("assertExitCodeTableTotal throws on a row missing a vetoable column", () => {
+    assert.throws(
+      () => assertExitCodeTableTotal(["ask"], { ask: { true: 1 } }),
+      /exit-code table row "ask" has no this_call_vetoable=false column/,
+    );
+  });
+
+  it("exitCodeFor returns the entry from a total table", () => {
+    assert.equal(
+      exitCodeFor({ allow: { true: 0, false: 0 } }, "allow", true),
+      0,
+    );
+  });
+
+  it("exitCodeFor throws instead of returning undefined for a missing entry", () => {
+    assert.throws(
+      () => exitCodeFor({ allow: { true: 0 } }, "allow", false),
+      /exit-code table has no entry for decision "allow" \/ this_call_vetoable false/,
+    );
+    assert.throws(
+      () => exitCodeFor({}, "deny", true),
+      /exit-code table has no entry for decision "deny" \/ this_call_vetoable true/,
     );
   });
 });

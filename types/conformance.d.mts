@@ -1,4 +1,14 @@
 /**
+ * A field added to VERDICT_CONTENT_FIELDS with no probe value would be dropped
+ * by normalizeVerdict and then reported as "reaches no native channel" against
+ * every adapter, naming the adapter for the harness's own omission. Called at
+ * import against the live {@link CONTENT_PROBE_VALUES}; exported so a test can
+ * drive both branches.
+ * @param {readonly string[]} fields
+ * @param {Record<string, readonly unknown[]>} values
+ */
+export function assertContentProbeValuesComplete(fields: readonly string[], values: Record<string, readonly unknown[]>): void;
+/**
  * Assert an adapter's {@link import("./control-plane.mjs").Adapter.COVERAGE}
  * hook-coverage matrix is well-formed: it classifies EXACTLY the canonical
  * {@link CALL_CLASSES} (no class missing, none unknown) and every value is a

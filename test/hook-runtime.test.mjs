@@ -1,9 +1,24 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { demoJudge, renderHookResponse } from "../src/runtime.mjs";
+import {
+  closeSync,
+  constants,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  writeSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import {
+  demoJudge,
+  isRetryableWriteError,
+  renderHookResponse,
+  writeAllSync,
+} from "../src/runtime.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
 import { ampAdapter } from "../src/adapters/amp.mjs";
 
@@ -87,6 +102,75 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     assert.match(written[0], /SyntaxError/);
   });
 
+  // A top-level payload that is valid JSON but not an object. Every adapter's
+  // `asObject` coerces one to `{}`, so without this refusal the pipeline judges
+  // a benign empty tool call and rubber-stamps it with no trace. Driven per
+  // SHAPE, because the diagnostic names the shape and each is a separate arm.
+  const nonObjectPayloads = {
+    null: ["null", /got null/u],
+    array: ["[1, 2]", /got array/u],
+    number: ["7", /got number/u],
+    string: ['"ls"', /got string/u],
+  };
+  for (const [label, [raw, named]] of Object.entries(nonObjectPayloads))
+    it(`refuses a top-level ${label} payload instead of judging {}`, () => {
+      const written = [];
+      const realWrite = process.stderr.write;
+      process.stderr.write = (chunk) => {
+        written.push(String(chunk));
+        return true;
+      };
+      let out;
+      try {
+        out = renderHookResponse(claudeAdapter, raw, FAIL);
+      } finally {
+        process.stderr.write = realWrite;
+      }
+      // The fail-safe, not a rendered response: a coerced `{}` would have
+      // produced a real one here, which is the silent rubber-stamp refused.
+      assert.equal(out, FAIL);
+      assert.match(written[0], /TypeError/u);
+      assert.match(written[0], /hook payload must be a JSON object/u);
+      assert.match(written[0], named);
+    });
+
+  // The diagnostic is the only trace a failed pipeline leaves, so it must stay
+  // readable whatever was thrown. A judge is consumer code: it can throw a bare
+  // string, and an Error can reach here with no `stack` (a subclass that sets
+  // none, a structured-clone round trip). Both used to render as "undefined".
+  const thrownShapes = {
+    "a bare string": ["judge exploded", /judge exploded/u],
+    "an Error with no stack": [
+      Object.assign(new Error("no stack here"), { stack: undefined }),
+      /no stack here/u,
+    ],
+  };
+  for (const [label, [thrown, named]] of Object.entries(thrownShapes))
+    it(`reports ${label} in the diagnostic`, () => {
+      const written = [];
+      const realWrite = process.stderr.write;
+      process.stderr.write = (chunk) => {
+        written.push(String(chunk));
+        return true;
+      };
+      let out;
+      try {
+        out = renderHookResponse(
+          claudeAdapter,
+          claudePayload("ls"),
+          FAIL,
+          () => {
+            throw thrown;
+          },
+        );
+      } finally {
+        process.stderr.write = realWrite;
+      }
+      assert.equal(out, FAIL);
+      assert.match(written[0], named);
+      assert.doesNotMatch(written[0], /error: undefined/u);
+    });
+
   it("clamps a malformed judge decision to ask instead of failing open", () => {
     // The failure this closes: `normalizeVerdict` throws on a decision outside
     // allow/deny/ask, that throw lands in the pipeline catch, and the catch
@@ -152,6 +236,113 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
 // truncated JSON body is an enforced deny the host cannot parse — a silent
 // deny→allow. Driven as a subprocess because the bug only exists on a real
 // non-blocking pipe.
+// The predicate `writeAllSync` retries on. Only EAGAIN means "the kernel asked
+// you to repeat this write"; treating anything else as retryable turns a real
+// failure into a hang, and treating EAGAIN as fatal is the short write that
+// truncates a deny body into a run.
+describe("isRetryableWriteError: EAGAIN alone is retryable", () => {
+  const cases = {
+    "an EAGAIN error": [
+      Object.assign(new Error("again"), { code: "EAGAIN" }),
+      true,
+    ],
+    "an EPIPE error": [
+      Object.assign(new Error("pipe"), { code: "EPIPE" }),
+      false,
+    ],
+    "an error with no code": [new Error("bare"), false],
+    // A plain object is not a write the kernel asked us to repeat, so retrying
+    // it forever would hang instead of propagating.
+    "a non-Error carrying code EAGAIN": [{ code: "EAGAIN" }, false],
+    "a thrown string": ["EAGAIN", false],
+    null: [null, false],
+  };
+  for (const [label, [err, expected]] of Object.entries(cases))
+    it(`${expected ? "retries" : "propagates"} ${label}`, () => {
+      assert.equal(isRetryableWriteError(err), expected);
+    });
+});
+
+describe("writeAllSync: a write it cannot repeat propagates", () => {
+  it("writes every byte to a real descriptor", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "acp-write-")), "out");
+    const fd = openSync(path, "w");
+    try {
+      writeAllSync(fd, "café ☕");
+    } finally {
+      closeSync(fd);
+    }
+    assert.equal(readFileSync(path, "utf8"), "café ☕");
+  });
+
+  it("propagates a non-retryable errno instead of looping on it", () => {
+    // A real closed descriptor, so a real EBADF from the real `writeSync`. The
+    // loop has no retry cap, so treating this as retryable would hang the hook
+    // forever rather than fail it.
+    const fd = openSync("/dev/null", "w");
+    closeSync(fd);
+    assert.throws(() => writeAllSync(fd, "x"), /EBADF/u);
+  });
+
+  // The EAGAIN retry, driven against a real full pipe rather than hoped for.
+  // The subprocess cases below reach it only when the parent happens to drain
+  // slower than the child writes, which on this machine held for 7 of 10 runs —
+  // so the retry was UNVERIFIED a third of the time. Filling the pipe BEFORE
+  // the call makes the first `writeSync` throw EAGAIN with no timing left in
+  // it: Linux gives a FIFO a 64 KiB buffer, and a non-blocking write past that
+  // has nothing else it can do.
+  it("retries a full non-blocking pipe until every byte lands", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "acp-eagain-"));
+    const fifo = join(dir, "pipe");
+    const captured = join(dir, "captured");
+    assert.equal(spawnSync("mkfifo", [fifo]).status, 0, "mkfifo failed");
+
+    // A reader must exist before a write-only open, or it fails ENXIO. This one
+    // never reads: it keeps the FIFO open so the fill below can reach EAGAIN.
+    const idleReader = openSync(
+      fifo,
+      constants.O_RDONLY | constants.O_NONBLOCK,
+    );
+    const fd = openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK);
+
+    // The drainer waits before it opens the FIFO, so the fill below always wins
+    // the race to a full buffer. Once it starts, the retry loop drains and the
+    // write completes — the real behavior the hook depends on.
+    const drainer = spawn("sh", [
+      "-c",
+      `sleep 0.5; exec cat "$1" > "$2"`,
+      "sh",
+      fifo,
+      captured,
+    ]);
+
+    const chunk = Buffer.alloc(8192, 0x41);
+    let filled = 0;
+    for (;;) {
+      try {
+        filled += writeSync(fd, chunk);
+      } catch (err) {
+        assert.ok(isRetryableWriteError(err), `unexpected errno: ${err?.code}`);
+        break;
+      }
+    }
+
+    const marker = "END-OF-DENY-BODY\n";
+    writeAllSync(fd, marker);
+    closeSync(fd);
+    closeSync(idleReader);
+    await once(drainer, "close");
+
+    const got = readFileSync(captured, "utf8");
+    assert.equal(
+      got.length,
+      filled + marker.length,
+      "a byte was dropped across the EAGAIN retry",
+    );
+    assert.equal(got.endsWith(marker), true, "the retried write was truncated");
+  });
+});
+
 describe("emit: writes a body larger than the pipe buffer in full", () => {
   const fixture = join(
     dirname(fileURLToPath(import.meta.url)),

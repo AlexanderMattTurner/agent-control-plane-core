@@ -121,6 +121,24 @@ export function renderHookResponse(
 const RETRY_SLEEP = new Int32Array(new SharedArrayBuffer(4));
 
 /**
+ * Whether a failed `writeSync` is the one recoverable case: EAGAIN, meaning the
+ * non-blocking pipe is momentarily full because the host has not drained it
+ * yet. The caller sleeps 1ms and retries — the same wait a blocking write would
+ * have done in the kernel. Every other errno (EPIPE, EBADF, ...) propagates.
+ *
+ * A non-Error throw is NOT retryable, and is checked separately rather than
+ * left to the `code` comparison: a plain object carrying `code: "EAGAIN"` is
+ * not a write that the kernel asked us to repeat, and retrying one forever is a
+ * hang rather than a short write. Exported so a test can drive every branch —
+ * the real `writeSync` only ever throws an Error.
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+export function isRetryableWriteError(err) {
+  return err instanceof Error && /** @type {any} */ (err).code === "EAGAIN";
+}
+
+/**
  * Write `text` to `fd` IN FULL, looping until every byte lands.
  *
  * A single `writeSync` is not enough. When the host captures the hook, fd 1/2 is
@@ -132,24 +150,23 @@ const RETRY_SLEEP = new Int32Array(new SharedArrayBuffer(4));
  * `mutated_input`) was silently truncated and the process still exited 0/2 with
  * a half-written JSON the host cannot parse: an enforced deny degrading to a
  * run. Looping restores the blocking-write semantics the caller assumes.
+ *
+ * Exported so a test can drive the propagation path against a real closed
+ * descriptor; {@link emit} is the only caller a consumer needs.
  * @param {number} fd
  * @param {string} text
  */
-function writeAllSync(fd, text) {
+export function writeAllSync(fd, text) {
   const buf = Buffer.from(text, "utf8");
   let written = 0;
   while (written < buf.length) {
     try {
       written += writeSync(fd, buf, written);
     } catch (err) {
-      // EAGAIN is the one recoverable case: the non-blocking pipe is momentarily
-      // full because the host has not drained it yet. Sleep 1ms and retry — the
-      // same wait a blocking write would have done in the kernel. Every other
-      // errno (EPIPE, EBADF, ...) propagates. There is deliberately no retry cap:
-      // a cap would reintroduce exactly the silent truncation this loop exists to
-      // kill, and a host that never reads would have blocked us forever anyway.
-      if (!(err instanceof Error) || /** @type {any} */ (err).code !== "EAGAIN")
-        throw err;
+      // There is deliberately no retry cap: a cap would reintroduce exactly the
+      // silent truncation this loop exists to kill, and a host that never reads
+      // would have blocked us forever anyway.
+      if (!isRetryableWriteError(err)) throw err;
       Atomics.wait(RETRY_SLEEP, 0, 0, 1);
     }
   }

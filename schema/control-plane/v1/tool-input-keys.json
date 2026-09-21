@@ -1,0 +1,7 @@
+{
+  "Bash": "command",
+  "Edit": "file_path",
+  "Write": "file_path",
+  "Read": "file_path",
+  "WebFetch": "url"
+}

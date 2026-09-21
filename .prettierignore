@@ -20,3 +20,7 @@ uv.lock
 
 # Template sync
 .template-version
+
+# Generated JSON Schema — the generator owns these bytes and json-schema.test.mjs
+# byte-compares them, so no formatter may rewrite them.
+schema/

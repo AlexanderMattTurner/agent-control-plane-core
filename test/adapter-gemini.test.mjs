@@ -50,6 +50,16 @@ describe("gemini render: BeforeTool decision channel", () => {
     assert.equal(out.stderr, "r"); // reason carried to fd 2, never dropped
   });
 
+  it("enforced deny with no reason carries no stderr key at all", () => {
+    // An absent key, not `stderr: undefined`. Gemini reads its block rationale
+    // from fd 2, and `emit` would write the word "undefined" there, which the
+    // user then reads as the reason the call was blocked.
+    const out = geminiAdapter.render({ decision: "deny" }, event);
+    assert.equal(out.exit_code, 2);
+    assert.equal(out.enforced, true);
+    assert.equal("stderr" in out, false);
+  });
+
   it("allow abstains by default (exit 0, no decision body)", () => {
     const out = geminiAdapter.render({ decision: "allow" }, event);
     assert.equal(out.exit_code, 0);

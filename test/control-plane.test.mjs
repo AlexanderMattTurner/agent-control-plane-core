@@ -17,6 +17,7 @@ import {
   canonicalTool,
   lookup,
   assertAliasTargetsModeled,
+  assertGatedKinds,
   makeEvent,
   normalizeVerdict,
   sanitizeVerdict,
@@ -138,6 +139,32 @@ describe("tool identity: canonicalTool normalizes aliases, passes through the re
     assert.throws(
       () => assertAliasTargetsModeled({ foo: "NotAModeledTool" }),
       /tool alias target .* is not a modeled tool/,
+    );
+  });
+
+  // Driven per MEMBER off the contract's own frozen set rather than a
+  // hand-pasted list: a kind that stops being gateable reds here. UNKNOWN is
+  // the one kind outside it — an event the adapter could not name has no host
+  // response to gate, so declaring it gated is the fail-open `makeEvent`
+  // refuses one step later.
+  for (const kind of Object.values(EventKind))
+    it(`assertGatedKinds ${kind === EventKind.UNKNOWN ? "rejects" : "accepts"} ${kind}`, () => {
+      if (kind === EventKind.UNKNOWN)
+        assert.throws(
+          () => assertGatedKinds([kind], "test"),
+          /test adapter: "unknown" is not a gateable event kind/u,
+        );
+      else assert.doesNotThrow(() => assertGatedKinds([kind], "test"));
+    });
+
+  it("assertGatedKinds names the offender inside a longer list", () => {
+    assert.throws(
+      () =>
+        assertGatedKinds(
+          [EventKind.PRE_TOOL, EventKind.UNKNOWN, EventKind.POST_TOOL],
+          "amp",
+        ),
+      /amp adapter: "unknown"/u,
     );
   });
 });

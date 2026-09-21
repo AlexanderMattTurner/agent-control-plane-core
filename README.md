@@ -234,6 +234,44 @@ The harness pins both directions and rejects a vacuous suite:
 
 See `src/fixtures/claude.json` and `src/fixtures/codex.json` for the format.
 
+## Validating from another language
+
+A guardrail that is not JavaScript cannot import `ToolCallEvent`, so it
+hand-writes the field names it reads. It then drifts in the quietest direction:
+the contract renames a field, the hand-written reader sees `undefined`, and it
+takes its no-value branch instead of failing. The package ships the same
+contract as JSON Schema (draft 2020-12), so that reader validates against the
+seam instead of against its own copy.
+
+```python
+import json, pathlib, jsonschema  # a Python guardrail reading the event
+base = pathlib.Path("node_modules/agent-control-plane-core/schema/control-plane/v1")
+schema = json.loads((base / "tool-call-event.schema.json").read_text())
+jsonschema.validate(event, schema)  # raises on a field the contract does not model
+```
+
+`tool-input-keys.json` sits beside them and publishes the input field a judge
+should read per canonical tool (`Bash` → `command`, `Read` → `file_path`), so a
+consumer looks that up rather than hard-coding it. It is plain data, not a
+schema: a validator refuses an unknown keyword under its default options, so a
+document carrying that map inside itself would not compile for the consumer who
+installed it.
+
+The event document also refuses two claims a producer must not make, each one a
+veto the host will never perform: a `this_call_vetoable` `unknown` event, and a
+`this_call_vetoable` event on an `observe_only` transport.
+
+`pnpm gen:schema` generates the files from `src/control-plane.mjs`, and
+`test/json-schema.test.mjs` byte-compares the result, so a stale document reds
+the suite. The same suite validates every adapter's live output against the
+published bytes, so a renamed contract field reds too. A JavaScript caller
+builds the documents in memory from `agent-control-plane-core/json-schema`
+instead of reading the files.
+
+Read the schema from the installed package rather than pinning a copy by hand. A
+document is one release's rendering of the wire version, and an added optional
+field (backward-compatible, below) appears in the next release's document.
+
 ## Versioning
 
 `src/control-plane.mjs` is the frozen contract and its own single source of
@@ -249,6 +287,7 @@ and bumps the version.
 pnpm test           # node --test
 pnpm test:coverage  # c8, 100% lines/branches/functions per file
 pnpm check          # tsc --noEmit (JSDoc types)
+pnpm gen:schema     # regenerate schema/ from the contract
 pnpm lint           # eslint
 pnpm build          # emit .d.mts declarations into types/
 ```
