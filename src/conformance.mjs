@@ -218,17 +218,23 @@ const CONTENT_PROBE_VALUES = Object.freeze({
   ]),
 });
 
-// A field added to VERDICT_CONTENT_FIELDS with no probe value would be dropped
-// by normalizeVerdict and then reported as "reaches no native channel" against
-// every adapter, naming the adapter for the harness's own omission.
-if (
-  VERDICT_CONTENT_FIELDS.some(
-    (field) => (lookup(CONTENT_PROBE_VALUES, field) ?? []).length < 2,
-  )
-)
-  throw new Error(
-    `conformance: CONTENT_PROBE_VALUES needs two or more values for each of ${VERDICT_CONTENT_FIELDS.join(", ")}`,
-  );
+/**
+ * A field added to VERDICT_CONTENT_FIELDS with no probe value would be dropped
+ * by normalizeVerdict and then reported as "reaches no native channel" against
+ * every adapter, naming the adapter for the harness's own omission. Called at
+ * import against the live {@link CONTENT_PROBE_VALUES}; exported so a test can
+ * drive both branches.
+ * @param {readonly string[]} fields
+ * @param {Record<string, readonly unknown[]>} values
+ */
+export function assertContentProbeValuesComplete(fields, values) {
+  if (fields.some((field) => (lookup(values, field) ?? []).length < 2))
+    throw new Error(
+      `conformance: CONTENT_PROBE_VALUES needs two or more values for each of ${fields.join(", ")}`,
+    );
+}
+
+assertContentProbeValuesComplete(VERDICT_CONTENT_FIELDS, CONTENT_PROBE_VALUES);
 
 /**
  * Rule ⑩'s first half: the adapter declares a row for EVERY {@link EventKind}.
@@ -601,8 +607,13 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
   // nowhere to hide.
   /** @param {string} field @param {Record<string, unknown>} held @param {string} shape */
   const carries = (field, held, shape) => {
-    const values = lookup(CONTENT_PROBE_VALUES, field) ?? [];
-    if (values.length < 2) return;
+    // `field` is always a VERDICT_CONTENT_FIELDS member (the only caller below
+    // iterates it), and assertContentProbeValuesComplete guarantees at import
+    // that every such member has two or more entries here — so neither a
+    // missing row nor a short one can reach this point.
+    const values = /** @type {readonly unknown[]} */ (
+      lookup(CONTENT_PROBE_VALUES, field)
+    );
     const renders = values.map((value) =>
       adapter.render(
         { decision: Decision.ALLOW, ...held, [field]: value },
@@ -680,7 +691,11 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
     const held = others.reduce(
       (combinations, name) =>
         combinations.flatMap((carried) =>
-          (lookup(CONTENT_PROBE_VALUES, name) ?? []).map((value) => ({
+          // Same guarantee as `carries` above: `name` is a VERDICT_CONTENT_FIELDS
+          // member, so the row is always present.
+          /** @type {readonly unknown[]} */ (
+            lookup(CONTENT_PROBE_VALUES, name)
+          ).map((value) => ({
             ...carried,
             [name]: value,
           })),
