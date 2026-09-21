@@ -72,6 +72,14 @@ export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
  * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
+/**
+ * Amp honours a distinct ask tier: exit 1 is its "ask the user", a code Amp
+ * treats as neither the allow (0) nor the reject (2). {@link render} emits it
+ * for every `ask`, so a consumer must NOT escalate an `ask` to a `deny` here.
+ * The table below leans on the same tier for the non-vetoable deny, which is
+ * only honest because the tier is real.
+ */
+export const NATIVE_ASK_TIER: true;
 /** @type {import("../control-plane.mjs").Adapter} */
 export const ampAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;

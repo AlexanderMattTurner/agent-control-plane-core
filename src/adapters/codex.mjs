@@ -171,6 +171,17 @@ export const NATIVE_EVENT_FOR = Object.freeze({
   [EventKind.POST_TOOL]: HookEvent.POST_TOOL_USE,
 });
 
+/**
+ * Codex honours a distinct ask tier on the pre-tool gate: `PermissionRequest` is
+ * the event where it asks, and a hook answers either gate with
+ * `hookSpecificOutput.permissionDecision`, whose `"ask"` value {@link preToolBody}
+ * emits for every `ask` verdict. So a consumer must NOT escalate an `ask` to a
+ * `deny` here. This says nothing about WHETHER the hook is honoured at all: a
+ * pre-v0.135 Codex enforces nothing, which `parse` already carries on
+ * `this_call_vetoable` and `meta.integration_mode`.
+ */
+export const NATIVE_ASK_TIER = true;
+
 // Codex drops an enforced deny that carries no (or an empty) reason and runs the
 // tool, so a reasonless enforced deny still renders a non-empty one.
 export const DEFAULT_DENY_REASON = "blocked by monitor";
@@ -392,6 +403,7 @@ export const codexAdapter = {
   INTEGRATION_MODE,
   COVERAGE,
   UNRENDERED_FIELDS,
+  NATIVE_ASK_TIER,
   NATIVE_EVENT_FOR,
   parse,
   render,

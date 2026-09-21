@@ -115,6 +115,16 @@ export const UNRENDERED_FIELDS = Object.freeze({
   [EventKind.UNKNOWN]: UNRENDERED_ON_UNKNOWN,
 });
 
+/**
+ * Claude Code honours a distinct ask tier: `hookSpecificOutput.permissionDecision
+ * = "ask"` suspends the call and puts it in front of the user, and {@link render}
+ * emits exactly that (see {@link gatingBody}). So a consumer must NOT escalate an
+ * `ask` to a `deny` here — the human already sees it. `render` still reports the
+ * ask as `enforced: false`, because this guardrail did not block the call; the
+ * host did, pending an answer.
+ */
+export const NATIVE_ASK_TIER = true;
+
 /** Claude Code native hook event names (the `hook_event_name` field). */
 export const HookEvent = Object.freeze({
   PRE_TOOL_USE: "PreToolUse",
@@ -329,6 +339,7 @@ export const claudeAdapter = {
   INTEGRATION_MODE,
   COVERAGE,
   UNRENDERED_FIELDS,
+  NATIVE_ASK_TIER,
   NATIVE_EVENT_FOR,
   parse,
   render,

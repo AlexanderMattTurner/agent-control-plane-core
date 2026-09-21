@@ -12,6 +12,10 @@ the prose from the release's commits.
 
 ## Unreleased
 
+### Added
+
+- Every adapter declares `NATIVE_ASK_TIER`: whether that host's transport carries a distinct "ask the human" tier the host honours. Claude Code, Codex and Amp do (`permissionDecision: "ask"` on the first two, exit 1 on Amp); Gemini CLI does not, and renders an `ask` as its advisory `decision: "deny"`, which lets the tool run. A consumer that must not let an ask through used to need a hand-typed list of agent ids to know where to escalate `ask` to `deny` — that list is now a field on the adapter it already holds. Conformance rule ⑪ holds each adapter to its own declaration by probing the real `render` on every pre-tool fixture event: a declared tier whose ask renders as that host's abstaining allow fails, and so does a declared-absent tier whose ask renders as anything but that adapter's own advisory deny. The member is REQUIRED, so a third-party adapter needs the one-line addition (a package-semver break, not a wire-schema change — `CONTROL_PLANE_SCHEMA` is untouched, as when `UNRENDERED_FIELDS` arrived).
+
 ### Fixed
 
 - The Claude Code adapter carries an enforced deny's `reason` on `NativeResponse.stderr`, which `emit` writes to fd 2. Claude Code parses hook stdout as JSON only on exit 0; an enforced deny exits 2, where the host discards the body and reads stderr instead — so the `permissionDecisionReason` in that body never reached the model and the call was blocked with no rationale. Non-enforced renders still say nothing on fd 2: an allow, an ask and a deny this call cannot veto have blocked nothing, and their exit-0 body is read.

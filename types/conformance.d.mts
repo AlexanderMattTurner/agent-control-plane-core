@@ -111,13 +111,23 @@ export function assertAliasedInputsCanonical(fixturesList: any[], assert: any): 
  *      that DID reach a wire come back as `contentFieldsSeen`; a suite covering
  *      several adapters asserts their union to keep the positive half of the
  *      rule non-vacuous, since no single host has a channel for all three.
+ *  11. ask-tier honesty: the adapter declares whether this host carries a
+ *      distinct "ask the human" tier it honours (`NATIVE_ASK_TIER`), and the
+ *      render is held to that declaration on every pre-tool event. A declared
+ *      tier whose `ask` renders as the host's abstaining allow fails — the
+ *      consumer is told a human will see the call while the tool just runs —
+ *      and so does a declared-absent tier whose `ask` renders as anything but
+ *      the adapter's own advisory deny. A consumer reads the declaration to
+ *      decide where an `ask` must be escalated to a `deny`, so a wrong one
+ *      either lets a call through or denies every asked call on the hosts that
+ *      do ask. OBSERVE_ONLY renders are exempt, as in rule ⑧.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number, askTierChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }: {
     adapter: import("./control-plane.mjs").Adapter;
@@ -134,4 +144,5 @@ export function runAdapterConformance({ adapter, fixtures, assert }: {
     unknownKindSeen: boolean;
     coverageClassesChecked: Set<string>;
     unenforceableDenyChecks: number;
+    askTierChecks: number;
 };

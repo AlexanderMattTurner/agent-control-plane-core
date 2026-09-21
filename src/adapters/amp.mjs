@@ -157,6 +157,15 @@ export function parse(native) {
 }
 
 /**
+ * Amp honours a distinct ask tier: exit 1 is its "ask the user", a code Amp
+ * treats as neither the allow (0) nor the reject (2). {@link render} emits it
+ * for every `ask`, so a consumer must NOT escalate an `ask` to a `deny` here.
+ * The table below leans on the same tier for the non-vetoable deny, which is
+ * only honest because the tier is real.
+ */
+export const NATIVE_ASK_TIER = true;
+
+/**
  * The EXHAUSTIVE (decision × `this_call_vetoable`) → exit-code table for Amp's
  * pure exit-code transport: 0 allow / 1 ask / 2 reject.
  *
@@ -251,6 +260,7 @@ export const ampAdapter = {
   INTEGRATION_MODE,
   COVERAGE,
   UNRENDERED_FIELDS,
+  NATIVE_ASK_TIER,
   NATIVE_EVENT_FOR,
   parse,
   render,

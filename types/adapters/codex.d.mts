@@ -113,6 +113,16 @@ export const MIN_ENFORCING_VERSION: readonly number[];
  * @type {Record<string, string|undefined>}
  */
 export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
+/**
+ * Codex honours a distinct ask tier on the pre-tool gate: `PermissionRequest` is
+ * the event where it asks, and a hook answers either gate with
+ * `hookSpecificOutput.permissionDecision`, whose `"ask"` value {@link preToolBody}
+ * emits for every `ask` verdict. So a consumer must NOT escalate an `ask` to a
+ * `deny` here. This says nothing about WHETHER the hook is honoured at all: a
+ * pre-v0.135 Codex enforces nothing, which `parse` already carries on
+ * `this_call_vetoable` and `meta.integration_mode`.
+ */
+export const NATIVE_ASK_TIER: true;
 export const DEFAULT_DENY_REASON: "blocked by monitor";
 /** @type {import("../control-plane.mjs").Adapter} */
 export const codexAdapter: import("../control-plane.mjs").Adapter;

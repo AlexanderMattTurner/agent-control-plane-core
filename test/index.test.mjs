@@ -58,7 +58,7 @@ describe("public API surface (index barrel)", () => {
     });
   }
 
-  it("adapters expose the { AGENT, COVERAGE, UNRENDERED_FIELDS, parse, render } shape", () => {
+  it("adapters expose the { AGENT, COVERAGE, UNRENDERED_FIELDS, NATIVE_ASK_TIER, parse, render } shape", () => {
     for (const adapter of [
       pkg.claudeAdapter,
       pkg.codexAdapter,
@@ -72,7 +72,38 @@ describe("public API surface (index barrel)", () => {
       assert.equal(typeof adapter.UNRENDERED_FIELDS, "object");
       // Every adapter's coverage matrix is well-formed against the contract SSOT.
       pkg.assertCoverageWellFormed(adapter, assert);
+      // Rule ⑪: whether this host honours a distinct ask tier. A consumer reads
+      // it to decide where an `ask` has to be escalated to a `deny`, so a
+      // missing one would read as `undefined` — falsy, i.e. "escalate here".
+      assert.equal(typeof adapter.NATIVE_ASK_TIER, "boolean");
     }
+  });
+
+  // Pin each adapter's ask-tier declaration member by member, the way the
+  // coverage rows below are pinned: the value decides whether a consumer turns
+  // every `ask` on that host into a `deny`, so a flip needs the same evidence a
+  // coverage cell does. The conformance harness holds each one to the adapter's
+  // real render; this says which answer the package ships.
+  it("pins whether each host honours a distinct ask tier", () => {
+    assert.deepEqual(
+      Object.fromEntries(
+        Object.entries(pkg.ADAPTERS).map(([agent, adapter]) => [
+          agent,
+          adapter.NATIVE_ASK_TIER,
+        ]),
+      ),
+      {
+        // permissionDecision: "ask" suspends the call for the user.
+        claude: true,
+        // Same field, plus the PermissionRequest gate it answers.
+        codex: true,
+        // Exit 1 is Amp's ask, distinct from its allow (0) and reject (2).
+        amp: true,
+        // No ask vocabulary at all: the render spends the advisory
+        // `decision: "deny"` on an ask, so an un-escalated ask runs the tool.
+        gemini: false,
+      },
+    );
   });
 
   // Pin each adapter's hook-coverage row (docs/hook-coverage-matrix.md). A cell
