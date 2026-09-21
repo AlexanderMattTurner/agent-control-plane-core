@@ -36,6 +36,17 @@ jobs:
         if: steps.check.outputs.configured == 'true'
         run: pnpm test
 
+      - name: Check if coverage script is configured
+        id: check-coverage
+        run: bash .github/scripts/script-configured-output.sh test:coverage configured
+
+      # `.c8rc.json` has carried a per-file floor since before this step existed,
+      # and no workflow ran it — so five files had drifted under it unnoticed.
+      # Runs the same suite as the step above, instrumented.
+      - name: Coverage floor
+        if: steps.check-coverage.outputs.configured == 'true'
+        run: pnpm test:coverage
+
       - name: Check if build script is configured
         id: check-build
         run: bash .github/scripts/script-configured-output.sh build configured
