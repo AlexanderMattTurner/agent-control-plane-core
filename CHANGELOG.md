@@ -12,6 +12,16 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.8.1] - 2026-09-21
+
+### Changed
+
+- CI review process now delegates to external agent-review service instead of vendoring review logic inline.
+
+### Removed
+
+- Removed bundled PR review scripts and related infrastructure in favor of dedicated agent-review integration.
+
 ## [0.8.0] - 2026-09-21
 
 ### Added
