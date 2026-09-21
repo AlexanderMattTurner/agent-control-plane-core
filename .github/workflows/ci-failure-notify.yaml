@@ -24,7 +24,6 @@ on: # zizmor: ignore[dangerous-triggers]
       - Auto-resolve merge conflicts
       - Auto version bump and publish
       - CI failure-rate report
-      - Claude reviewer-hold sweeper
       - Fixture freshness
       - Format check
       - Gitleaks Secret Scanning
