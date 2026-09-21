@@ -146,8 +146,9 @@ const HookEvent = Object.freeze({
 
 /**
  * Native event name → normalized {@link EventKind}. `PreToolUse` and
- * `PermissionRequest` both gate a tool call before it runs (PermissionRequest is
- * the ask-tier veto), so both normalize to `pre_tool`. Codex emits more events
+ * `PermissionRequest` both gate a tool call before it runs, so both normalize to
+ * `pre_tool`. Neither carries an ask tier: Codex's `PermissionRequestBehaviorWire`
+ * has two variants, allow and deny. Codex emits more events
  * than these — SessionStart/SessionEnd/Stop/PreCompact/… — and every one of them
  * still routes to `unknown`: this adapter models an event only once its host
  * response is established, and an unmodelled event parses non-vetoable.
@@ -172,15 +173,16 @@ export const NATIVE_EVENT_FOR = Object.freeze({
 });
 
 /**
- * Codex honours a distinct ask tier on the pre-tool gate: `PermissionRequest` is
- * the event where it asks, and a hook answers either gate with
- * `hookSpecificOutput.permissionDecision`, whose `"ask"` value {@link preToolBody}
- * emits for every `ask` verdict. So a consumer must NOT escalate an `ask` to a
- * `deny` here. This says nothing about WHETHER the hook is honoured at all: a
- * pre-v0.135 Codex enforces nothing, which `parse` already carries on
- * `this_call_vetoable` and `meta.integration_mode`.
+ * Codex has NO ask tier. Its pre-tool output parser decodes
+ * `permissionDecision: "ask"`, classifies it unsupported, sets no block reason
+ * and runs the tool — upstream's own unit test for that path is named
+ * `unsupported_permission_decision_fails_open` (read at `rust-v0.155.1`, and
+ * byte-identical at `rust-v0.151.0`). `PermissionRequest` is no ask tier either:
+ * its behavior enum carries allow and deny only. So a verdict of `ask` has no
+ * channel here, and {@link render} sends it down the deny path rather than
+ * naming a key the host discards.
  */
-export const NATIVE_ASK_TIER = true;
+export const NATIVE_ASK_TIER = false;
 
 // Codex drops an enforced deny that carries no (or an empty) reason and runs the
 // tool, so a reasonless enforced deny still renders a non-empty one.
@@ -314,7 +316,15 @@ export function parse(native) {
  * @returns {NativeResponse}
  */
 export function render(verdict, event, { soleGate = false } = {}) {
-  const vd = normalizeVerdict(verdict);
+  const normalized = normalizeVerdict(verdict);
+  // An `ask` becomes a deny on the PRE-TOOL path, because this host acts on no
+  // other objection: emitting its own `"ask"` leaves the tool running with the
+  // run marked failed, which is the fail-open {@link NATIVE_ASK_TIER} records.
+  // The post-tool path maps it to `block` on its own, below.
+  const vd =
+    normalized.decision === Decision.ASK && event.event !== EventKind.POST_TOOL
+      ? { ...normalized, decision: Decision.DENY }
+      : normalized;
   const enforced = vd.decision === Decision.DENY && event.this_call_vetoable;
   // The native name is preserved rather than derived from the kind, so a
   // PermissionRequest answers as itself; NATIVE_EVENT_FOR names the fallback.

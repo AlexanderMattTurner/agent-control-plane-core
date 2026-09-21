@@ -25,7 +25,15 @@ export function readStdin() {
   return new Promise((resolve, reject) => {
     /** @type {Buffer[]} */
     const chunks = [];
-    process.stdin.on("data", (chunk) => chunks.push(chunk));
+    // A consumer that set an encoding on stdin hands STRINGS to this listener, and
+    // Buffer.concat throws on one. That throw escapes from the stream's callback,
+    // not from this promise, so it never reaches the caller's fail-safe: the hook
+    // dies with no response and a fail-open host runs the unjudged call.
+    process.stdin.on("data", (chunk) =>
+      chunks.push(
+        typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk,
+      ),
+    );
     process.stdin.on("end", () => resolve(Buffer.concat(chunks).toString()));
     process.stdin.on("error", reject);
   });

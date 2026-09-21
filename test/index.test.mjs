@@ -95,8 +95,11 @@ describe("public API surface (index barrel)", () => {
       {
         // permissionDecision: "ask" suspends the call for the user.
         claude: true,
-        // Same field, plus the PermissionRequest gate it answers.
-        codex: true,
+        // Reads the same field and classifies "ask" UNSUPPORTED, then runs the
+        // tool: upstream's own test for that path is named
+        // `unsupported_permission_decision_fails_open`. PermissionRequest is no
+        // ask tier either — its behavior enum is allow and deny.
+        codex: false,
         // Exit 1 is Amp's ask, distinct from its allow (0) and reject (2).
         amp: true,
         // No ask vocabulary at all: the render spends the advisory

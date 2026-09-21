@@ -159,6 +159,25 @@ describe("emit: writes a body larger than the pipe buffer in full", () => {
     "emit-large-body-fixture.mjs",
   );
 
+  const stringStdin = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "fixtures",
+    "string-stdin-fixture.mjs",
+  );
+
+  it("reads a payload from a stdin that hands it strings", () => {
+    // A multi-byte character so a decoder that mishandles the chunk boundary
+    // shows up as mangled text rather than as an equal-length pass.
+    const payload = '{"tool_input":{"command":"echo café ☕"}}';
+    const res = spawnSync("node", [stringStdin], {
+      encoding: "utf8",
+      input: payload,
+    });
+    assert.equal(res.error, undefined, `spawn failed: ${res.error?.message}`);
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    assert.equal(res.stdout, payload);
+  });
+
   for (const padBytes of [200_000, 2_000_000]) {
     it(`delivers a ${padBytes}-byte deny reason intact (exit 2)`, () => {
       const res = spawnSync("node", [fixture, `--pad=${padBytes}`], {

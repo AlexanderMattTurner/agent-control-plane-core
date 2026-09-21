@@ -230,6 +230,26 @@ describe("conformance harness self-tests (ask tier, rule ⑪)", () => {
     );
   });
 
+  // Renders ask as the host's BLOCK while claiming a tier: it differs from the
+  // allow, so the half above passes, and the consumer it tells to stop
+  // escalating hands the call to a host that denies it instead of asking.
+  const blockingAsk = {
+    ...echoAdapter,
+    render: (verdict, event) =>
+      verdict.decision === "ask" && event.this_call_vetoable === true
+        ? deny(2, true)
+        : echoAdapter.render(verdict, event),
+  };
+
+  it("throws when a declared ask tier renders ask as the host's enforced deny", () => {
+    const fx = fullFixtures();
+    fx.cases[0].render.ask.native = deny(2, true);
+    assert.throws(
+      () => run(blockingAsk, fx),
+      /NATIVE_ASK_TIER is true, but an ask renders exactly as this host's enforced deny/,
+    );
+  });
+
   it("throws when an adapter declaring no ask tier still renders a distinct ask", () => {
     // Exit 3 is neither this transport's allow (0) nor its advisory deny (1),
     // so the render carries a tier the declaration says the host has not got.

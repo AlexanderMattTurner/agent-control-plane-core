@@ -500,10 +500,11 @@ function coherentEvent(adapter, byKind, kind) {
  * construction and demanding a distinct ask would demand a fiction.
  * @param {import("./control-plane.mjs").Adapter} adapter
  * @param {import("./control-plane.mjs").ToolCallEvent} event a non-vetoable pre-tool event
+ * @param {import("./control-plane.mjs").ToolCallEvent} vetoable the fixture's own pre-tool event, whose veto the block half needs
  * @param {string} caseName
  * @param {any} assert
  */
-function assertAskTier(adapter, event, caseName, assert) {
+function assertAskTier(adapter, event, vetoable, caseName, assert) {
   const asked = adapter.render(ASK_TIER_ASK_PROBE, event);
   assert.equal(
     asked.enforced,
@@ -517,6 +518,21 @@ function assertAskTier(adapter, event, caseName, assert) {
       adapter.render(ABSTAINING_ALLOW_PROBE, event),
       `${adapter.AGENT}: NATIVE_ASK_TIER is true, but an ask renders exactly as this host's abstaining allow — nothing in the transport asks anyone: ${caseName}`,
     );
+    // The other way to declare an ask tier this host has not got: render the ask
+    // as the host's BLOCK. It differs from the allow, so the half above passes,
+    // and the consumer it tells to stop escalating then hands a call to a host
+    // that denies it outright rather than suspending it for a human. Probed on
+    // the vetoable event, because a block is the one signal a non-vetoable
+    // render cannot carry.
+    if (vetoable.this_call_vetoable) {
+      const blocked = adapter.render(ASK_TIER_DENY_PROBE, vetoable);
+      if (blocked.enforced)
+        assert.notDeepEqual(
+          adapter.render(ASK_TIER_ASK_PROBE, vetoable),
+          blocked,
+          `${adapter.AGENT}: NATIVE_ASK_TIER is true, but an ask renders exactly as this host's enforced deny — the call is blocked, not suspended: ${caseName}`,
+        );
+    }
     return;
   }
   assert.deepEqual(
@@ -1091,7 +1107,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     // Rule ⑪, on the same non-vetoable variant and AFTER rule ⑧: an adapter that
     // collapses both its deny and its ask onto the host's allow is reported as
     // the lost objection it is, not as a mis-declared ask tier.
-    assertAskTier(adapter, unenforceable, testCase.name, assert);
+    assertAskTier(adapter, unenforceable, parsed, testCase.name, assert);
     askTierChecks += 1;
   }
 
