@@ -12,6 +12,8 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.7.0] - 2026-09-21
+
 ### Added
 
 - The hook runtime is published at `agent-control-plane-core/runtime` (it was `bin/hook-runtime.mjs`, reachable only by path). It carries `readStdin`, `renderHookResponse` and `emit`, so a consumer writing its own hook entry no longer re-implements the stdin drain and the flush-before-exit — `emit` writes the response in full before `process.exit`, which is what stops a deny body larger than the pipe buffer being truncated into an allow the host cannot parse. The four `bin/*-hook.mjs` entries import it from the same place a consumer does. `demoJudge` moves with it and stays the documented stand-in that `renderHookResponse` defaults to; a real deployment passes its own judge.
