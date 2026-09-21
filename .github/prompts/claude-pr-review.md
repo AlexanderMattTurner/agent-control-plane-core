@@ -144,24 +144,21 @@ verdict written, and the review step then fails as if you never reviewed. Write
 
 ## Output format
 
-Your review posts as a real GitHub review, so both your `verdict` and your
-findings' severities have a merge consequence. Under a review-required ruleset
-this reviewer IS the approval or the hold:
+Your review posts as a plain GitHub COMMENT review, so your FINDINGS carry the
+merge consequence and your `verdict` carries none:
 
-- `looks_good` — no blocking issues; posts an **APPROVE** review, which satisfies
-  the required review so auto-merge may proceed.
-- `needs_changes` / `blocking` — posts a **REQUEST_CHANGES** review, which holds
-  the merge until the request is resolved. Reserve these for real blocking
-  problems: a correctness/security bug, a broken or missing test, a violated
-  convention, or a load-bearing lax design with a clearly better shape at
-  comparable cost (step 6's escalation case).
-- **Any finding whose severity gates escalates the posted event to
-  REQUEST_CHANGES, whatever your verdict says.** A `looks_good` carrying one 🔵
-  `nit` still holds the merge, because `nit` is in `config/review-severities.json`'s
-  `gating` list here. So a finding is never a free aside: file one when you want
-  the author to act, and leave it out when you do not.
+- **Every finding whose severity gates opens a review thread that holds the
+  merge until somebody resolves it.** A 🔵 `nit` holds it too, because `nit` is
+  in `config/review-severities.json`'s `gating` list here. So a finding is never
+  a free aside: file one when you want the author to act, and leave it out when
+  you do not. Reserve a finding for a real problem: a correctness or security
+  bug, a broken or missing test, a violated convention, or a load-bearing lax
+  design with a clearly better shape at comparable cost (step 6's escalation
+  case).
+- `verdict` is advisory prose. Write it, and let your summary say the same thing
+  in words; nothing reads it to decide a merge.
 
-Approval is the default outcome only in the sense that most PRs are fine — not a
+Silence is the default outcome only in the sense that most PRs are fine — not a
 courtesy the diff is owed; when you are genuinely torn between filing a finding
 and staying silent, ask whether merging as-is would make the codebase permanently
 worse in a way a follow-up realistically won't fix (new surface and lax shapes

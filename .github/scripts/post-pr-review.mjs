@@ -1,12 +1,16 @@
 // Turn the review agent's structured findings (review.json) into ONE GitHub PR
-// review with inline, line-anchored comments plus a summary body — Greptile
-// style — for `gh api` to POST.
+// review — always a COMMENT — with inline, line-anchored comments plus a summary
+// body, Greptile style, for `gh api` to POST. The merge consequence lives in the
+// review-findings status gate, which reads the inline threads, so the review
+// event itself carries none.
 //
 // Each finding names a (path, line, side). A comment on a line that is not part
 // of the diff makes the whole reviews API call 422, so this parses the
 // (sanitized) diff to learn which (path, line) positions are actually
-// commentable on each side and MOVES any unanchorable finding into the summary
-// body instead of dropping it or poisoning the request. Line numbers survive
+// commentable on each side. An unanchorable NIT moves into the summary body; an
+// unanchorable GATING finding gets a synthetic anchor — the first RIGHT-side
+// line of its own file in the diff, else the diff's first — so it always opens
+// the thread the status gate reads. Line numbers survive
 // Layer-1 sanitization (it edits within lines, never adds/removes them), so the
 // sanitized diff is a faithful anchor source.
 //
@@ -20,8 +24,8 @@
 //
 // Contract with the caller: prints `PAYLOAD` on stdout when it wrote a payload
 // to post, or `SKIP` (exit 0) when the reviewer ran but produced nothing to post
-// (a valid review.json with no findings, no summary, and no verdict). A MISSING
-// or unparsable review.json means the reviewer crashed before writing its
+// (a valid review.json with no findings and no summary). A MISSING or
+// unparsable review.json means the reviewer crashed before writing its
 // output, so this exits NON-ZERO (fail loud) instead of masquerading as a clean
 // pass with no review posted. Diagnostics go to stderr.
 import { readFileSync, writeFileSync } from "node:fs";
@@ -54,8 +58,8 @@ function skip(msg) {
 }
 
 // A missing or unparsable review.json is not "nothing to review" — the reviewer
-// is instructed to always write its verdict there, so its absence means the agent
-// crashed before producing one. Fail loud (non-zero exit) so the job goes RED
+// is instructed to always write its findings there, so its absence means the
+// agent crashed before producing them. Fail loud (non-zero exit) so the job goes RED
 // instead of silently reporting a clean pass with no review posted; the caller
 // (post-pr-review.sh) turns this non-zero exit into a red step.
 function fail(msg) {
@@ -81,9 +85,9 @@ let review;
 try {
   review = JSON.parse(readFileSync(`${dir}/review.json`, "utf8"));
 } catch (err) {
-  // A missing verdict has two very different causes, told apart by the run's
+  // A missing review.json has two very different causes, told apart by the run's
   // total cost (the model is only billed once it is actually reached):
-  //   cost > 0  → the reviewer RAN and crashed before writing its verdict. A
+  //   cost > 0  → the reviewer RAN and crashed before writing its output. A
   //              real bug — fail loud so the job goes RED.
   //   cost 0/absent → the model was NEVER reached: no CLAUDE_CODE_OAUTH_TOKEN is
   //              configured, or the token is expired/rate-limited. The reviewer is
@@ -94,7 +98,7 @@ try {
   const base = `the reviewer wrote no valid review.json (${err.message})`;
   if (ran) {
     fail(
-      `${base} — it ran (cost $${cost.toFixed(4)}) but crashed before producing its verdict`,
+      `${base} — it ran (cost $${cost.toFixed(4)}) but crashed before producing its findings`,
     );
   }
   skip(
@@ -107,34 +111,20 @@ try {
 const findings = Array.isArray(review.findings) ? review.findings : [];
 const summary = typeof review.summary === "string" ? review.summary.trim() : "";
 
-// The reviewer's verdict picks the base review EVENT — the lever this review has
-// over a review-required ruleset (which is what makes it gate auto-merge):
-//   looks_good              -> APPROVE          (satisfies the required review; auto-merge may proceed)
-//   needs_changes|blocking  -> REQUEST_CHANGES  (holds the merge until resolved)
-//   unknown/empty/missing   -> COMMENT          (no verdict signal; leave the gate to a human)
-// Matching is trim + lowercased so a cased/padded verdict from the model still
-// maps (fail toward the explicit signal rather than silently to COMMENT).
-// The finding-severity gate (below) can still escalate this base event: a review
-// carrying any detail-bearing finding (nit, warning, or blocking) is held to
-// REQUEST_CHANGES.
-const verdict =
-  typeof review.verdict === "string" ? review.verdict.trim().toLowerCase() : "";
-const EVENT_BY_VERDICT = {
-  looks_good: "APPROVE",
-  needs_changes: "REQUEST_CHANGES",
-  blocking: "REQUEST_CHANGES",
-};
-let event = EVENT_BY_VERDICT[verdict] || "COMMENT";
+// Every review posts as a COMMENT. GITHUB_TOKEN cannot submit an APPROVE, so a
+// review that asks for one degrades to a plain comment and records NO review at
+// all, and the status gate then waits for a review that never lands. The merge
+// lever is the inline threads that gate reads. review.json's `verdict` is
+// advisory prose the reviewer folds into its summary; nothing here acts on it.
+const event = "COMMENT";
 
 // The severity model is CONFIG, not code: config/review-severities.json says
 // which severities hold the merge and what emoji each finding leads with.
 //
-// `gating` lists the severities that escalate the posted event to
-// REQUEST_CHANGES. The gate blocks on the FINDING, not only on a
-// needs_changes/blocking VERDICT: a reviewer that files a finding but still
-// stamps looks_good would otherwise let it ride through on an APPROVE. A
-// detail-less finding is still dropped below and never gates (nothing to
-// resolve).
+// `gating` lists the severities that hold the merge, and the status gate reads
+// the same list. A finding of one of them always opens a resolvable thread here,
+// so it cannot ride through inside the summary body. A detail-less finding is
+// dropped below and never gates (nothing to resolve).
 //
 // The shipped model. `config/` is NOT in template-sync's SYNC_PATHS, so an
 // adopter repo receives this script without the config file — absent therefore
@@ -160,8 +150,8 @@ const normSeverity = (s) =>
 // Absent is a choice; malformed is a mistake. A repo that never wrote the file
 // gets DEFAULT_SEVERITIES. A repo that DID write one and got it wrong fails
 // loud, because the failure it would otherwise cause is invisible: an empty
-// `gating` set makes hasGatingFinding permanently false, so every review posts
-// as APPROVE and the reviewer silently stops holding anything —
+// `gating` set lets every finding spill into the summary body, so the status
+// gate sees no thread and the reviewer silently stops holding anything —
 // indistinguishable from a repo where nothing is ever wrong.
 function loadSeverities() {
   let text;
@@ -195,8 +185,8 @@ function loadSeverities() {
       throw bad(`severity '${sev}' has a non-string icon.`);
   if (!Array.isArray(raw.gating) || raw.gating.length === 0)
     throw bad(
-      "`gating` must be a non-empty array — an empty one approves every review " +
-        "and retires the reviewer's hold with no other symptom.",
+      "`gating` must be a non-empty array — an empty one lets every finding " +
+        "spill and retires the reviewer's hold with no other symptom.",
     );
   const gating = new Set();
   for (const sev of raw.gating) {
@@ -218,6 +208,10 @@ const { gating: GATING_SEVERITIES, icons: ICONS } = loadSeverities();
 // remap.
 const rightOk = new Set();
 const leftOk = new Set();
+// The synthetic-anchor ladder for a gating finding that names no line in this
+// diff: its own file's first commentable RIGHT-side line, else the diff's first.
+const firstRightByPath = new Map();
+let firstRightOverall = null;
 const diffViewLines = [];
 let path = null;
 let oldLine = 0;
@@ -245,6 +239,8 @@ for (let i = 0; i < diffLines.length; i++) {
   if (kind === "+") {
     rightOk.add(`${path}\t${newLine}`);
     diffViewLines[i + 1] = { path, kind, newLine, oldLine: null };
+    if (!firstRightByPath.has(path)) firstRightByPath.set(path, newLine);
+    if (!firstRightOverall) firstRightOverall = { path, line: newLine };
     newLine += 1;
   } else if (kind === "-") {
     leftOk.add(`${path}\t${oldLine}`);
@@ -254,6 +250,8 @@ for (let i = 0; i < diffLines.length; i++) {
     rightOk.add(`${path}\t${newLine}`);
     leftOk.add(`${path}\t${oldLine}`);
     diffViewLines[i + 1] = { path, kind, newLine, oldLine };
+    if (!firstRightByPath.has(path)) firstRightByPath.set(path, newLine);
+    if (!firstRightOverall) firstRightOverall = { path, line: newLine };
     oldLine += 1;
     newLine += 1;
   }
@@ -295,14 +293,11 @@ const commentableRight = (p, l) => l !== null && rightOk.has(`${p}\t${l}`);
 
 const comments = [];
 const spill = [];
-let hasGatingFinding = false;
 for (const f of findings) {
   const detail = [f.title, f.body].filter(Boolean).join(" — ").trim();
+  // A detail-less finding is dropped: it can hold no merge, because it gives
+  // nobody anything to resolve.
   if (!detail) continue;
-  // A detail-less finding is dropped (above), so it can't hold the merge with
-  // nothing to resolve — only a finding that actually posts (as an inline
-  // comment or a spilled summary note) counts toward the gate.
-  if (GATING_SEVERITIES.has(normSeverity(f.severity))) hasGatingFinding = true;
   const line = Number.isInteger(f.line) ? f.line : null;
   const hasSuggestion =
     typeof f.suggestion === "string" && f.suggestion.length > 0;
@@ -355,14 +350,28 @@ for (const f of findings) {
     const where = f.path
       ? `\`${f.path}${line ? `:${line}` : ""}\``
       : "(general)";
-    spill.push(`- ${icon(f.severity)} ${where}: ${detail}`);
+    // The status gate reads threads, so a gating finding in the summary body
+    // would ride through unresolvable — the one way this reviewer loses its hold
+    // on a merge. Give it a synthetic anchor and say so in the body, and let no
+    // suggestion ride one, since it would edit a line the finding is not about.
+    // Only a non-gating finding spills.
+    const synthetic =
+      GATING_SEVERITIES.has(normSeverity(f.severity)) &&
+      (f.path && firstRightByPath.has(f.path)
+        ? { path: f.path, line: firstRightByPath.get(f.path) }
+        : firstRightOverall);
+    if (synthetic) {
+      comments.push({
+        path: synthetic.path,
+        line: synthetic.line,
+        side: "RIGHT",
+        body: `${icon(f.severity)} ${detail}\n\n<sub>PR-wide finding at ${where}: it names no line in this diff, so it is anchored here to open a resolvable thread.</sub>`,
+      });
+    } else {
+      spill.push(`- ${icon(f.severity)} ${where}: ${detail}`);
+    }
   }
 }
-
-// Any real finding holds the merge regardless of the verdict: escalate
-// APPROVE/COMMENT to REQUEST_CHANGES. (A verdict that already maps to
-// REQUEST_CHANGES is unchanged.)
-if (hasGatingFinding) event = "REQUEST_CHANGES";
 
 // Sanitize the model-authored strings before they reach the payload: each inline
 // comment body (which already carries its suggestion block) and the composite
@@ -375,12 +384,10 @@ if (spill.length > 0)
   bodyParts.push(`#### Additional notes\n${spill.join("\n")}`);
 const body = (await scrub(bodyParts.join("\n\n"))).trim();
 
-// A COMMENT with nothing to say is noise, so skip it. But an APPROVE /
-// REQUEST_CHANGES verdict must post regardless — it moves the review-required
-// gate, so a blocking verdict that arrived with an empty summary and no
-// anchorable findings must NOT silently fail open; the placeholder body carries
-// it.
-if (comments.length === 0 && !body && event === "COMMENT")
+// A review with nothing to say is noise, so skip it. The status gate counts a
+// skipped run as no review, so a PR whose reviewer produced nothing stays
+// pending rather than passing unreviewed.
+if (comments.length === 0 && !body)
   skip("reviewer produced no findings and no summary");
 
 const footer = costFooter();

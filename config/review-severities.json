@@ -1,0 +1,9 @@
+{
+  "comment": "SSOT for the review-finding severity model. `gating` lists the severities that hold a merge: post-pr-review.mjs escalates a review carrying one to REQUEST_CHANGES, and review-findings-gate.sh reds the `Review findings resolved` check while such a thread stays unresolved. `icons` maps every severity to the emoji its posted finding leads with, which is also how the gate recognises a thread whose root comment carries no hidden marker. Consumers: post-pr-review.mjs (renders findings), review-findings-gate.sh (builds its thread predicate from this file at runtime).",
+  "gating": ["blocking", "warning", "nit"],
+  "icons": {
+    "blocking": "🔴",
+    "warning": "🟡",
+    "nit": "🔵"
+  }
+}
