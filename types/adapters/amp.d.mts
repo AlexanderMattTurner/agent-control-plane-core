@@ -4,6 +4,30 @@
  */
 export function parse(native: any): ToolCallEvent;
 /**
+ * Totality check: every `decision` in `decisions` must have a row in `table`
+ * and every row both vetoable columns. A decision added to the contract with
+ * no matching row breaks loudly instead of silently defaulting to exit 0.
+ * Called at import against {@link Decision} and {@link EXIT_CODE_BY_DECISION};
+ * exported so a test can drive both branches.
+ * @param {readonly string[]} decisions
+ * @param {Readonly<Record<string, Readonly<Record<string, number>>>>} table
+ */
+export function assertExitCodeTableTotal(decisions: readonly string[], table: Readonly<Record<string, Readonly<Record<string, number>>>>): void;
+/**
+ * Look up the exit code for `decision`/`vetoable` in `table`. Throws instead of
+ * returning `undefined`: the alternative is `exit_code: undefined`, which
+ * `process.exit` renders as 0 — the exact silent allow this table exists to
+ * eliminate. Unreachable from {@link render} on the real
+ * {@link EXIT_CODE_BY_DECISION} while {@link assertExitCodeTableTotal} holds at
+ * load; exported so a test can drive both branches against a synthetic,
+ * deliberately incomplete table.
+ * @param {Readonly<Record<string, Readonly<Record<string, number>>>>} table
+ * @param {string} decision
+ * @param {boolean} vetoable
+ * @returns {number}
+ */
+export function exitCodeFor(table: Readonly<Record<string, Readonly<Record<string, number>>>>, decision: string, vetoable: boolean): number;
+/**
  * Render into Amp's pure exit-code transport: the decision is the exit code,
  * with no stdout body. An ENFORCED deny also carries its `reason` on
  * `NativeResponse.stderr`, which `emit` writes to fd 2: the delegate is a PATH

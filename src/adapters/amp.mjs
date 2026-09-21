@@ -190,22 +190,52 @@ const EXIT_CODE_BY_DECISION = Object.freeze({
 });
 
 /**
- * Totality check at IMPORT: every {@link Decision} must have a row and every row
- * both vetoable columns. A decision added to the contract breaks this module
- * loudly at load instead of silently defaulting to exit 0.
+ * Totality check: every `decision` in `decisions` must have a row in `table`
+ * and every row both vetoable columns. A decision added to the contract with
+ * no matching row breaks loudly instead of silently defaulting to exit 0.
+ * Called at import against {@link Decision} and {@link EXIT_CODE_BY_DECISION};
+ * exported so a test can drive both branches.
+ * @param {readonly string[]} decisions
+ * @param {Readonly<Record<string, Readonly<Record<string, number>>>>} table
  */
-for (const decision of Object.values(Decision)) {
-  const row = lookup(EXIT_CODE_BY_DECISION, decision);
-  if (row === undefined)
-    throw new Error(
-      `amp adapter: exit-code table has no row for decision ${JSON.stringify(decision)}`,
-    );
-  for (const vetoable of ["true", "false"]) {
-    if (typeof lookup(row, vetoable) === "number") continue;
-    throw new Error(
-      `amp adapter: exit-code table row ${JSON.stringify(decision)} has no this_call_vetoable=${vetoable} column`,
-    );
+export function assertExitCodeTableTotal(decisions, table) {
+  for (const decision of decisions) {
+    const row = lookup(table, decision);
+    if (row === undefined)
+      throw new Error(
+        `amp adapter: exit-code table has no row for decision ${JSON.stringify(decision)}`,
+      );
+    for (const vetoable of ["true", "false"]) {
+      if (typeof lookup(row, vetoable) === "number") continue;
+      throw new Error(
+        `amp adapter: exit-code table row ${JSON.stringify(decision)} has no this_call_vetoable=${vetoable} column`,
+      );
+    }
   }
+}
+
+assertExitCodeTableTotal(Object.values(Decision), EXIT_CODE_BY_DECISION);
+
+/**
+ * Look up the exit code for `decision`/`vetoable` in `table`. Throws instead of
+ * returning `undefined`: the alternative is `exit_code: undefined`, which
+ * `process.exit` renders as 0 — the exact silent allow this table exists to
+ * eliminate. Unreachable from {@link render} on the real
+ * {@link EXIT_CODE_BY_DECISION} while {@link assertExitCodeTableTotal} holds at
+ * load; exported so a test can drive both branches against a synthetic,
+ * deliberately incomplete table.
+ * @param {Readonly<Record<string, Readonly<Record<string, number>>>>} table
+ * @param {string} decision
+ * @param {boolean} vetoable
+ * @returns {number}
+ */
+export function exitCodeFor(table, decision, vetoable) {
+  const exit_code = lookup(lookup(table, decision) ?? {}, String(vetoable));
+  if (exit_code === undefined)
+    throw new Error(
+      `amp adapter: exit-code table has no entry for decision ${JSON.stringify(decision)} / this_call_vetoable ${JSON.stringify(vetoable)}`,
+    );
+  return exit_code;
 }
 
 /**
@@ -234,18 +264,7 @@ export function render(verdict, event) {
       `amp adapter: this_call_vetoable must be a boolean, got ${JSON.stringify(vetoable)}`,
     );
   const enforced = vd.decision === Decision.DENY && vetoable;
-  const exit_code = lookup(
-    lookup(EXIT_CODE_BY_DECISION, vd.decision) ?? {},
-    String(vetoable),
-  );
-  // Unreachable while the import-time totality check and `normalizeVerdict` both
-  // hold; kept because the alternative to throwing is `exit_code: undefined`,
-  // which `process.exit` renders as 0 — the exact silent allow this table exists
-  // to eliminate.
-  if (exit_code === undefined)
-    throw new Error(
-      `amp adapter: exit-code table has no entry for decision ${JSON.stringify(vd.decision)} / this_call_vetoable ${JSON.stringify(vetoable)}`,
-    );
+  const exit_code = exitCodeFor(EXIT_CODE_BY_DECISION, vd.decision, vetoable);
   return nativeResponse({
     transport: INTEGRATION_MODE,
     exit_code,
