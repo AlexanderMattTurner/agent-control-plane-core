@@ -37,6 +37,40 @@ export function demoJudge(event: import("./control-plane.mjs").ToolCallEvent): i
  */
 export function renderHookResponse(adapter: import("./control-plane.mjs").Adapter, rawInput: string, onFailure: import("./control-plane.mjs").NativeResponse, judge?: (event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict): import("./control-plane.mjs").NativeResponse;
 /**
+ * Write `text` to `fd` IN FULL, looping until every byte lands.
+ *
+ * A single `writeSync` is not enough. When the host captures the hook, fd 1/2 is
+ * a pipe, and libuv puts that pipe in NON-BLOCKING mode the moment anything
+ * initializes `process.stdout`/`process.stderr` (a `console.log` in a judge, the
+ * fail-safe stderr diagnostic in {@link renderHookResponse}). A non-blocking
+ * `write(2)` returns a SHORT COUNT once the kernel pipe buffer fills — measured
+ * at ~143 KiB here — so a deny body larger than that (a long `reason`, a big
+ * `mutated_input`) was silently truncated and the process still exited 0/2 with
+ * a half-written JSON the host cannot parse: an enforced deny degrading to a
+ * run. Looping restores the blocking-write semantics the caller assumes.
+ *
+ * Exported so a test can drive the propagation path against a real closed
+ * descriptor; {@link emit} is the only caller a consumer needs.
+ * @param {number} fd
+ * @param {string} text
+ */
+/**
+ * Whether a failed `writeSync` is the one recoverable case: EAGAIN, meaning the
+ * non-blocking pipe is momentarily full because the host has not drained it
+ * yet. The caller sleeps 1ms and retries — the same wait a blocking write would
+ * have done in the kernel. Every other errno (EPIPE, EBADF, ...) propagates.
+ *
+ * A non-Error throw is NOT retryable, and is checked separately rather than
+ * left to the `code` comparison: a plain object carrying `code: "EAGAIN"` is
+ * not a write that the kernel asked us to repeat, and retrying one forever is a
+ * hang rather than a short write. Exported so a test can drive every branch —
+ * the real `writeSync` only ever throws an Error.
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+export function isRetryableWriteError(err: unknown): boolean;
+export function writeAllSync(fd: any, text: any): void;
+/**
  * Emit a {@link NativeResponse} to the host: write the native stdout body when
  * the transport has one, then exit with the transport's exit code.
  * @param {import("./control-plane.mjs").NativeResponse} response

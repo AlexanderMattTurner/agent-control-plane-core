@@ -5,6 +5,7 @@
  *
  * `--pad=<bytes>` is the byte length of the padding inside the deny reason.
  */
+import { takeCoverage } from "node:v8";
 import { readFlag } from "../../.github/scripts/lib/cli-args.mjs";
 import { claudeAdapter } from "../../src/adapters/claude.mjs";
 import { emit } from "../../src/runtime.mjs";
@@ -29,5 +30,11 @@ const response = claudeAdapter.render(
 // leaves behind. It is what turns a single `writeSync` into a short write, so
 // the regression is only observable with it. The empty write adds no bytes.
 process.stdout.write("");
+
+// `emit` ends in `process.exit`, which cuts V8's coverage write short: the
+// lines this child is the ONLY caller of then read as uncovered at random, and
+// the coverage gate reds on a tree nobody changed. An exit handler still runs
+// under `process.exit`, and `takeCoverage` flushes the profile synchronously.
+process.on("exit", () => takeCoverage());
 
 emit(response);
