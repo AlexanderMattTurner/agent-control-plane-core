@@ -57,6 +57,10 @@
     "./registry": {
       "types": "./types/registry.d.mts",
       "import": "./src/registry.mjs"
+    },
+    "./runtime": {
+      "types": "./types/runtime.d.mts",
+      "import": "./src/runtime.mjs"
     }
   },
   "files": [

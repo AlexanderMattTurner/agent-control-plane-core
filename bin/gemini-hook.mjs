@@ -11,7 +11,7 @@
  * Usage: `node bin/gemini-hook.mjs < payload.json`
  */
 import { geminiAdapter } from "../src/adapters/gemini.mjs";
-import { readStdin, renderHookResponse, emit } from "./hook-runtime.mjs";
+import { readStdin, renderHookResponse, emit } from "../src/runtime.mjs";
 
 /** @type {import("../src/control-plane.mjs").NativeResponse} */
 const FAIL_OPEN = { transport: "external_hook", exit_code: 0, enforced: false };

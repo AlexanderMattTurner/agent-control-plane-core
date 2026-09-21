@@ -13,7 +13,7 @@
  * Usage: `node bin/codex-hook.mjs < payload.json`
  */
 import { codexAdapter } from "../src/adapters/codex.mjs";
-import { readStdin, renderHookResponse, emit } from "./hook-runtime.mjs";
+import { readStdin, renderHookResponse, emit } from "../src/runtime.mjs";
 
 /** @type {import("../src/control-plane.mjs").NativeResponse} */
 const FAIL_OPEN = { transport: "external_hook", exit_code: 0, enforced: false };

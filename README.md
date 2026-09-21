@@ -158,6 +158,13 @@ const verdict =
 process.stdout.write(JSON.stringify(claudeAdapter.render(verdict, event)));
 ```
 
+Writing your own hook entry? `agent-control-plane-core/runtime` publishes the
+plumbing the four `bin/*-hook.mjs` entries share — `readStdin`,
+`renderHookResponse` (parse → judge → render, falling back to the failure
+response THAT host expects) and `emit`, whose fully-drained write is what stops
+a large deny body being truncated on a non-blocking pipe and silently becoming
+an allow.
+
 The core contract and every adapter (`claude`, `codex`, `amp`, `gemini`) are
 also on the default entry:
 

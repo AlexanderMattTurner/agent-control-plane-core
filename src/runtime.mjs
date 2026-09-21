@@ -1,19 +1,29 @@
 /**
- * Shared plumbing for the per-host EXTERNAL_HOOK entries — NOT a runtime host
- * multiplexer. Each host has its OWN entry (`bin/<host>-hook.mjs`) that hardcodes
- * its adapter and declares its OWN failure posture; this module only holds the
- * transport mechanics they genuinely share (stdin read, the demo judge, the
- * parse→judge→render pipe with a host-supplied fail-safe, and stdout+exit
- * emission). The thing item ② deleted was the `--agent` switch that let one
- * binary impersonate every host and so had to pick a single shared failure
- * behavior; sharing pure plumbing across distinct entries is not that.
+ * The EXTERNAL_HOOK runtime, published at `agent-control-plane-core/runtime` —
+ * NOT a runtime host multiplexer. Each host has its OWN entry
+ * (`bin/<host>-hook.mjs`) that hardcodes its adapter and declares its OWN
+ * failure posture; this module only holds the transport mechanics they
+ * genuinely share (stdin read, the demo judge, the parse→judge→render pipe with
+ * a host-supplied fail-safe, and stdout+exit emission). The thing item ②
+ * deleted was the `--agent` switch that let one binary impersonate every host
+ * and so had to pick a single shared failure behavior; sharing pure plumbing
+ * across distinct entries is not that.
+ *
+ * It is exported because every consumer writing its own hook entry had to
+ * re-implement the same two things, and both fail silently when they are wrong:
+ * draining stdin before parsing, and flushing the response IN FULL before
+ * `process.exit` (see {@link writeAllSync}).
  */
 import { writeSync } from "node:fs";
-import { Decision, sanitizeVerdict } from "../src/control-plane.mjs";
+import { Decision, sanitizeVerdict } from "./control-plane.mjs";
 
-/** Read all of stdin to a string. */
+/**
+ * Read all of stdin to a string.
+ * @returns {Promise<string>}
+ */
 export function readStdin() {
   return new Promise((resolve, reject) => {
+    /** @type {Buffer[]} */
     const chunks = [];
     process.stdin.on("data", (chunk) => chunks.push(chunk));
     process.stdin.on("end", () => resolve(Buffer.concat(chunks).toString()));
@@ -25,8 +35,8 @@ export function readStdin() {
  * The DEMO policy standing in for a real guardrail judge: deny any command
  * matching /rm -rf/, allow everything else. A real deployment swaps this for its
  * own judge over the normalized {@link ToolCallEvent}.
- * @param {import("../src/control-plane.mjs").ToolCallEvent} event
- * @returns {import("../src/control-plane.mjs").Verdict}
+ * @param {import("./control-plane.mjs").ToolCallEvent} event
+ * @returns {import("./control-plane.mjs").Verdict}
  */
 export function demoJudge(event) {
   const command =
@@ -54,11 +64,11 @@ export function demoJudge(event) {
  * `judge` is the seam a real deployment fills — {@link demoJudge} is a stand-in,
  * so the guardrail is supplied here rather than by forking this file. Whatever
  * it returns is treated as untrusted (see the clamp below).
- * @param {import("../src/control-plane.mjs").Adapter} adapter
+ * @param {import("./control-plane.mjs").Adapter} adapter
  * @param {string} rawInput
- * @param {import("../src/control-plane.mjs").NativeResponse} onFailure
- * @param {(event: import("../src/control-plane.mjs").ToolCallEvent) => import("../src/control-plane.mjs").Verdict} [judge]
- * @returns {import("../src/control-plane.mjs").NativeResponse}
+ * @param {import("./control-plane.mjs").NativeResponse} onFailure
+ * @param {(event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict} [judge]
+ * @returns {import("./control-plane.mjs").NativeResponse}
  */
 export function renderHookResponse(
   adapter,
@@ -140,7 +150,7 @@ function writeAllSync(fd, text) {
 /**
  * Emit a {@link NativeResponse} to the host: write the native stdout body when
  * the transport has one, then exit with the transport's exit code.
- * @param {import("../src/control-plane.mjs").NativeResponse} response
+ * @param {import("./control-plane.mjs").NativeResponse} response
  * @returns {never}
  */
 export function emit(response) {

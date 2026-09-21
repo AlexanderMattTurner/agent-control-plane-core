@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { demoJudge, renderHookResponse } from "../bin/hook-runtime.mjs";
+import { demoJudge, renderHookResponse } from "../src/runtime.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
 import { ampAdapter } from "../src/adapters/amp.mjs";
 
-// bin/ is not under the c8 gate (which scopes to src/), so these in-process tests
-// exist to pin the runtime's LOGIC with real assertions — the subprocess
-// integration suite proves the transport, this proves the judge/fallback.
+// The runtime is published at `agent-control-plane-core/runtime`, so these
+// in-process tests pin its LOGIC with real assertions against the same module a
+// consumer imports — the subprocess integration suite proves the transport,
+// this proves the judge/fallback.
 
 describe("demoJudge: deny rm -rf, allow otherwise", () => {
   it("denies a command matching rm -rf, with a reason", () => {
