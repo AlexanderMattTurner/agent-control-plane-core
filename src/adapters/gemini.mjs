@@ -348,6 +348,16 @@ export function parse(native) {
 }
 
 /**
+ * Gemini CLI has NO ask tier: its hook vocabulary is `decision: "allow"` /
+ * `decision: "deny"` plus the exit-2 System Block, and nothing there suspends a
+ * call for a human. {@link applyAdvisoryDeny} therefore renders `ask` as the
+ * advisory `decision: "deny"`, byte-identical to a deny this call cannot veto.
+ * A consumer that must not let an ask through has to escalate it to a deny
+ * here, because an un-escalated ask lets Gemini run the tool.
+ */
+export const NATIVE_ASK_TIER = false;
+
+/**
  * Render into Gemini CLI's native external-hook transport. An enforceable deny
  * renders as exit 2 (the System Block on BeforeTool; documented on BeforeAgent
  * as "same as decision: deny" — it aborts the turn); everything else exits 0
@@ -470,6 +480,7 @@ export const geminiAdapter = {
   INTEGRATION_MODE,
   COVERAGE,
   UNRENDERED_FIELDS,
+  NATIVE_ASK_TIER,
   NATIVE_EVENT_FOR,
   parse,
   render,

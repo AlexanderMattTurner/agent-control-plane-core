@@ -75,6 +75,72 @@ describe("claude adapter: allow = abstain by default, soleGate opt-in", () => {
   });
 });
 
+describe("claude render: an enforced deny repeats its reason on stderr", () => {
+  const preTool = claudeAdapter.parse({
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "rm -rf /" },
+  });
+  // Claude Code parses hook stdout as JSON only on exit 0; the exit-2 block
+  // discards it and reads stderr. So the stdout `permissionDecisionReason`
+  // below is not a channel the model reads on this path — stderr is.
+  it("carries the reason on fd 2 as well as in the discarded body", () => {
+    const out = claudeAdapter.render(
+      { decision: "deny", reason: "blocked rm" },
+      preTool,
+    );
+    assert.equal(out.enforced, true);
+    assert.equal(out.exit_code, 2);
+    assert.equal(out.stderr, "blocked rm");
+    assert.equal(
+      out.stdout.hookSpecificOutput.permissionDecisionReason,
+      "blocked rm",
+    );
+  });
+
+  it("a PostToolUse block carries it too (exit 2 discards stdout there as well)", () => {
+    const postTool = claudeAdapter.parse({
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "cat secrets" },
+      tool_response: "AKIA-not-a-real-key",
+    });
+    assert.equal(
+      claudeAdapter.render({ decision: "deny", reason: "leak" }, postTool)
+        .stderr,
+      "leak",
+    );
+  });
+
+  // The negative half: a verdict that blocked NOTHING must not write to fd 2.
+  // Claude Code shows hook stderr on a 0 exit only in verbose/debug, so this is
+  // about the claim, not the noise — stderr is the contract's block-reason
+  // channel, and writing it for an allow, an ask, or a deny this call cannot
+  // veto reports a block that never happened.
+  it("an allow, an ask and an unenforceable deny write nothing to fd 2", () => {
+    const nonVetoable = { ...preTool, this_call_vetoable: false };
+    for (const [verdict, event] of [
+      [{ decision: "allow" }, preTool],
+      [{ decision: "ask", reason: "confirm" }, preTool],
+      [{ decision: "deny", reason: "cannot veto this" }, nonVetoable],
+    ]) {
+      const out = claudeAdapter.render(verdict, event);
+      assert.equal(out.enforced, false);
+      assert.equal(
+        "stderr" in out,
+        false,
+        `${verdict.decision} blocked nothing but wrote a block reason to stderr`,
+      );
+    }
+  });
+
+  it("an enforced deny with no reason writes no empty stderr", () => {
+    const out = claudeAdapter.render({ decision: "deny" }, preTool);
+    assert.equal(out.enforced, true);
+    assert.equal("stderr" in out, false);
+  });
+});
+
 describe("claude render: updatedToolOutput is a PostToolUse-only channel", () => {
   const postTool = claudeAdapter.parse({
     hook_event_name: "PostToolUse",

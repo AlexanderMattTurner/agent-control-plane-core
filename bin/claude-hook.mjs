@@ -12,7 +12,7 @@
  * Usage: `node bin/claude-hook.mjs < payload.json`
  */
 import { claudeAdapter } from "../src/adapters/claude.mjs";
-import { readStdin, renderHookResponse, emit } from "./hook-runtime.mjs";
+import { readStdin, renderHookResponse, emit } from "../src/runtime.mjs";
 
 /** @type {import("../src/control-plane.mjs").NativeResponse} */
 const FAIL_OPEN = { transport: "external_hook", exit_code: 0, enforced: false };

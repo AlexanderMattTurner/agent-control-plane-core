@@ -7,7 +7,7 @@
  */
 import { readFlag } from "../../.github/scripts/lib/cli-args.mjs";
 import { claudeAdapter } from "../../src/adapters/claude.mjs";
-import { emit } from "../../bin/hook-runtime.mjs";
+import { emit } from "../../src/runtime.mjs";
 
 const rawPad = readFlag(process.argv, "pad");
 const padBytes = Number(rawPad);

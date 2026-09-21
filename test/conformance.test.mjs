@@ -104,14 +104,19 @@ const echoAdapter = {
   // the adapter contract is that parse answers an unmodelled event with an
   // UNKNOWN kind rather than throwing.
   parse: (native) => native.event ?? { ...echoEvent(false), event: "unknown" },
+  // Exit 1 is this transport's ask, and it is a tier of its own — so the
+  // declaration rule ⑪ holds the render to is `true`.
+  NATIVE_ASK_TIER: true,
   // Honours `this_call_vetoable` the way rule ⑤/⑧ require of a REAL adapter: a
   // deny it cannot enforce degrades to the transport's ask (1), never to allow.
+  // An `ask` renders as that same 1, which is what makes the degrade honest:
+  // the two are one signal here, and only `allow` means "run it".
   render: (verdict, event) => {
     const enforced =
       verdict.decision === "deny" && event.this_call_vetoable === true;
     return {
       transport: "external_hook",
-      exit_code: enforced ? 2 : verdict.decision === "deny" ? 1 : 0,
+      exit_code: enforced ? 2 : verdict.decision === "allow" ? 0 : 1,
       enforced,
     };
   },
@@ -134,7 +139,7 @@ function fullFixtures() {
         render: {
           allow: { verdict: { decision: "allow" }, native: deny(0, false) },
           deny: { verdict: { decision: "deny" }, native: deny(2, true) },
-          ask: { verdict: { decision: "ask" }, native: deny(0, false) },
+          ask: { verdict: { decision: "ask" }, native: deny(1, false) },
           mutation: {
             verdict: { decision: "allow", mutated_input: { a: 1 } },
             native: deny(0, false),
@@ -196,6 +201,110 @@ describe("conformance harness self-tests (drift honesty, item ⑨)", () => {
   });
 });
 
+// Rule ⑪. The declaration says whether this host suspends a call for a human, a
+// fact no render can show — so what is checked is each direction's tell: a
+// declared tier that renders as the host's "run it", and an absent one that
+// renders a third signal anyway.
+describe("conformance harness self-tests (ask tier, rule ⑪)", () => {
+  // Renders ask exactly as the abstaining allow while claiming a tier: a
+  // consumer reads "the human will see this" and the host runs the tool.
+  const silentAsk = {
+    ...echoAdapter,
+    render: (verdict, event) => {
+      const enforced =
+        verdict.decision === "deny" && event.this_call_vetoable === true;
+      return {
+        transport: "external_hook",
+        exit_code: enforced ? 2 : verdict.decision === "deny" ? 1 : 0,
+        enforced,
+      };
+    },
+  };
+
+  it("throws when a declared ask tier renders ask as the abstaining allow", () => {
+    const fx = fullFixtures();
+    fx.cases[0].render.ask.native = deny(0, false);
+    assert.throws(
+      () => run(silentAsk, fx),
+      /NATIVE_ASK_TIER is true, but an ask renders exactly as this host's abstaining allow/,
+    );
+  });
+
+  // Renders ask as the host's BLOCK while claiming a tier: it differs from the
+  // allow, so the half above passes, and the consumer it tells to stop
+  // escalating hands the call to a host that denies it instead of asking.
+  const blockingAsk = {
+    ...echoAdapter,
+    render: (verdict, event) =>
+      verdict.decision === "ask" && event.this_call_vetoable === true
+        ? deny(2, true)
+        : echoAdapter.render(verdict, event),
+  };
+
+  it("throws when a declared ask tier renders ask as the host's enforced deny", () => {
+    const fx = fullFixtures();
+    fx.cases[0].render.ask.native = deny(2, true);
+    assert.throws(
+      () => run(blockingAsk, fx),
+      /NATIVE_ASK_TIER is true, but an ask renders exactly as this host's enforced deny/,
+    );
+  });
+
+  it("throws when an adapter declaring no ask tier still renders a distinct ask", () => {
+    // Exit 3 is neither this transport's allow (0) nor its advisory deny (1),
+    // so the render carries a tier the declaration says the host has not got.
+    const inventedAsk = {
+      ...echoAdapter,
+      NATIVE_ASK_TIER: false,
+      render: (verdict, event) =>
+        verdict.decision === "ask"
+          ? deny(3, false)
+          : echoAdapter.render(verdict, event),
+    };
+    const fx = fullFixtures();
+    fx.cases[0].render.ask.native = deny(3, false);
+    assert.throws(
+      () => run(inventedAsk, fx),
+      /NATIVE_ASK_TIER is false, but an ask renders differently from this host's advisory deny/,
+    );
+  });
+
+  it("passes an adapter with no ask tier that collapses ask onto its advisory deny", () => {
+    // The Gemini shape: one objection channel, spent on both. The declaration
+    // is what tells a consumer to escalate the ask to a deny itself.
+    const summary = run(
+      { ...echoAdapter, NATIVE_ASK_TIER: false },
+      fullFixtures(),
+    );
+    assert.equal(summary.askTierChecks, 1);
+  });
+
+  it("names the member when an adapter declares nothing at all", () => {
+    const undeclared = { ...echoAdapter };
+    delete undeclared.NATIVE_ASK_TIER;
+    assert.throws(
+      () => run(undeclared, fullFixtures()),
+      /declares no NATIVE_ASK_TIER/,
+    );
+  });
+
+  it("refuses a non-boolean declaration", () => {
+    assert.throws(
+      () => run({ ...echoAdapter, NATIVE_ASK_TIER: "true" }, fullFixtures()),
+      /declares no NATIVE_ASK_TIER/,
+    );
+  });
+
+  it("exempts an OBSERVE_ONLY render, which has no ask channel to differ in", () => {
+    // Its ask, deny and allow are one response, so the ask-tier rule must stay
+    // silent and let the run reach the enforcement-honesty guard below.
+    assert.throws(
+      () => run(observerAdapter, observeOnlyFixtures()),
+      /enforcement honesty is untested/,
+    );
+  });
+});
+
 describe("conformance harness self-tests (non-vacuity)", () => {
   it("passes a correct adapter and reports the summary", () => {
     const summary = run(echoAdapter, fullFixtures());
@@ -207,6 +316,10 @@ describe("conformance harness self-tests (non-vacuity)", () => {
       [...summary.decisionsSeen].sort(),
       ["allow", "ask", "deny"].sort(),
     );
+    // Positive marker for rule ⑪: the ask-tier probe actually ran on this
+    // suite's one pre-tool case, so the cases below fail loudly rather than
+    // vacuously.
+    assert.equal(summary.askTierChecks, 1);
   });
 
   it("throws when the adapter AGENT disagrees with the fixtures", () => {
@@ -267,8 +380,12 @@ describe("conformance harness self-tests (non-vacuity)", () => {
         };
       },
     };
+    // Its ask renders as 0 too, so the golden has to say 0 — otherwise rule ②
+    // reports a fixture mismatch before rule ⑧ ever runs.
+    const fx = fullFixtures();
+    fx.cases[0].render.ask.native = deny(0, false);
     assert.throws(
-      () => run(collapsing, fullFixtures()),
+      () => run(collapsing, fx),
       /unenforceable deny renders identically to an abstaining allow/,
     );
   });
@@ -1214,7 +1331,7 @@ describe("conformance harness self-tests (deny must block, item \u2464)", () => 
   // A vetoable call whose deny renders exit 0 is a deny that does not deny. The
   // golden `deepEqual` cannot catch it: the fixture below is written to match
   // the broken render exactly, which is how such an adapter would ship green.
-  function vetoableDenyFixtures(nativeDeny) {
+  function vetoableDenyFixtures(nativeDeny, nativeAsk = deny(1, false)) {
     return {
       agent: "t",
       cases: [
@@ -1229,7 +1346,7 @@ describe("conformance harness self-tests (deny must block, item \u2464)", () => 
           render: {
             allow: { verdict: { decision: "allow" }, native: deny(0, false) },
             deny: { verdict: { decision: "deny" }, native: nativeDeny },
-            ask: { verdict: { decision: "ask" }, native: deny(0, false) },
+            ask: { verdict: { decision: "ask" }, native: nativeAsk },
             mutation: {
               verdict: { decision: "allow", mutated_input: { a: 1 } },
               native: deny(0, false),
@@ -1247,7 +1364,11 @@ describe("conformance harness self-tests (deny must block, item \u2464)", () => 
 
   it("throws when a vetoable deny renders as a non-block", () => {
     assert.throws(
-      () => run(silentlyAllowing, vetoableDenyFixtures(deny(0, false))),
+      () =>
+        run(
+          silentlyAllowing,
+          vetoableDenyFixtures(deny(0, false), deny(0, false)),
+        ),
       /vetoable deny did not enforce/,
     );
   });
@@ -1258,7 +1379,11 @@ describe("conformance harness self-tests (deny must block, item \u2464)", () => 
       render: (verdict) => deny(0, verdict.decision === "deny"),
     };
     assert.throws(
-      () => run(claimsWithoutBlocking, vetoableDenyFixtures(deny(0, true))),
+      () =>
+        run(
+          claimsWithoutBlocking,
+          vetoableDenyFixtures(deny(0, true), deny(0, false)),
+        ),
       /enforced deny carries no block signal/,
     );
   });

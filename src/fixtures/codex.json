@@ -109,12 +109,13 @@
           },
           "native": {
             "transport": "external_hook",
-            "exit_code": 0,
-            "enforced": false,
+            "exit_code": 2,
+            "enforced": true,
             "stdout": {
               "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "permissionDecision": "ask"
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "blocked by monitor"
               }
             }
           }
@@ -315,12 +316,13 @@
           },
           "native": {
             "transport": "external_hook",
-            "exit_code": 0,
-            "enforced": false,
+            "exit_code": 2,
+            "enforced": true,
             "stdout": {
               "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "permissionDecision": "ask"
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "blocked by monitor"
               }
             }
           }

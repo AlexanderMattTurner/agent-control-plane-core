@@ -99,7 +99,9 @@ describe("subpath exports", () => {
   it("/contract reaches no adapter, registry or conformance module", () => {
     const reached = resolvedDuring("./src/control-plane.mjs");
     const forbidden = reached.filter((url) =>
-      /^src\/(adapters\/|registry\.mjs|conformance\.mjs|index\.mjs)/u.test(url),
+      /^src\/(adapters\/|registry\.mjs|conformance\.mjs|index\.mjs|runtime\.mjs)/u.test(
+        url,
+      ),
     );
     assert.deepEqual(
       forbidden,
@@ -118,6 +120,20 @@ describe("subpath exports", () => {
       reached.some((url) => url.startsWith("src/adapters/")),
       `the barrel must reach an adapter; recorded ${reached.join(", ")}`,
     );
+  });
+
+  // The reason /runtime exists: a consumer writing its own hook entry imports
+  // these instead of re-implementing the stdin drain and the flush-before-exit
+  // that stops a large deny body being truncated on a non-blocking pipe.
+  // Dropping one is a build break in every such consumer.
+  it("/runtime publishes the hook entry's plumbing", async () => {
+    const runtime = await import("../src/runtime.mjs");
+    for (const name of ["readStdin", "renderHookResponse", "emit"])
+      assert.equal(
+        typeof runtime[name],
+        "function",
+        `/runtime no longer exports ${name}`,
+      );
   });
 
   it("/contract carries the enums a host renders a verdict from", async () => {

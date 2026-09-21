@@ -117,6 +117,15 @@ export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
  * @type {Readonly<Record<string, string>>}
  */
 export const GEMINI_TOOL_ALIASES: Readonly<Record<string, string>>;
+/**
+ * Gemini CLI has NO ask tier: its hook vocabulary is `decision: "allow"` /
+ * `decision: "deny"` plus the exit-2 System Block, and nothing there suspends a
+ * call for a human. {@link applyAdvisoryDeny} therefore renders `ask` as the
+ * advisory `decision: "deny"`, byte-identical to a deny this call cannot veto.
+ * A consumer that must not let an ask through has to escalate it to a deny
+ * here, because an un-escalated ask lets Gemini run the tool.
+ */
+export const NATIVE_ASK_TIER: false;
 /** @type {import("../control-plane.mjs").Adapter} */
 export const geminiAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;

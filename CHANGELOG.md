@@ -12,6 +12,17 @@ the prose from the release's commits.
 
 ## Unreleased
 
+### Added
+
+- The hook runtime is published at `agent-control-plane-core/runtime` (it was `bin/hook-runtime.mjs`, reachable only by path). It carries `readStdin`, `renderHookResponse` and `emit`, so a consumer writing its own hook entry no longer re-implements the stdin drain and the flush-before-exit — `emit` writes the response in full before `process.exit`, which is what stops a deny body larger than the pipe buffer being truncated into an allow the host cannot parse. The four `bin/*-hook.mjs` entries import it from the same place a consumer does. `demoJudge` moves with it and stays the documented stand-in that `renderHookResponse` defaults to; a real deployment passes its own judge.
+- Every adapter declares `NATIVE_ASK_TIER`: whether that host's transport carries a distinct "ask the human" tier the host honours. Claude Code and Amp do (`permissionDecision: "ask"` and exit 1); Codex and Gemini CLI do not. A consumer that must not let an ask through used to need a hand-typed list of agent ids to know where to escalate `ask` to `deny` — that list is now a field on the adapter it already holds. Conformance rule ⑪ holds each adapter to its own declaration by probing the real `render` on every pre-tool fixture event. A declared tier fails when its ask renders as that host's abstaining allow, and equally when it renders as that host's enforced deny: both directions let a consumer stop escalating, and the second hands the call to a host that blocks it rather than asking anyone. A declared-absent tier fails when its ask renders as anything but that adapter's own advisory deny. The member is REQUIRED, so a third-party adapter needs the one-line addition (a package-semver break, not a wire-schema change — `CONTROL_PLANE_SCHEMA` is untouched, as when `UNRENDERED_FIELDS` arrived).
+
+### Fixed
+
+- The Codex adapter no longer answers a pre-tool `ask` with `permissionDecision: "ask"`, and no longer claims an ask tier. Codex decodes that value, classifies it unsupported, sets no block reason and runs the tool, so the guardrail's request to stop and ask a human was a call that simply proceeded. Upstream's own test for that path is named `unsupported_permission_decision_fails_open`. `PermissionRequest` is no ask tier either: its behavior enum carries allow and deny. An `ask` verdict now takes the deny path, which is the only objection this host acts on.
+- `readStdin` accepts a stdin that hands it strings. A consumer that set an encoding on the stream made `Buffer.concat` throw from inside the stream's own callback, where the promise never saw it — so the process died with no response at all, and a host that treats a crashed hook as no objection ran the unjudged call.
+- The Claude Code adapter carries an enforced deny's `reason` on `NativeResponse.stderr`, which `emit` writes to fd 2. Claude Code parses hook stdout as JSON only on exit 0; an enforced deny exits 2, where the host discards the body and reads stderr instead — so the `permissionDecisionReason` in that body never reached the model and the call was blocked with no rationale. Non-enforced renders still say nothing on fd 2: an allow, an ask and a deny this call cannot veto have blocked nothing, and their exit-0 body is read.
+
 ## [0.6.1] - 2026-09-01
 
 ### Fixed

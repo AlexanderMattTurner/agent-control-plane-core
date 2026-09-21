@@ -9,7 +9,8 @@ export function parse(native: any): ToolCallEvent;
  * Render into Claude Code's native external-hook transport: a
  * `hookSpecificOutput` JSON body on stdout plus the exit code that carries the
  * decision (deny ⇒ exit 2). A deny only counts as `enforced` when the event's
- * `this_call_vetoable` holds.
+ * `this_call_vetoable` holds, and an enforced deny also carries its `reason` on
+ * `NativeResponse.stderr` (see below).
  *
  * `soleGate` (default `false`) is a dangerous, explicit opt-in: when `true` AND
  * the verdict is `allow`, the render emits Claude Code's REAL
@@ -65,6 +66,15 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
+/**
+ * Claude Code honours a distinct ask tier: `hookSpecificOutput.permissionDecision
+ * = "ask"` suspends the call and puts it in front of the user, and {@link render}
+ * emits exactly that (see {@link gatingBody}). So a consumer must NOT escalate an
+ * `ask` to a `deny` here — the human already sees it. `render` still reports the
+ * ask as `enforced: false`, because this guardrail did not block the call; the
+ * host did, pending an answer.
+ */
+export const NATIVE_ASK_TIER: true;
 /** Claude Code native hook event names (the `hook_event_name` field). */
 export const HookEvent: Readonly<{
     PRE_TOOL_USE: "PreToolUse";

@@ -44,6 +44,9 @@ describe("integration: per-host hook transports over a real process boundary", (
     });
     assert.equal(out.code, 2);
     assert.equal(out.json.hookSpecificOutput.permissionDecision, "deny");
+    // Claude Code discards hook stdout on an exit-2 block and reads stderr, so
+    // the reason has to reach fd 2 end-to-end or the model is told nothing.
+    assert.match(out.stderr, /rm -rf blocked/);
   });
 
   it("claude allow → exit 0 + NO permissionDecision (never auto-approves)", () => {

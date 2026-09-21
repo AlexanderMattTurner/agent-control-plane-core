@@ -13,7 +13,7 @@
  * Usage: `node bin/amp-hook.mjs < payload.json`
  */
 import { ampAdapter } from "../src/adapters/amp.mjs";
-import { readStdin, renderHookResponse, emit } from "./hook-runtime.mjs";
+import { readStdin, renderHookResponse, emit } from "../src/runtime.mjs";
 
 /** @type {import("../src/control-plane.mjs").NativeResponse} */
 const FAIL_ASK = { transport: "external_hook", exit_code: 1, enforced: false };

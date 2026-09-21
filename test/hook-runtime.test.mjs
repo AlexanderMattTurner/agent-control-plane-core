@@ -3,13 +3,14 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { demoJudge, renderHookResponse } from "../bin/hook-runtime.mjs";
+import { demoJudge, renderHookResponse } from "../src/runtime.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
 import { ampAdapter } from "../src/adapters/amp.mjs";
 
-// bin/ is not under the c8 gate (which scopes to src/), so these in-process tests
-// exist to pin the runtime's LOGIC with real assertions — the subprocess
-// integration suite proves the transport, this proves the judge/fallback.
+// The runtime is published at `agent-control-plane-core/runtime`, so these
+// in-process tests pin its LOGIC with real assertions against the same module a
+// consumer imports — the subprocess integration suite proves the transport,
+// this proves the judge/fallback.
 
 describe("demoJudge: deny rm -rf, allow otherwise", () => {
   it("denies a command matching rm -rf, with a reason", () => {
@@ -157,6 +158,25 @@ describe("emit: writes a body larger than the pipe buffer in full", () => {
     "fixtures",
     "emit-large-body-fixture.mjs",
   );
+
+  const stringStdin = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "fixtures",
+    "string-stdin-fixture.mjs",
+  );
+
+  it("reads a payload from a stdin that hands it strings", () => {
+    // A multi-byte character so a decoder that mishandles the chunk boundary
+    // shows up as mangled text rather than as an equal-length pass.
+    const payload = '{"tool_input":{"command":"echo café ☕"}}';
+    const res = spawnSync("node", [stringStdin], {
+      encoding: "utf8",
+      input: payload,
+    });
+    assert.equal(res.error, undefined, `spawn failed: ${res.error?.message}`);
+    assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+    assert.equal(res.stdout, payload);
+  });
 
   for (const padBytes of [200_000, 2_000_000]) {
     it(`delivers a ${padBytes}-byte deny reason intact (exit 2)`, () => {

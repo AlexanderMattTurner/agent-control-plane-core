@@ -23,6 +23,22 @@ const UNENFORCEABLE_DENY_PROBE = Object.freeze({
 const ABSTAINING_ALLOW_PROBE = Object.freeze({ decision: Decision.ALLOW });
 
 /**
+ * The two probe verdicts rule ⑪ renders against the same event, to read whether
+ * this host's transport carries an ask tier of its own. They share one `reason`
+ * on purpose: the rule compares the two RENDERS, and a reason that differed
+ * would make them differ for a reason that is not the decision.
+ */
+const ASK_TIER_REASON = "conformance probe: ask tier";
+const ASK_TIER_ASK_PROBE = Object.freeze({
+  decision: Decision.ASK,
+  reason: ASK_TIER_REASON,
+});
+const ASK_TIER_DENY_PROBE = Object.freeze({
+  decision: Decision.DENY,
+  reason: ASK_TIER_REASON,
+});
+
+/**
  * The payload rule ⑨ drifts an adapter with. No host emits that event name, so
  * an adapter that maps event names must answer {@link EventKind.UNKNOWN}.
  *
@@ -455,6 +471,78 @@ function coherentEvent(adapter, byKind, kind) {
 }
 
 /**
+ * Rule ⑪, for one pre-tool event: the adapter's `NATIVE_ASK_TIER` declaration
+ * agrees with what `render` does with an `ask`.
+ *
+ * The declaration is what lets a consumer stop keeping a hand-typed list of
+ * which hosts honour an ask. A consumer that must not let an ask through
+ * escalates it to a deny on a host with no ask tier — and applying that
+ * uniformly turns every ask into a deny on the hosts that DO have one. So the
+ * declaration has to be checked against the render rather than believed.
+ *
+ * Probed on a NON-vetoable variant of the event, for rule ⑧'s reason and one
+ * more: it makes the deny comparison below an ADVISORY deny, which is the
+ * signal a host with no ask tier has left to spend on an ask.
+ *
+ * What a render can show, and what it cannot. Whether a host suspends the call
+ * for a human lives in the HOST, so no probe reads it off a render. What a probe
+ * does read is each direction's tell:
+ *
+ * - Declared `true`, rendered as the abstaining ALLOW: the consumer is told the
+ *   human will see this call, and the transport carries nothing that says so —
+ *   the tool just runs. That is the lie this rule exists to catch.
+ * - Declared `false`, rendered as something the adapter's own advisory deny is
+ *   not: the render invents a third signal on a transport the declaration says
+ *   has only two, so one of the two is wrong.
+ *
+ * An OBSERVE_ONLY render is exempt, as in rule ⑧: that transport has no
+ * pre-emption channel at all, so its ask, deny and allow coincide by
+ * construction and demanding a distinct ask would demand a fiction.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {import("./control-plane.mjs").ToolCallEvent} event a non-vetoable pre-tool event
+ * @param {import("./control-plane.mjs").ToolCallEvent} vetoable the fixture's own pre-tool event, whose veto the block half needs
+ * @param {string} caseName
+ * @param {any} assert
+ */
+function assertAskTier(adapter, event, vetoable, caseName, assert) {
+  const asked = adapter.render(ASK_TIER_ASK_PROBE, event);
+  assert.equal(
+    asked.enforced,
+    false,
+    `an ask rendered as an enforced block: ${caseName}`,
+  );
+  if (asked.transport === IntegrationMode.OBSERVE_ONLY) return;
+  if (adapter.NATIVE_ASK_TIER) {
+    assert.notDeepEqual(
+      asked,
+      adapter.render(ABSTAINING_ALLOW_PROBE, event),
+      `${adapter.AGENT}: NATIVE_ASK_TIER is true, but an ask renders exactly as this host's abstaining allow — nothing in the transport asks anyone: ${caseName}`,
+    );
+    // The other way to declare an ask tier this host has not got: render the ask
+    // as the host's BLOCK. It differs from the allow, so the half above passes,
+    // and the consumer it tells to stop escalating then hands a call to a host
+    // that denies it outright rather than suspending it for a human. Probed on
+    // the vetoable event, because a block is the one signal a non-vetoable
+    // render cannot carry.
+    if (vetoable.this_call_vetoable) {
+      const blocked = adapter.render(ASK_TIER_DENY_PROBE, vetoable);
+      if (blocked.enforced)
+        assert.notDeepEqual(
+          adapter.render(ASK_TIER_ASK_PROBE, vetoable),
+          blocked,
+          `${adapter.AGENT}: NATIVE_ASK_TIER is true, but an ask renders exactly as this host's enforced deny — the call is blocked, not suspended: ${caseName}`,
+        );
+    }
+    return;
+  }
+  assert.deepEqual(
+    asked,
+    adapter.render(ASK_TIER_DENY_PROBE, event),
+    `${adapter.AGENT}: NATIVE_ASK_TIER is false, but an ask renders differently from this host's advisory deny — the render carries an ask signal the declaration says the host has not got: ${caseName}`,
+  );
+}
+
+/**
  * Rule ⑩, for one parsed event: every {@link VERDICT_CONTENT_FIELDS} entry
  * either reaches this host's wire or is DECLARED unreachable in the adapter's
  * `UNRENDERED_FIELDS`, and the render agrees with the declaration both ways.
@@ -820,13 +908,23 @@ function assertAliasedInput(agent, caseName, event, assert) {
  *      that DID reach a wire come back as `contentFieldsSeen`; a suite covering
  *      several adapters asserts their union to keep the positive half of the
  *      rule non-vacuous, since no single host has a channel for all three.
+ *  11. ask-tier honesty: the adapter declares whether this host carries a
+ *      distinct "ask the human" tier it honours (`NATIVE_ASK_TIER`), and the
+ *      render is held to that declaration on every pre-tool event. A declared
+ *      tier whose `ask` renders as the host's abstaining allow fails — the
+ *      consumer is told a human will see the call while the tool just runs —
+ *      and so does a declared-absent tier whose `ask` renders as anything but
+ *      the adapter's own advisory deny. A consumer reads the declaration to
+ *      decide where an `ask` must be escalated to a `deny`, so a wrong one
+ *      either lets a call through or denies every asked call on the hosts that
+ *      do ask. OBSERVE_ONLY renders are exempt, as in rule ⑧.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number, askTierChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }) {
   assert.equal(
@@ -837,6 +935,14 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
 
   assertCoverageWellFormed(adapter, assert);
   assertEveryKindHasARow(adapter, assert);
+  // Named here rather than left to a `TypeError` inside rule ⑪: a third-party
+  // adapter written against the earlier contract has no such member, and its
+  // author is who reads this.
+  assert.equal(
+    typeof adapter.NATIVE_ASK_TIER,
+    "boolean",
+    `${adapter.AGENT}: adapter declares no NATIVE_ASK_TIER — every adapter needs a boolean saying whether this host honours a distinct "ask the human" tier (false when render collapses ask onto another signal)`,
+  );
 
   /** @type {Set<string>} */
   const decisionsSeen = new Set();
@@ -852,6 +958,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   const parsedByKind = {};
   let preToolCases = 0;
   let unenforceableDenyChecks = 0;
+  let askTierChecks = 0;
   let renders = 0;
 
   for (const testCase of fixtures.cases) {
@@ -991,12 +1098,17 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     // An OBSERVE_ONLY render is exempt from the ≠-allow half: that transport has
     // no pre-emption channel at all, so its deny and allow are identical by
     // construction. Demanding a distinct signal there would demand a fiction.
-    if (deniedRender.transport === IntegrationMode.OBSERVE_ONLY) continue;
-    assert.notDeepEqual(
-      deniedRender,
-      adapter.render(ABSTAINING_ALLOW_PROBE, unenforceable),
-      `unenforceable deny renders identically to an abstaining allow — the objection is lost: ${testCase.name}`,
-    );
+    if (deniedRender.transport !== IntegrationMode.OBSERVE_ONLY)
+      assert.notDeepEqual(
+        deniedRender,
+        adapter.render(ABSTAINING_ALLOW_PROBE, unenforceable),
+        `unenforceable deny renders identically to an abstaining allow — the objection is lost: ${testCase.name}`,
+      );
+    // Rule ⑪, on the same non-vetoable variant and AFTER rule ⑧: an adapter that
+    // collapses both its deny and its ask onto the host's allow is reported as
+    // the lost objection it is, not as a mis-declared ask tier.
+    assertAskTier(adapter, unenforceable, parsed, testCase.name, assert);
+    askTierChecks += 1;
   }
 
   for (const decision of ["allow", "deny", "ask"]) {
@@ -1055,6 +1167,13 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     preToolCases,
     `rule ⑧ (unenforceable deny ≠ allow) ran on ${unenforceableDenyChecks} of ${preToolCases} pre-tool cases`,
   );
+  // Same reason as the count above: the rule is in the same loop, so a stray
+  // `continue` would skip it silently on the later cases.
+  assert.equal(
+    askTierChecks,
+    preToolCases,
+    `rule ⑪ (ask-tier declaration) ran on ${askTierChecks} of ${preToolCases} pre-tool cases`,
+  );
 
   return {
     cases: fixtures.cases.length,
@@ -1067,5 +1186,6 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     unknownKindSeen,
     coverageClassesChecked,
     unenforceableDenyChecks,
+    askTierChecks,
   };
 }

@@ -91,7 +91,8 @@ pnpm add agent-control-plane-core
 }
 ```
 
-An **Adapter** is `{ AGENT, COVERAGE, UNRENDERED_FIELDS, parse, render }`:
+An **Adapter** is
+`{ AGENT, COVERAGE, UNRENDERED_FIELDS, NATIVE_ASK_TIER, parse, render }`:
 
 ```js
 parse(nativeEvent) -> ToolCallEvent      // never throws on unknown input
@@ -109,6 +110,25 @@ UNRENDERED_FIELDS = Object.freeze({
   [EventKind.UNKNOWN]: UNRENDERED_ON_UNKNOWN,
 })
 ```
+
+```js
+// Does this host carry a distinct "ask the human" tier that it honours?
+// true  ⇒ a rendered `ask` suspends the call in front of a person
+//         (Claude Code's permissionDecision: "ask", Amp's exit 1).
+// false ⇒ the host has no such tier, so `render` collapses `ask` onto another
+//         signal (Gemini CLI's advisory decision: "deny") and an un-escalated
+//         ask lets the tool run.
+NATIVE_ASK_TIER = false;
+```
+
+Read `NATIVE_ASK_TIER` instead of keeping a list of which agents to escalate an
+`ask` to a `deny` on: a guardrail that must not let an ask through escalates it
+where the flag is `false`, and leaves it alone where the host does the asking.
+It describes the HOST, not the verdict — `ask` renders as `enforced: false`
+everywhere — and it names the pre-tool gate, since a tool that already ran has
+nothing left to suspend. Conformance probes your real `render` against it, so a
+`true` whose ask renders as your abstaining allow fails, and so does a `false`
+whose ask renders as anything but your own advisory deny.
 
 `readonlySet([])` is the row for a kind that carries all three;
 `UNRENDERED_ON_UNKNOWN` is the row for one that carries none. Both come from
@@ -137,6 +157,13 @@ const verdict =
 // 3. Render back to the agent's native response.
 process.stdout.write(JSON.stringify(claudeAdapter.render(verdict, event)));
 ```
+
+Writing your own hook entry? `agent-control-plane-core/runtime` publishes the
+plumbing the four `bin/*-hook.mjs` entries share — `readStdin`,
+`renderHookResponse` (parse → judge → render, falling back to the failure
+response THAT host expects) and `emit`, whose fully-drained write is what stops
+a large deny body being truncated on a non-blocking pipe and silently becoming
+an allow.
 
 The core contract and every adapter (`claude`, `codex`, `amp`, `gemini`) are
 also on the default entry:
@@ -202,6 +229,8 @@ The harness pins both directions and rejects a vacuous suite:
    fixture event, so an adapter that collapses the objection onto "run it" fails
    even with no non-vetoable fixture of its own. `observe_only` renders are
    exempt: that transport has no pre-emption channel to differ in.
+6. Your `NATIVE_ASK_TIER` declaration matches what `render` does with an `ask`,
+   probed on every pre-tool fixture event (both directions, described above).
 
 See `src/fixtures/claude.json` and `src/fixtures/codex.json` for the format.
 
