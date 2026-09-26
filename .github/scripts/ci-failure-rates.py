@@ -54,7 +54,6 @@ from urllib.parse import quote
 Getter = Callable[[str], dict]
 
 # Conclusions that count toward the denominator (the job produced a verdict).
-<<<<<<< local
 COUNTED = frozenset(
     {"success", "failure", "timed_out", "startup_failure", "action_required"}
 )
@@ -62,17 +61,6 @@ COUNTED = frozenset(
 # conclusions GitHub returns, not just `failure` — a run that never started a
 # job (startup_failure) or stalled on approval (action_required) is red too.
 FAILED = frozenset({"failure", "timed_out", "startup_failure", "action_required"})
-||||||| base
-COUNTED = frozenset({"success", "failure", "timed_out"})
-# Conclusions that count as a failure (subset of COUNTED).
-FAILED = frozenset({"failure", "timed_out"})
-=======
-COUNTED = frozenset(
-    {"success", "failure", "timed_out", "action_required", "startup_failure"}
-)
-# Conclusions that count as a failure (subset of COUNTED).
-FAILED = frozenset({"failure", "timed_out", "action_required", "startup_failure"})
->>>>>>> template
 
 API_ROOT = "https://api.github.com"
 # GitHub caps `per_page` at 100 for both the runs and the jobs endpoints, so a
