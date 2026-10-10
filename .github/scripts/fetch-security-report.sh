@@ -118,15 +118,34 @@ gh_api_section \
 # Skip when there's no Node project — setup-base-env leaves pnpm uninstalled
 # in that case, and `pnpm audit` would error out instead of returning "clean".
 if [[ -f package.json ]]; then
+<<<<<<< local
   # Capture to a file, then truncate from it. Piping straight into `head -100`
   # lets head close the pipe early and SIGPIPE-kill pnpm (exit 141), which
   # `pipefail` would surface as a spurious "audit encountered an error".
   pnpm audit >"$audit_tmp" 2>&1
   pnpm_rc=$?
   head -100 "$audit_tmp" >>"$REPORT_PATH"
+||||||| base
+  pnpm audit 2>&1 | head -100 >>"$REPORT_PATH"
+  pnpm_rc=${PIPESTATUS[0]}
+=======
+  # Read pnpm's status from the command itself, and cap the report copy with a
+  # consumer that reaches EOF. Capping with `head -100` instead would close the
+  # pipe on any audit longer than that, SIGPIPE pnpm, and leave PIPESTATUS
+  # holding 141 — reporting "audit encountered an error" for a run that worked.
+  pnpm_output=$(pnpm audit 2>&1)
+  pnpm_rc=$?
+  printf '%s\n' "$pnpm_output" | awk 'NR <= 100' >>"$REPORT_PATH" # stderr-merge-ok: copied verbatim into the report so a reader sees pnpm's own diagnostics; never parsed or compared
+>>>>>>> template
   # Exit 0 = clean, exit 1 = vulnerabilities found (expected); higher = real error
+<<<<<<< local
   # echo-fallback-ok: best-effort report generator — noting the error in the
   # human-read report IS the intended recovery, not a value fed back into logic.
+||||||| base
+=======
+  # echo-fallback-ok: this note is appended to a human-read report, never
+  # captured or trusted as data — the real pnpm_rc is what the caller judges.
+>>>>>>> template
   [[ "${pnpm_rc:-0}" -le 1 ]] || echo "_pnpm audit encountered an error (exit code $pnpm_rc); output above may be incomplete._" >>"$REPORT_PATH"
 else
   echo "_Skipped: no package.json (not a Node project)._" >>"$REPORT_PATH"

@@ -23,10 +23,18 @@ set -euo pipefail
 : "${PR_INPUT_DIR:?PR_INPUT_DIR required}"
 
 mkdir -p "$PR_INPUT_DIR"
+<<<<<<< local
 [[ -d "$PR_INPUT_DIR" ]] || {
   echo "::error::could not create $PR_INPUT_DIR" >&2
   exit 1
 }
+||||||| base
+=======
+[[ -d "$PR_INPUT_DIR" ]] || {
+  echo "::error::could not create PR_INPUT_DIR ($PR_INPUT_DIR)" >&2
+  exit 1
+}
+>>>>>>> template
 
 emit_output() {
   if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
