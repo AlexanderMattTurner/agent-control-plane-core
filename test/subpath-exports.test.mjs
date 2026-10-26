@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 // Namespace import, not a named one: on a node without `registerHooks` a named
 // import of it is a link-time SyntaxError that takes the whole file down before
@@ -67,6 +67,17 @@ function resolvedDuring(subject) {
   );
   return JSON.parse(out);
 }
+
+describe("bin map", () => {
+  it("names every shipped bin/*-hook.mjs entry, and nothing else", () => {
+    const shipped = readdirSync(new URL("bin/", ROOT))
+      .filter((name) => name.endsWith("-hook.mjs"))
+      .map((name) => `./bin/${name}`)
+      .sort();
+    assert.ok(shipped.length > 0);
+    assert.deepEqual(Object.values(manifest.bin ?? {}).sort(), shipped);
+  });
+});
 
 describe("subpath exports", () => {
   it("declares a subpath for every entry the manifest names", () => {

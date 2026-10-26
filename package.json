@@ -25,6 +25,12 @@
   },
   "main": "./src/index.mjs",
   "types": "./types/index.d.mts",
+  "bin": {
+    "acp-claude-hook": "./bin/claude-hook.mjs",
+    "acp-codex-hook": "./bin/codex-hook.mjs",
+    "acp-amp-hook": "./bin/amp-hook.mjs",
+    "acp-gemini-hook": "./bin/gemini-hook.mjs"
+  },
   "exports": {
     ".": {
       "types": "./types/index.d.mts",
