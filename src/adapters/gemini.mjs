@@ -374,31 +374,23 @@ export function render(verdict, event, { soleGate = false } = {}) {
   const vd = normalizeVerdict(verdict);
   const enforced = vd.decision === Decision.DENY && event.this_call_vetoable;
 
-  // Enforced deny is a System Block: exit 2, reason carried on STDERR (Gemini
-  // reads its block rationale from stderr, not the ignored stdout body). Carry it
-  // on NativeResponse.stderr so `emit` writes it to fd 2 — a genuine block is
-  // never surfaced to the user/model with no explanation.
-  // No stdout body at all on this path, so EVERY content field is dropped here,
-  // whatever UNRENDERED_FIELDS says for the kind — that map describes the allow
-  // path. Nothing is lost that a blocked call could still use: the tool never
-  // runs, so only `additional_context` had anywhere to go.
-  if (enforced)
-    return gatedResponse(AGENT, {
-      transport: INTEGRATION_MODE,
-      unblocked_exit_code: 0,
-      enforced: true,
-      reason: vd.reason,
-    });
-
-  const body =
-    event.event === EventKind.PROMPT_SUBMIT
-      ? promptSubmitBody(vd)
-      : decisionBody(vd, event.event, soleGate);
+  // An enforced deny is a System Block: `gatedResponse` writes the exit code
+  // and the stderr reason from the BLOCK_TRANSPORT row, and there is no stdout
+  // body, so EVERY content field is dropped whatever UNRENDERED_FIELDS says —
+  // that map describes the allow path. The tool never runs, so only
+  // `additional_context` had anywhere to go.
+  let body;
+  if (!enforced)
+    body =
+      event.event === EventKind.PROMPT_SUBMIT
+        ? promptSubmitBody(vd)
+        : decisionBody(vd, event.event, soleGate);
   return gatedResponse(AGENT, {
     transport: INTEGRATION_MODE,
     unblocked_exit_code: 0,
-    enforced: false,
+    enforced,
     stdout: body,
+    reason: vd.reason,
   });
 }
 

@@ -577,7 +577,7 @@ export function makeEvent({
   if (this_call_vetoable) {
     const broken = VETO_IMPOSSIBLE.find(
       ({ path, value }) =>
-        path.reduce((/** @type {any} */ at, key) => at?.[key], evt) === value,
+        path.reduce((/** @type {any} */ at, key) => at[key], evt) === value,
     );
     if (broken !== undefined)
       throw new Error(
