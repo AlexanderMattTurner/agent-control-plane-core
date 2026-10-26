@@ -134,10 +134,10 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
       assert.match(written[0], named);
     });
 
-  // The diagnostic is the only trace a failed pipeline leaves, so it must stay
-  // readable whatever was thrown. A judge is consumer code: it can throw a bare
-  // string, and an Error can reach here with no `stack` (a subclass that sets
-  // none, a structured-clone round trip). Both used to render as "undefined".
+  // A judge that throws has failed to answer, the same as one that answers
+  // garbage, so it takes the clamp's ask rather than the host's exit-0
+  // fail-safe. The diagnostic must stay readable whatever was thrown: a judge
+  // can throw a bare string, and an Error can reach here with no `stack`.
   const thrownShapes = {
     "a bare string": ["judge exploded", /judge exploded/u],
     "an Error with no stack": [
@@ -146,7 +146,7 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     ],
   };
   for (const [label, [thrown, named]] of Object.entries(thrownShapes))
-    it(`reports ${label} in the diagnostic`, () => {
+    it(`a judge that throws ${label} clamps to ask and reports it`, () => {
       const written = [];
       const realWrite = process.stderr.write;
       process.stderr.write = (chunk) => {
@@ -166,7 +166,14 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
       } finally {
         process.stderr.write = realWrite;
       }
-      assert.equal(out, FAIL);
+      assert.notEqual(out, FAIL, "a throwing judge took the fail-open path");
+      assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "ask");
+      assert.equal(out.exit_code, 0);
+      assert.match(
+        out.stdout.hookSpecificOutput.permissionDecisionReason,
+        /^hook judge threw: .*clamped to "ask"/u,
+      );
+      assert.match(written[0], /^\[acp\] hook judge error: /u);
       assert.match(written[0], named);
       assert.doesNotMatch(written[0], /error: undefined/u);
     });
