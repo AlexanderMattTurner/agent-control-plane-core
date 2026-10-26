@@ -95,22 +95,6 @@ env:
   # added to the template auto-sync without anyone having to edit this list.
   # Downstream-added files in these directories are left alone (sync only
   # copies files that exist in the template).
-<<<<<<< local
-  # The trailing three are single files outside the synced directories, named
-  # explicitly because the sync copies files as well as whole trees. The two pin
-  # files are load-bearing: install-mergiraf.sh sources tool-versions.sh and
-  # install-claude-cli.sh reads claude-cli-version, so a list that omits them
-  # delivers a script without the file it reads and the job dies on the missing
-  # source. Keep this list identical to the template's own.
-  SYNC_PATHS: ".claude .hooks .github/actions .github/scripts .github/workflows .github/prompts .github/tool-versions.sh .github/claude-cli-version config/javascript/commitlint.config.js"
-  # Paths to exclude from syncing. Supports both whole directories (matching
-  # entries in SYNC_PATHS) and individual files within synced directories.
-||||||| base
-  SYNC_PATHS: ".claude .hooks .github/actions .github/scripts .github/workflows .github/prompts"
-  # Paths to exclude from syncing. Supports both whole directories (matching
-  # entries in SYNC_PATHS) and individual files within synced directories.
-=======
->>>>>>> template
   #
   # An entry may also be a single FILE, which is how a synced file's DATA
   # dependency travels when it lives outside every synced directory. A synced
@@ -138,14 +122,6 @@ env:
   # The security-vulnerability-scan workflow + prompt are intentionally NOT
   # propagated to downstream repos; each consumer owns its own security-scan
   # cadence and model pin, so the template stops overwriting them on sync.
-<<<<<<< local
-  # .github/scripts/auto-resolve is the retired shell resolver. A consumer that
-  # still carries it keeps its own copy rather than having sync delete it out
-  # from under a caller that has not converted yet.
-  EXCLUDE_PATHS: ".github/workflows/security-vulnerability-scan.yaml .github/prompts/security-vulnerability-scan.md .github/scripts/auto-resolve"
-||||||| base
-  EXCLUDE_PATHS: ".github/workflows/security-vulnerability-scan.yaml .github/prompts/security-vulnerability-scan.md"
-=======
   # .github/scripts/auto-resolve is the retired shell resolver. A consumer that
   # still carries it keeps its own copy rather than having sync delete it out
   # from under a caller that has not converted yet.
@@ -174,7 +150,6 @@ env:
   # build-publish-notify.yaml, which bind by name, not filename. Otherwise its
   # release failures notify nobody.
   OPT_IN_PATHS: ".github/workflows/auto-version.yaml"
->>>>>>> template
 
 concurrency:
   group: template-sync
@@ -195,7 +170,7 @@ jobs:
     outputs:
       self_sync: ${{ steps.check.outputs.self_sync }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: .github/scripts
           persist-credentials: false
@@ -223,24 +198,6 @@ jobs:
           filter: blob:none
           persist-credentials: false
 
-<<<<<<< local
-      # Every script this job runs lives under a SYNC_PATHS directory, so the
-      # sync itself can leave the worktree copy carrying conflict markers — and
-      # the resolve step below runs with the worktree ON the marker-bearing
-      # branch. Stage the base ref's copies now and run those: a marker in
-      # shared-names.json used to kill the resolver at source time (jq: parse
-      # error), which left the sync PR carrying raw markers.
-      - name: Stage the sync scripts from the base ref
-        id: tools
-        run: |
-          dest="${RUNNER_TEMP}/template-sync-tools"
-          rm -rf "$dest"
-          mkdir -p "$dest"
-          cp -R .github "$dest/.github"
-          echo "scripts=${dest}/.github/scripts" >>"$GITHUB_OUTPUT"
-
-||||||| base
-=======
       # Every step that runs after the sync rewrote the tree executes THIS copy:
       # the reviewed `.github` at BASE_SHA. `.github/scripts` is in SYNC_PATHS, so
       # the workspace copy is unreviewed template content by then, and it can carry
@@ -258,7 +215,6 @@ jobs:
           timeout --kill-after=30 300 git archive "${BASE_SHA}" .github | tar -x -f - -C "${dir}"
           echo "dir=${dir}" >>"$GITHUB_OUTPUT"
 
->>>>>>> template
       - name: Checkout template repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -280,43 +236,25 @@ jobs:
           # scope this sync needs to push .github/workflows/ changes.
           # token-fallback-ok: designed graceful degradation, not an accident.
           TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN_ORG || secrets.GITHUB_TOKEN }}
-<<<<<<< local
-          SYNC_TOOLS: ${{ steps.tools.outputs.scripts }}
-||||||| base
-=======
           # The secret TOKEN reads first, so the error names the one to fix.
           TOKEN_SECRET_NAME: TEMPLATE_SYNC_TOKEN_ORG
->>>>>>> template
         # Run the child repo's own copy — never execute scripts directly from
         # the template checkout. Template script updates arrive via sync PRs
         # and go through human review before they can execute.
-        run: bash "$SYNC_TOOLS/check-token-scope.sh"
+        run: bash .github/scripts/check-token-scope.sh
 
       # run-with-pyyaml.sh fetches PyYAML through uv. No cache: this job holds
       # credentials, and a cache another run wrote is input it never reviewed.
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: false
 
       - name: Sync template files with conflict detection
         id: sync
         env:
-<<<<<<< local
-          SYNC_TOOLS: ${{ steps.tools.outputs.scripts }}
-          SYNC_PATHS: ${{ env.SYNC_PATHS }}
-||||||| base
-          SYNC_PATHS: ${{ env.SYNC_PATHS }}
-=======
->>>>>>> template
           EXCLUDE_PATHS: ${{ env.EXCLUDE_PATHS }}
-<<<<<<< local
-        run: bash "$SYNC_TOOLS/template-sync.sh"
-||||||| base
-        run: bash .github/scripts/template-sync.sh
-=======
           OPT_IN_PATHS: ${{ env.OPT_IN_PATHS }}
         run: bash .github/scripts/template-sync.sh
->>>>>>> template
 
       - name: Show diff (dry run)
         if: inputs.dry-run == true && steps.sync.outputs.has_changes == 'true'
@@ -325,12 +263,6 @@ jobs:
           HAS_DELETIONS: ${{ steps.sync.outputs.has_deletions }}
           CONFLICT_FILES: ${{ steps.sync.outputs.conflict_files }}
           DELETED_FILES: ${{ steps.sync.outputs.deleted_files }}
-<<<<<<< local
-          SYNC_TOOLS: ${{ steps.tools.outputs.scripts }}
-        run: bash "$SYNC_TOOLS/show-sync-diff.sh"
-||||||| base
-        run: bash .github/scripts/show-sync-diff.sh
-=======
           REVIEWED: ${{ steps.reviewed.outputs.dir }}
         run: bash "${REVIEWED}/.github/scripts/show-sync-diff.sh"
 
@@ -357,7 +289,6 @@ jobs:
           PR_BODY_PATH: ${{ runner.temp }}/template-sync-body.md
           REVIEWED: ${{ steps.reviewed.outputs.dir }}
         run: bash "${REVIEWED}/.github/scripts/template-sync-pr-body.sh"
->>>>>>> template
 
       - name: Create Pull Request
         if: inputs.dry-run != true && (steps.sync.outputs.has_changes == 'true' || steps.sync.outputs.has_conflicts == 'true' || steps.sync.outputs.has_deletions == 'true')
@@ -388,15 +319,6 @@ jobs:
       # Both steps need a marker-bearing file: a kept-local conflict emits no
       # conflict_files, and template-sync-resolve.sh refuses an empty list.
       - name: Install mergiraf (pinned, digest-verified)
-<<<<<<< local
-        if: inputs.dry-run != true && steps.sync.outputs.has_conflicts == 'true' && steps.create-pr.outputs.pull-request-number
-        env:
-          SYNC_TOOLS: ${{ steps.tools.outputs.scripts }}
-        run: bash "$SYNC_TOOLS/install-mergiraf.sh"
-||||||| base
-        if: inputs.dry-run != true && steps.sync.outputs.has_conflicts == 'true' && steps.create-pr.outputs.pull-request-number
-        run: bash .github/scripts/install-mergiraf.sh
-=======
         if: inputs.dry-run != true && steps.sync.outputs.conflict_files != '' && steps.create-pr.outputs.pull-request-number
         env:
           REVIEWED: ${{ steps.reviewed.outputs.dir }}
@@ -411,13 +333,11 @@ jobs:
         env:
           REVIEWED: ${{ steps.reviewed.outputs.dir }}
         run: bash "${REVIEWED}/.github/scripts/run-with-pyyaml.sh" "${REVIEWED}/.github/scripts/resolver-ref.py" --github-output "${REVIEWED}"
->>>>>>> template
 
       - name: Resolve the sync conflicts
         id: resolve
         if: inputs.dry-run != true && steps.sync.outputs.conflict_files != '' && steps.create-pr.outputs.pull-request-number
         env:
-          SYNC_TOOLS: ${{ steps.tools.outputs.scripts }}
           CONFLICT_FILES: ${{ steps.sync.outputs.conflict_files }}
           PR_NUMBER: ${{ steps.create-pr.outputs.pull-request-number }}
           # token-fallback-ok: the dedicated CI token is preferred so a sync does not
@@ -433,27 +353,12 @@ jobs:
         run: |
           git fetch --no-tags origin "+refs/heads/template-sync:refs/remotes/origin/template-sync"
           git checkout -B template-sync origin/template-sync
-<<<<<<< local
-          # Tier 2 of the conflict resolution is the resolver's own fan-out, which
-          # lives in its own repository now. Pinned by SHA to the same commit
-          # auto-resolve-conflicts.yaml calls, so both run one version of it.
-          resolver_dir="${RUNNER_TEMP}/template-sync-resolver"
-          git clone --no-tags --depth 1 \
-            "https://github.com/AlexanderMattTurner/agent-resolve-merge-conflicts.git" "${resolver_dir}"
-          git -C "${resolver_dir}" fetch --no-tags --depth 1 origin ca9a3fa872a9c06ade766de9bf69ff7b0329247f
-          git -C "${resolver_dir}" checkout --detach FETCH_HEAD
-          RESOLVER_DIR="${resolver_dir}/.github/resolver" \
-            bash "$SYNC_TOOLS/template-sync-resolve.sh"
-||||||| base
-          bash .github/scripts/template-sync-resolve.sh
-=======
           resolver_dir="${RUNNER_TEMP}/template-sync-resolver"
           git clone --no-tags --depth 1 "https://github.com/${RESOLVER_REPOSITORY}.git" "${resolver_dir}"
           git -C "${resolver_dir}" fetch --no-tags --depth 1 origin "${RESOLVER_REF}"
           git -C "${resolver_dir}" checkout --detach FETCH_HEAD
           RESOLVER_DIR="${resolver_dir}/.github/resolver" \
             bash "${REVIEWED}/.github/scripts/template-sync-resolve.sh"
->>>>>>> template
 
       - name: Push the resolutions
         if: steps.resolve.outcome == 'success' && (steps.resolve.outputs.deterministic != '' || steps.resolve.outputs.by_model != '')
@@ -462,12 +367,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN_ORG || secrets.GITHUB_TOKEN }}
           DETERMINISTIC: ${{ steps.resolve.outputs.deterministic }}
           BY_MODEL: ${{ steps.resolve.outputs.by_model }}
-<<<<<<< local
-          SYNC_TOOLS: ${{ steps.tools.outputs.scripts }}
-        run: bash "$SYNC_TOOLS/template-sync-push.sh"
-||||||| base
-        run: bash .github/scripts/template-sync-push.sh
-=======
           REVIEWED: ${{ steps.reviewed.outputs.dir }}
         run: bash "${REVIEWED}/.github/scripts/template-sync-push.sh"
 
@@ -485,7 +384,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN_ORG || secrets.GITHUB_TOKEN }}
           REVIEWED: ${{ steps.reviewed.outputs.dir }}
         run: bash "${REVIEWED}/.github/scripts/template-sync-marker-gate.sh"
->>>>>>> template
 
       # A sync merges itself only when NOTHING needed judgement. See the script
       # for the full predicate; the two carve-outs are that a model-resolved file
@@ -502,12 +400,5 @@ jobs:
           HAS_DOWNGRADES: ${{ steps.sync.outputs.has_downgrades }}
           ALL_DETERMINISTIC: ${{ steps.resolve.outputs.all_deterministic }}
           CHANGED_PATHS: ${{ steps.sync.outputs.changed_paths }}
-<<<<<<< local
-          SYNC_TOOLS: ${{ steps.tools.outputs.scripts }}
-        run: bash "$SYNC_TOOLS/template-sync-automerge.sh"
-||||||| base
-        run: bash .github/scripts/template-sync-automerge.sh
-=======
           MARKERLESS_FILES: ${{ steps.sync.outputs.markerless_files }}
         run: bash "${REVIEWED}/.github/scripts/template-sync-automerge.sh"
->>>>>>> template

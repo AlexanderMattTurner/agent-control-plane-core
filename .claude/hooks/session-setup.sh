@@ -153,7 +153,6 @@ fi
 # Tool installation (optional - warn on failure)
 #######################################
 
-<<<<<<< local
 # Install dev tools with a genuine integrity mechanism — never an unverified
 # remote installer. shfmt is a Go module, so pin it and let the Go checksum DB
 # verify it; fall back to signed apt if go is unavailable. gh/jq/shellcheck come
@@ -165,26 +164,6 @@ go_install_pinned shfmt "mvdan.cc/sh/v3/cmd/shfmt@v3.12.0" || apt_install_if_mis
 apt_install_if_missing gh
 apt_install_if_missing jq
 apt_install_if_missing shellcheck
-||||||| base
-# Install tools quietly — only warn on failure (versions pinned for supply-chain safety)
-webi_install_if_missing shfmt shfmt@3
-webi_install_if_missing gh gh@2
-webi_install_if_missing jq jq@1.7
-if ! command -v shellcheck &>/dev/null && is_root; then
-  { apt-get update -qq && apt-get install -y -qq shellcheck; } || warn "Failed to install shellcheck"
-fi
-=======
-# Install tools quietly — only warn on failure (versions pinned for supply-chain safety)
-webi_install_if_missing shfmt shfmt@3
-webi_install_if_missing gh gh@2
-webi_install_if_missing jq jq@1.7
-if ! command -v shellcheck &>/dev/null && is_root; then
-  # pin-exempt: last-resort session-bootstrap fallback; apt's shellcheck version
-  # varies by base image, and the authoritative pin is the shellcheck-py
-  # pre-commit hook's rev, not this fallback binary.
-  { apt-get update -qq && apt-get install -y -qq shellcheck; } || warn "Failed to install shellcheck"
-fi
->>>>>>> template
 
 # Python projects: the pre-commit and pre-push hooks shell out to ruff, which
 # isn't a project dependency. Install it (pinned to match .pre-commit-config.yaml
@@ -204,13 +183,7 @@ git config core.hooksPath .hooks
 # Pre-fetch the base branch so diffs against $CLAUDE_CODE_BASE_REF work
 # immediately (e.g. when creating PRs). Failure is non-fatal.
 if [[ -n "${CLAUDE_CODE_BASE_REF:-}" ]]; then
-<<<<<<< local
-  timeout --kill-after=10 30 git fetch origin "$CLAUDE_CODE_BASE_REF" --quiet 2>/dev/null ||
-||||||| base
-  git fetch origin "$CLAUDE_CODE_BASE_REF" --quiet 2>/dev/null ||
-=======
   timeout --kill-after=10 60 git fetch origin "$CLAUDE_CODE_BASE_REF" --quiet 2>/dev/null ||
->>>>>>> template
     warn "Failed to fetch base branch $CLAUDE_CODE_BASE_REF"
 fi
 

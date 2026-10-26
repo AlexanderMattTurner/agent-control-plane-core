@@ -1,24 +1,5 @@
 /** Shared I/O helpers for Claude Code hook scripts. */
 
-<<<<<<< local
-||||||| base
-import { pathToFileURL } from "node:url";
-
-/**
- * True when this module is the process entry point (run directly as a CLI, not
- * imported). Guards an undefined `process.argv[1]` before resolving it, and
- * normalizes a relative invocation path to an absolute file URL before comparing.
- * @param {string} importMetaUrl  the caller's `import.meta.url`
- * @returns {boolean}
- */
-export function isMain(importMetaUrl) {
-  return (
-    Boolean(process.argv[1]) &&
-    importMetaUrl === pathToFileURL(process.argv[1]).href
-  );
-}
-
-=======
 import {
   closeSync,
   fstatSync,
@@ -29,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { isMainModule } from "../../.github/scripts/lib/cli-args.mjs";
 
 /**
  * Write `content` to `path` without ever following a symlink there.
@@ -68,19 +49,15 @@ export function writeFileNoFollow(path, content, mode = 0o600) {
 
 /**
  * True when this module is the process entry point (run directly as a CLI, not
- * imported). Guards an undefined `process.argv[1]` before resolving it, and
- * normalizes a relative invocation path to an absolute file URL before comparing.
+ * imported). The hooks import it under this name; this repo's one sanctioned
+ * read of `process.argv[1]` lives in cli-args.mjs, so it delegates there.
  * @param {string} importMetaUrl  the caller's `import.meta.url`
  * @returns {boolean}
  */
 export function isMain(importMetaUrl) {
-  return (
-    Boolean(process.argv[1]) &&
-    importMetaUrl === pathToFileURL(process.argv[1]).href
-  );
+  return isMainModule(importMetaUrl);
 }
 
->>>>>>> template
 /**
  * Hard cap on hook stdin. A well-formed payload is at most a few MB; 64 MiB
  * leaves headroom while refusing a runaway sender before its bytes OOM the hook.

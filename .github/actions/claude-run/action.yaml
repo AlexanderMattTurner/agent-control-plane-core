@@ -157,13 +157,7 @@ runs:
       # plus a backoff before the ladder reaches the token it did configure.
       if: inputs.oauth_token != ''
       continue-on-error: true
-<<<<<<< local
-      uses: anthropics/claude-code-action@e2a4b761cd77a1138a5b41410eda9b28581f9bcd # v1.0.196
-||||||| base
-      uses: anthropics/claude-code-action@428971d2ecd6e3a7cb0ee0da2a3a8b33fdb3678d # v1.0.157
-=======
       uses: anthropics/claude-code-action@97c53473391bff1901034d4b454b5bac7ab7a029 # v1.0.239
->>>>>>> template
       with:
         claude_code_oauth_token: ${{ inputs.oauth_token }}
         github_token: ${{ inputs.github_token }}
@@ -203,127 +197,6 @@ runs:
           still="true"
         fi
         echo "still_needs_attempt=${still}" >>"$GITHUB_OUTPUT"
-<<<<<<< local
-    # The free retry. claude-run-errored.sh reports zero_cost=true only when the
-    # attempt billed nothing (total_cost_usd == 0, or no log at all), which
-    # proves inference was never reached — so a transient provider-side blip and
-    # a dead token look identical here, and one more attempt on the SAME
-    # credential costs nothing either way: it succeeds if the fault was the blip
-    # and fails the same way if the token is dead. Without it a blip is answered
-    # only by walking to the NEXT credential, which a caller configuring no
-    # fallback secrets does not have — the attempt is then lost with zero
-    # retries. A failure that DID bill reached inference and failed on the work
-    # itself, so zero_cost=false skips this rung rather than spend real money
-    # failing the same way twice.
-    - name: Back off before the free same-credential retry
-      if: steps.s1.outputs.still_needs_attempt == 'true' && steps.c1.outputs.zero_cost == 'true'
-      shell: bash
-      env:
-        # Straddling the blip is the entire point: the failure returns in well
-        # under a second, so a back-to-back retry hits the same broken instant.
-        BACKOFF_SECONDS: "10"
-      run: sleep "$BACKOFF_SECONDS"
-    - name: Retry on the primary credential
-      id: a1r
-      if: steps.s1.outputs.still_needs_attempt == 'true' && steps.c1.outputs.zero_cost == 'true'
-      continue-on-error: true
-      uses: anthropics/claude-code-action@e2a4b761cd77a1138a5b41410eda9b28581f9bcd # v1.0.196
-      with:
-        claude_code_oauth_token: ${{ inputs.oauth_token }}
-        github_token: ${{ inputs.github_token }}
-        prompt: ${{ steps.compose.outputs.prompt }}
-        claude_args: >-
-          --model ${{ inputs.model }}
-          ${{ inputs.claude_args }}
-        allowed_non_write_users: ${{ inputs.allowed_non_write_users }}
-        allowed_bots: ${{ inputs.allowed_bots }}
-    - name: Did the same-credential retry run?
-      id: c1r
-      if: steps.s1.outputs.still_needs_attempt == 'true' && steps.c1.outputs.zero_cost == 'true'
-      shell: bash
-      env:
-        EXECUTION_FILE: ${{ steps.a1r.outputs.execution_file }}
-      run: bash "${GITHUB_ACTION_PATH}/../../scripts/claude-run-errored.sh"
-    # The free retry joins the same cumulative state the credential rungs use,
-    # so a retry that WORKED ends the ladder and a retry that did not leaves the
-    # pending state untouched for the fallback tiers. Every rung below therefore
-    # gates on s1r, not s1; a skipped retry emits an empty errored, which is not
-    # success, so the gap handling that lets an unset tier be stepped over
-    # covers this rung too.
-    - name: Ladder state after the free same-credential retry
-      id: s1r
-      shell: bash
-      env:
-        PRIOR: ${{ steps.s1.outputs.still_needs_attempt }}
-        ERRORED: ${{ steps.c1r.outputs.errored }}
-      run: |
-        set -euo pipefail
-        still="false"
-        if [[ "$PRIOR" == "true" && "$ERRORED" != "false" ]]; then
-          still="true"
-        fi
-        echo "still_needs_attempt=${still}" >>"$GITHUB_OUTPUT"
-||||||| base
-    # The free retry. claude-run-errored.sh reports zero_cost=true only when the
-    # attempt billed nothing (total_cost_usd == 0, or no log at all), which
-    # proves inference was never reached — so a transient provider-side blip and
-    # a dead token look identical here, and one more attempt on the SAME
-    # credential costs nothing either way: it succeeds if the fault was the blip
-    # and fails the same way if the token is dead. Without it a blip is answered
-    # only by walking to the NEXT credential, which a caller configuring no
-    # fallback secrets does not have — the attempt is then lost with zero
-    # retries. A failure that DID bill reached inference and failed on the work
-    # itself, so zero_cost=false skips this rung rather than spend real money
-    # failing the same way twice.
-    - name: Back off before the free same-credential retry
-      if: steps.s1.outputs.still_needs_attempt == 'true' && steps.c1.outputs.zero_cost == 'true'
-      shell: bash
-      env:
-        # Straddling the blip is the entire point: the failure returns in well
-        # under a second, so a back-to-back retry hits the same broken instant.
-        BACKOFF_SECONDS: "10"
-      run: sleep "$BACKOFF_SECONDS"
-    - name: Retry on the primary credential
-      id: a1r
-      if: steps.s1.outputs.still_needs_attempt == 'true' && steps.c1.outputs.zero_cost == 'true'
-      continue-on-error: true
-      uses: anthropics/claude-code-action@428971d2ecd6e3a7cb0ee0da2a3a8b33fdb3678d # v1.0.157
-      with:
-        claude_code_oauth_token: ${{ inputs.oauth_token }}
-        github_token: ${{ inputs.github_token }}
-        prompt: ${{ steps.compose.outputs.prompt }}
-        claude_args: >-
-          --model ${{ inputs.model }}
-          ${{ inputs.claude_args }}
-        allowed_non_write_users: ${{ inputs.allowed_non_write_users }}
-        allowed_bots: ${{ inputs.allowed_bots }}
-    - name: Did the same-credential retry run?
-      id: c1r
-      if: steps.s1.outputs.still_needs_attempt == 'true' && steps.c1.outputs.zero_cost == 'true'
-      shell: bash
-      env:
-        EXECUTION_FILE: ${{ steps.a1r.outputs.execution_file }}
-      run: bash "${GITHUB_ACTION_PATH}/../../scripts/claude-run-errored.sh"
-    # The free retry joins the same cumulative state the credential rungs use,
-    # so a retry that WORKED ends the ladder and a retry that did not leaves the
-    # pending state untouched for the fallback tiers. Every rung below therefore
-    # gates on s1r, not s1; a skipped retry emits an empty errored, which is not
-    # success, so the gap handling that lets an unset tier be stepped over
-    # covers this rung too.
-    - name: Ladder state after the free same-credential retry
-      id: s1r
-      shell: bash
-      env:
-        PRIOR: ${{ steps.s1.outputs.still_needs_attempt }}
-        ERRORED: ${{ steps.c1r.outputs.errored }}
-      run: |
-        set -euo pipefail
-        still="false"
-        if [[ "$PRIOR" == "true" && "$ERRORED" != "false" ]]; then
-          still="true"
-        fi
-        echo "still_needs_attempt=${still}" >>"$GITHUB_OUTPUT"
-=======
         # An EMPTY errored means this rung's check never ran, i.e. the rung was
         # skipped for an unset token. `any_attempt` is what lets a backoff below
         # wait only BETWEEN attempts: before the first one there is no blip to
@@ -331,7 +204,6 @@ runs:
         any="$ANY_PRIOR"
         [[ -n "$ERRORED" ]] && any="true"
         echo "any_attempt=${any}" >>"$GITHUB_OUTPUT"
->>>>>>> template
     # A dead/expired credential is rejected in roughly half a second without
     # ever reaching inference, so back-to-back rungs spend the whole ladder
     # inside a few seconds — long enough for one provider-side blip to take out
@@ -351,13 +223,7 @@ runs:
       id: a2
       if: steps.s1.outputs.still_needs_attempt == 'true' && inputs.fallback_oauth_token != ''
       continue-on-error: true
-<<<<<<< local
-      uses: anthropics/claude-code-action@e2a4b761cd77a1138a5b41410eda9b28581f9bcd # v1.0.196
-||||||| base
-      uses: anthropics/claude-code-action@428971d2ecd6e3a7cb0ee0da2a3a8b33fdb3678d # v1.0.157
-=======
       uses: anthropics/claude-code-action@97c53473391bff1901034d4b454b5bac7ab7a029 # v1.0.239
->>>>>>> template
       with:
         claude_code_oauth_token: ${{ inputs.fallback_oauth_token }}
         github_token: ${{ inputs.github_token }}
@@ -405,13 +271,7 @@ runs:
       id: a3
       if: steps.s2.outputs.still_needs_attempt == 'true' && inputs.fallback_oauth_token_2 != ''
       continue-on-error: true
-<<<<<<< local
-      uses: anthropics/claude-code-action@e2a4b761cd77a1138a5b41410eda9b28581f9bcd # v1.0.196
-||||||| base
-      uses: anthropics/claude-code-action@428971d2ecd6e3a7cb0ee0da2a3a8b33fdb3678d # v1.0.157
-=======
       uses: anthropics/claude-code-action@97c53473391bff1901034d4b454b5bac7ab7a029 # v1.0.239
->>>>>>> template
       with:
         claude_code_oauth_token: ${{ inputs.fallback_oauth_token_2 }}
         github_token: ${{ inputs.github_token }}
@@ -457,13 +317,7 @@ runs:
       id: a4
       if: steps.s3.outputs.still_needs_attempt == 'true' && inputs.fallback_oauth_token_3 != ''
       continue-on-error: true
-<<<<<<< local
-      uses: anthropics/claude-code-action@e2a4b761cd77a1138a5b41410eda9b28581f9bcd # v1.0.196
-||||||| base
-      uses: anthropics/claude-code-action@428971d2ecd6e3a7cb0ee0da2a3a8b33fdb3678d # v1.0.157
-=======
       uses: anthropics/claude-code-action@97c53473391bff1901034d4b454b5bac7ab7a029 # v1.0.239
->>>>>>> template
       with:
         claude_code_oauth_token: ${{ inputs.fallback_oauth_token_3 }}
         github_token: ${{ inputs.github_token }}
@@ -509,13 +363,7 @@ runs:
       id: a5
       if: steps.s4.outputs.still_needs_attempt == 'true' && inputs.fallback_oauth_token_4 != ''
       continue-on-error: true
-<<<<<<< local
-      uses: anthropics/claude-code-action@e2a4b761cd77a1138a5b41410eda9b28581f9bcd # v1.0.196
-||||||| base
-      uses: anthropics/claude-code-action@428971d2ecd6e3a7cb0ee0da2a3a8b33fdb3678d # v1.0.157
-=======
       uses: anthropics/claude-code-action@97c53473391bff1901034d4b454b5bac7ab7a029 # v1.0.239
->>>>>>> template
       with:
         claude_code_oauth_token: ${{ inputs.fallback_oauth_token_4 }}
         github_token: ${{ inputs.github_token }}
@@ -561,13 +409,7 @@ runs:
       id: a6
       if: steps.s5.outputs.still_needs_attempt == 'true' && inputs.fallback_oauth_token_5 != ''
       continue-on-error: true
-<<<<<<< local
-      uses: anthropics/claude-code-action@e2a4b761cd77a1138a5b41410eda9b28581f9bcd # v1.0.196
-||||||| base
-      uses: anthropics/claude-code-action@428971d2ecd6e3a7cb0ee0da2a3a8b33fdb3678d # v1.0.157
-=======
       uses: anthropics/claude-code-action@97c53473391bff1901034d4b454b5bac7ab7a029 # v1.0.239
->>>>>>> template
       with:
         claude_code_oauth_token: ${{ inputs.fallback_oauth_token_5 }}
         github_token: ${{ inputs.github_token }}
@@ -613,13 +455,7 @@ runs:
       id: a7
       if: steps.s6.outputs.still_needs_attempt == 'true' && inputs.fallback_oauth_token_6 != ''
       continue-on-error: true
-<<<<<<< local
-      uses: anthropics/claude-code-action@e2a4b761cd77a1138a5b41410eda9b28581f9bcd # v1.0.196
-||||||| base
-      uses: anthropics/claude-code-action@428971d2ecd6e3a7cb0ee0da2a3a8b33fdb3678d # v1.0.157
-=======
       uses: anthropics/claude-code-action@97c53473391bff1901034d4b454b5bac7ab7a029 # v1.0.239
->>>>>>> template
       with:
         claude_code_oauth_token: ${{ inputs.fallback_oauth_token_6 }}
         github_token: ${{ inputs.github_token }}

@@ -99,14 +99,7 @@ elif grep -q "E404" "$NPM_VIEW_ERR"; then
 else
   npm_view_err="$(cat "$NPM_VIEW_ERR")"
   log "Error: npm view failed for '$PACKAGE_NAME' (not a 404 for an unpublished package):"
-<<<<<<< local
-  npm_view_err_body="$(cat "$NPM_VIEW_ERR")"
-  log "$npm_view_err_body"
-||||||| base
-  log "$(cat "$NPM_VIEW_ERR")"
-=======
   log "$npm_view_err"
->>>>>>> template
   exit 1
 fi
 # `npm view` can print nothing on a success exit (never-published package) or
@@ -429,7 +422,6 @@ else
   git add -- CHANGELOG.md
   git commit -m "docs: release $NEW_VERSION [skip ci]"
   # Push to the default branch explicitly so this works whether actions/checkout
-<<<<<<< local
   # left us on a branch or in detached HEAD state. Captured (not streamed) so the
   # fallback below can tell a permanent ruleset rejection from a transient one.
   PUSH_LOG="$(mktemp)"
@@ -484,18 +476,5 @@ else
       exit 1
     fi
     log "Opened release-docs PR and armed auto-merge: $PR_URL"
-||||||| base
-  # left us on a branch or in detached HEAD state.
-  if ! retry_cmd 4 2 git push origin "HEAD:$DEFAULT_BRANCH"; then
-    log "Error: failed to push the release-docs update for v$NEW_VERSION."
-    log "       The release is published and tagged; push the CHANGELOG commit manually."
-    exit 1
-=======
-  # left us on a branch or in detached HEAD state.
-  if ! retry_cmd 4 2 timeout --kill-after=10 60 git push origin "HEAD:$DEFAULT_BRANCH"; then
-    log "Error: failed to push the release-docs update for v$NEW_VERSION."
-    log "       The release is published and tagged; push the CHANGELOG commit manually."
-    exit 1
->>>>>>> template
   fi
 fi

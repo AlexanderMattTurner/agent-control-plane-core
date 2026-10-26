@@ -21,11 +21,6 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-<<<<<<< local
-import { isMainModule } from "../../.github/scripts/lib/cli-args.mjs";
-||||||| base
-import { pathToFileURL } from "node:url";
-=======
 import {
   hookSpecificOutput,
   isMain,
@@ -33,7 +28,6 @@ import {
   readTranscriptTail,
   writeFileNoFollow,
 } from "./lib-hook-io.mjs";
->>>>>>> template
 
 /** Serial tool-turns (assistant messages with >=1 tool call, no delegation
  * anywhere in the segment) after which the nudge fires. High enough that a
@@ -252,16 +246,7 @@ export function judgeParallelism(payload, deps) {
   return hookSpecificOutput("PostToolUse", { additionalContext: message });
 }
 
-<<<<<<< local
-if (isMainModule(import.meta.url)) {
-||||||| base
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-=======
 if (isMain(import.meta.url)) {
->>>>>>> template
   try {
     const payload = await readStdinJson();
     const sentinelDir = tmpdir();

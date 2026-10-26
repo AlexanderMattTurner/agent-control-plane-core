@@ -26,6 +26,7 @@ on: # zizmor: ignore[dangerous-triggers]
       - Auto-resolve merge conflicts
       - Auto version bump and publish
       - CI failure-rate report
+      - Claude reviewer-hold sweeper
       - Fixture freshness
       - Format check
       - Gitleaks Secret Scanning
@@ -40,11 +41,6 @@ on: # zizmor: ignore[dangerous-triggers]
       - Sync from Template
       - Validate config
       - zizmor
-    # This notifier only alerts on a push/schedule failure of the default
-    # branch (see the job's own `if:` below); narrowing the trigger itself
-    # stops a PR-branch completion of a shared workflow (pre-commit, zizmor,
-    # …) from creating a run that the `if:` would only then discard.
-    branches: [main, master]
 
 concurrency:
   # Keyed per triggering workflow so failures of different workflows never
