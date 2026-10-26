@@ -24,7 +24,8 @@ import {
   verdictSchema,
   serializeSchema,
 } from "../src/json-schema.mjs";
-import { AGENT_IDS, adapterFor } from "../src/registry.mjs";
+import { AGENT_IDS } from "../src/registry.mjs";
+import { capturedAdapter } from "../.github/scripts/live-capture/assert-captured.mjs";
 
 const ROOT = new URL("../", import.meta.url);
 
@@ -229,7 +230,7 @@ describe("every event this library produces validates", () => {
     it(`${testCase.agent}: ${testCase.name} (live parse)`, () => {
       assertValid(
         validateEvent,
-        adapterFor(testCase.agent).parse(testCase.native),
+        capturedAdapter(testCase.agent).parse(testCase.native),
         `${testCase.name} live parse`,
       );
     });

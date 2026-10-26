@@ -4,18 +4,22 @@
  * PreToolUse/PermissionRequest/PostToolUse payload on stdin, applies the demo
  * judge, and emits Codex's native response.
  *
- * FAILURE POSTURE — fail OPEN (exit 0), like Claude Code: Codex treats a
- * non-conforming hook as non-blocking. On a pre-v0.135 Codex the render is
- * advisory anyway (the adapter marks it observe-only), so a failure and a
- * successful advisory both leave the tool to proceed — the sandbox is the
- * backstop.
+ * CODEX VERSION — set `ACP_CODEX_VERSION` to the version of the Codex binary
+ * the launcher pinned (for example `ACP_CODEX_VERSION=0.151.0`). Codex's hook
+ * stdin carries no version, so without it every call parses observe-only and a
+ * deny renders advisory (exit 0). Below v0.135 the render is advisory too,
+ * because Codex has no hook veto there.
  *
- * Usage: `node bin/codex-hook.mjs < payload.json`
+ * FAILURE POSTURE — fail OPEN (exit 0), like Claude Code: Codex treats a
+ * non-conforming hook as non-blocking. The sandbox is the backstop.
+ *
+ * Usage: `ACP_CODEX_VERSION=0.151.0 node bin/codex-hook.mjs < payload.json`
  */
-import { codexAdapter } from "../src/adapters/codex.mjs";
+import { createCodexAdapter } from "../src/adapters/codex.mjs";
 import { readStdin, renderHookResponse, emit } from "../src/runtime.mjs";
 
 /** @type {import("../src/control-plane.mjs").NativeResponse} */
 const FAIL_OPEN = { transport: "external_hook", exit_code: 0, enforced: false };
 
-emit(renderHookResponse(codexAdapter, await readStdin(), FAIL_OPEN));
+const adapter = createCodexAdapter({ version: process.env.ACP_CODEX_VERSION });
+emit(renderHookResponse(adapter, await readStdin(), FAIL_OPEN));

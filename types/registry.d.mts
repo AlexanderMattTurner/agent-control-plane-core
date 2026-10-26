@@ -12,10 +12,15 @@ export function assertRegistryConsistent(adapters: Record<string, Adapter>): voi
  * selection signal that names no shipped adapter is a misconfiguration, not a
  * reason to silently fall back to a default agent (which would run the wrong
  * translator against the payloads and mis-render every verdict).
+ *
+ * `options` are the launcher's settings for that adapter (Codex:
+ * `{ version }`). Passing options to an adapter that takes none throws, so a
+ * setting the launcher believes it applied cannot be dropped in silence.
  * @param {string} id agent id (a {@link AGENT_IDS} member)
+ * @param {Record<string, unknown>} [options]
  * @returns {Adapter}
  */
-export function adapterFor(id: string): Adapter;
+export function adapterFor(id: string, options?: Record<string, unknown>): Adapter;
 /** @typedef {import("./control-plane.mjs").Adapter} Adapter */
 /**
  * Every shipped adapter. Adding an adapter to the package means adding it here —

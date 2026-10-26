@@ -43,7 +43,7 @@ import {
   MODELED_TOOL_INPUT_KEYS,
   makeEvent,
   normalizeVerdict,
-  nativeResponse,
+  gatedResponse,
   UNRENDERED_ON_UNKNOWN,
   readonlySet,
   baseMeta,
@@ -383,22 +383,22 @@ export function render(verdict, event, { soleGate = false } = {}) {
   // path. Nothing is lost that a blocked call could still use: the tool never
   // runs, so only `additional_context` had anywhere to go.
   if (enforced)
-    return nativeResponse({
+    return gatedResponse(AGENT, {
       transport: INTEGRATION_MODE,
-      exit_code: 2,
+      unblocked_exit_code: 0,
       enforced: true,
-      ...(vd.reason !== undefined ? { stderr: vd.reason } : {}),
+      reason: vd.reason,
     });
 
   const body =
     event.event === EventKind.PROMPT_SUBMIT
       ? promptSubmitBody(vd)
       : decisionBody(vd, event.event, soleGate);
-  return nativeResponse({
+  return gatedResponse(AGENT, {
     transport: INTEGRATION_MODE,
-    exit_code: 0,
+    unblocked_exit_code: 0,
     enforced: false,
-    ...(body === undefined ? {} : { stdout: body }),
+    stdout: body,
   });
 }
 
@@ -436,7 +436,10 @@ function applyAdvisoryDeny(out, vd) {
 function decisionBody(vd, kind, soleGate) {
   /** @type {Record<string, unknown>} */
   const out = {};
-  if (!applyAdvisoryDeny(out, vd) && soleGate) out.decision = "allow";
+  // An UNKNOWN kind has no established decision channel, and Gemini acts on a
+  // `decision` it does see (AfterAgent's deny forces a retry), so it gets none.
+  if (kind !== EventKind.UNKNOWN && !applyAdvisoryDeny(out, vd) && soleGate)
+    out.decision = "allow";
   if (kind === EventKind.PRE_TOOL && vd.mutated_input !== undefined)
     out.hookSpecificOutput = { tool_input: vd.mutated_input };
   // `systemMessage` is documented on the TOOL events. An UNKNOWN kind is an

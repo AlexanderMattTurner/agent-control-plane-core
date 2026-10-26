@@ -4,16 +4,12 @@
  * release core; anything it can't coerce to a valid version (missing, empty,
  * garbage) yields `null` and is treated as too old — fail closed to advisory.
  *
- * TRUST BOUNDARY (sandbox, not adapter): `version` is read from the hook stdin
- * payload, so a payload that under-reports it downgrades enforcement to advisory
- * (a deny renders exit 0). The adapter cannot distinguish a spoofed version from
- * a genuinely old Codex — the ground-truth version lives outside the payload —
- * so anti-spoofing belongs to the sandbox that controls what the hook is fed
- * (the same "pin it from outside" posture the managed-config mount enforces for
- * the hook binary; see docs/monitor-invariants.md §Invariant 1). Coercing an
- * absent/garbage version to enforcing HERE would break the legitimate old-Codex
- * case (rendering an exit-2 block a pre-0.135 Codex ignores, while dishonestly
- * marking it `enforced`), so the adapter stays faithful to what the payload says.
+ * WHERE THE VERSION COMES FROM: Codex's PreToolUse stdin carries no `version`
+ * field, so the launcher that pins the Codex binary supplies it, through
+ * {@link createCodexAdapter}. A payload `version` is a fallback only, and the
+ * payload is untrusted: one that under-reports downgrades a deny to advisory. Coercing an absent version to enforcing HERE would
+ * break the legitimate old-Codex case (an exit-2 block a pre-0.135 Codex
+ * ignores, dishonestly marked `enforced`), so an unknown version stays advisory.
  * @param {unknown} version
  * @returns {boolean}
  */
@@ -22,10 +18,18 @@ export function canEnforce(version: unknown): boolean;
  * Parse a raw Codex hook payload. Never throws on unmodelled input. Marks the
  * event observe-only (this_call_vetoable=false) when the Codex version
  * predates hook enforcement.
+ *
+ * `version` is the Codex version the LAUNCHER pinned, and it wins. Codex's
+ * hook stdin documents no version field, so a payload `version` is read only
+ * when no launcher version was given: a wrapper that injects one into stdin
+ * keeps working. With neither, the event is advisory.
  * @param {any} native
+ * @param {{ version?: string }} [options]
  * @returns {ToolCallEvent}
  */
-export function parse(native: any): ToolCallEvent;
+export function parse(native: any, { version }?: {
+    version?: string;
+}): ToolCallEvent;
 /**
  * Render into Codex's native external-hook transport: a JSON body preserving the
  * native event name (`PreToolUse`/`PermissionRequest`/`PostToolUse`) plus exit 2
@@ -49,6 +53,18 @@ export function parse(native: any): ToolCallEvent;
 export function render(verdict: Verdict, event: ToolCallEvent, { soleGate }?: {
     soleGate?: boolean;
 }): NativeResponse;
+/**
+ * Build a Codex adapter whose `parse` judges every payload against `version`,
+ * the Codex version the launcher pinned (Codex's hook stdin carries none).
+ * Below {@link MIN_ENFORCING_VERSION} every event parses observe-only and a
+ * deny renders advisory. With no `version`, `parse` falls back to a payload
+ * `version` (see {@link parse}).
+ * @param {{ version?: string }} [options]
+ * @returns {import("../control-plane.mjs").Adapter}
+ */
+export function createCodexAdapter({ version }?: {
+    version?: string;
+}): import("../control-plane.mjs").Adapter;
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
 /** @typedef {import("../control-plane.mjs").Verdict} Verdict */
 /** @typedef {import("../control-plane.mjs").NativeResponse} NativeResponse */
@@ -124,8 +140,12 @@ export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
  * naming a key the host discards.
  */
 export const NATIVE_ASK_TIER: false;
-export const DEFAULT_DENY_REASON: "blocked by monitor";
-/** @type {import("../control-plane.mjs").Adapter} */
+/**
+ * The Codex adapter with no launcher-pinned version. Real Codex sends no
+ * version, so every event it sends parses observe-only here. A deployment that
+ * runs Codex ≥ v0.135 builds its own with {@link createCodexAdapter}.
+ * @type {import("../control-plane.mjs").Adapter}
+ */
 export const codexAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;
 export type Verdict = import("../control-plane.mjs").Verdict;

@@ -93,7 +93,10 @@ matrix is `fail-fast: false`, so one agent's failure doesn't cancel the others.
    up to 5 times** because a model turn may not call the tool first try;
 4. asserts the captured payload still parses (`assert-captured.mjs`:
    `adapter.parse` yields a well-formed `ToolCallEvent`; an empty capture "the
-   hook never fired" and a drifted shape both fail loud).
+   hook never fired" and a drifted shape both fail loud). Codex's payload has no
+   version field, so its adapter is pinned at `captured_version`, the same
+   version step 1 installed. The conformance suites parse the golden fixtures
+   through that same adapter.
 
 **What is and isn't verified.** Steps 2 and 4 — the config generation and the
 payload assertion — are **deterministic and unit-tested** (`test/live-capture.test.mjs`,

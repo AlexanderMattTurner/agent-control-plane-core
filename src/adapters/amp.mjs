@@ -25,7 +25,8 @@ import {
   lookup,
   makeEvent,
   normalizeVerdict,
-  nativeResponse,
+  gatedResponse,
+  blockTransportFor,
   readonlySet,
   VERDICT_CONTENT_FIELDS,
   baseMeta,
@@ -185,7 +186,10 @@ export const NATIVE_ASK_TIER = true;
  */
 const EXIT_CODE_BY_DECISION = Object.freeze({
   [Decision.ALLOW]: Object.freeze({ true: 0, false: 0 }),
-  [Decision.DENY]: Object.freeze({ true: 2, false: 1 }),
+  [Decision.DENY]: Object.freeze({
+    true: blockTransportFor(AGENT).exit_code,
+    false: 1,
+  }),
   [Decision.ASK]: Object.freeze({ true: 1, false: 1 }),
 });
 
@@ -265,11 +269,11 @@ export function render(verdict, event) {
     );
   const enforced = vd.decision === Decision.DENY && vetoable;
   const exit_code = exitCodeFor(EXIT_CODE_BY_DECISION, vd.decision, vetoable);
-  return nativeResponse({
+  return gatedResponse(AGENT, {
     transport: INTEGRATION_MODE,
-    exit_code,
+    unblocked_exit_code: exit_code,
     enforced,
-    ...(enforced && vd.reason !== undefined ? { stderr: vd.reason } : {}),
+    reason: vd.reason,
   });
 }
 

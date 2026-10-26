@@ -7,18 +7,50 @@
 
 import { readFileSync } from "node:fs";
 import { EventKind } from "../../../src/control-plane.mjs";
-import { claudeAdapter } from "../../../src/adapters/claude.mjs";
-import { codexAdapter } from "../../../src/adapters/codex.mjs";
-import { ampAdapter } from "../../../src/adapters/amp.mjs";
-import { geminiAdapter } from "../../../src/adapters/gemini.mjs";
+import { adapterFor } from "../../../src/registry.mjs";
 import { isMainModule, readFlag } from "../lib/cli-args.mjs";
 
-const ADAPTERS = {
-  claude: claudeAdapter,
-  codex: codexAdapter,
-  amp: ampAdapter,
-  gemini: geminiAdapter,
+/**
+ * The live-conformance SSOT's adapter entries (`config/live-conformance.json`):
+ * which CLI version each agent's fixtures were captured against.
+ * @returns {Array<Record<string, string>>}
+ */
+export function liveConformanceEntries() {
+  return JSON.parse(
+    readFileSync(
+      new URL("../../../config/live-conformance.json", import.meta.url),
+      "utf8",
+    ),
+  ).adapters;
+}
+
+/**
+ * The launcher options each configurable adapter takes, derived from its SSOT
+ * entry. Codex's hook stdin carries no version, so the launcher pins the one
+ * the capture installed.
+ * @type {Record<string, (entry: Record<string, string>) => Record<string, unknown>>}
+ */
+const LAUNCHER_OPTIONS = {
+  codex: (entry) => ({ version: entry.captured_version }),
 };
+
+/**
+ * The adapter for `agent` as the live capture launched it: Codex pinned at its
+ * `captured_version`, every other agent as shipped. The golden fixtures are
+ * captured payloads, so the conformance suites parse them through this too.
+ * @param {string} agent
+ * @returns {import("../../../src/control-plane.mjs").Adapter}
+ */
+export function capturedAdapter(agent) {
+  const options = LAUNCHER_OPTIONS[agent];
+  if (options === undefined) return adapterFor(agent);
+  const entry = liveConformanceEntries().find((a) => a.agent === agent);
+  if (entry === undefined)
+    throw new Error(
+      `live-capture: config/live-conformance.json has no entry for ${agent}`,
+    );
+  return adapterFor(agent, options(entry));
+}
 
 const KNOWN_KINDS = new Set(Object.values(EventKind));
 
@@ -32,8 +64,7 @@ const KNOWN_KINDS = new Set(Object.values(EventKind));
  * @returns {import("../../../src/control-plane.mjs").ToolCallEvent}
  */
 export function assertCaptured(agent, rawPayload) {
-  const adapter = ADAPTERS[agent];
-  if (!adapter) throw new Error(`live-capture: unknown agent ${agent}`);
+  const adapter = capturedAdapter(agent);
   if (typeof rawPayload !== "string" || rawPayload.trim() === "")
     throw new Error(
       `live-capture: empty capture for ${agent} — the hook never fired (no tool call, or the hook config is wrong)`,

@@ -255,6 +255,40 @@ export function nativeResponse({ transport, exit_code, enforced, stdout, stderr,
     stderr?: string;
 }): NativeResponse;
 /**
+ * The {@link BLOCK_TRANSPORT} row for `agent`. Throws for an agent with no row:
+ * a missing row would otherwise render an enforced block with no exit code.
+ * @param {string} agent
+ * @returns {Readonly<{ exit_code: number, reason_stream: "stderr", reason_required: boolean }>}
+ */
+export function blockTransportFor(agent: string): Readonly<{
+    exit_code: number;
+    reason_stream: "stderr";
+    reason_required: boolean;
+}>;
+/**
+ * `reason` when it holds visible text, else {@link DEFAULT_DENY_REASON}.
+ * @param {unknown} reason
+ * @returns {string}
+ */
+export function blockReason(reason: unknown): string;
+/**
+ * Build an adapter's {@link NativeResponse} from its {@link BLOCK_TRANSPORT}
+ * row. When `enforced`, the exit code is the row's and the reason (or the
+ * default) goes on the row's reason stream. Otherwise `unblocked_exit_code`
+ * stands and no reason stream is written: nothing was blocked, so the host
+ * reads the exit-0 (or ask) body instead.
+ * @param {string} agent
+ * @param {{ transport: string, enforced: boolean, unblocked_exit_code: number, stdout?: unknown, reason?: string }} parts
+ * @returns {NativeResponse}
+ */
+export function gatedResponse(agent: string, { transport, enforced, unblocked_exit_code, stdout, reason }: {
+    transport: string;
+    enforced: boolean;
+    unblocked_exit_code: number;
+    stdout?: unknown;
+    reason?: string;
+}): NativeResponse;
+/**
  * The vendor-neutral control-plane contract.
  *
  * This is the published seam between an agent's native hook/tool-call protocol
@@ -440,7 +474,8 @@ export const CoverageStatus: Readonly<{
 /**
  * The result of rendering a {@link Verdict} for a specific agent's transport —
  * the ATTACH mechanism, not the decision. A caller applies whichever channels
- * are present: write `stdout`, exit with `exit_code`, or `throw`.
+ * are present: write `stdout`, write `stderr`, then exit with `exit_code`
+ * (`emit` in `agent-control-plane-core/runtime` does all three).
  * @typedef {object} NativeResponse
  * @property {"external_hook"|"in_process"|"observe_only"} transport
  * @property {number} exit_code process exit code carrying the decision (0 = proceed)
@@ -486,6 +521,22 @@ export const VERDICT_CONTENT_FIELDS: readonly string[];
  */
 export const UNRENDERED_ON_UNKNOWN: ReadonlySet<string>;
 /**
+ * PROBLEM CLASS — an event marked vetoable on a path where the host can never
+ * veto it, so a deny reads downstream as a block that never happened.
+ *
+ * Each entry names a field (`path` into the {@link ToolCallEvent}) whose `value`
+ * makes `this_call_vetoable: true` a false claim. This is the ONE list:
+ * {@link makeEvent} refuses an event that breaks an entry, and the JSON-schema
+ * generator writes one `if`/`then` rule per entry, so the runtime and the
+ * published schema cannot hold different invariants.
+ * @type {ReadonlyArray<{ path: readonly string[], value: string, why: string }>}
+ */
+export const VETO_IMPOSSIBLE: ReadonlyArray<{
+    path: readonly string[];
+    value: string;
+    why: string;
+}>;
+/**
  * The optional {@link EventMeta} string fields a host may carry, and the SSOT
  * {@link baseMeta} reads off every native payload.
  *
@@ -498,6 +549,33 @@ export const UNRENDERED_ON_UNKNOWN: ReadonlySet<string>;
  * no adapter carries an omission of its own.
  */
 export const STANDARD_META_FIELDS: readonly string[];
+/**
+ * The block reason a render writes when the judge gave none (or an empty one).
+ * Codex drops an enforced deny whose reason is empty and runs the tool, and on
+ * every host the model is refused with no rationale without one.
+ */
+export const DEFAULT_DENY_REASON: "blocked by monitor";
+/**
+ * PROBLEM CLASS — an enforced block whose reason never reaches the host, or
+ * whose exit code is not the one the host treats as a block, because each
+ * adapter hand-wired its own stderr and exit code.
+ *
+ * One row per agent, describing that host's ENFORCED block:
+ * - `exit_code`: the exit status the host treats as a block.
+ * - `reason_stream`: the stream the host reads the block reason from on that
+ *   exit. Every host here discards (or never gets) the stdout body on exit 2.
+ * - `reason_required`: the host drops a block whose reason is empty and runs
+ *   the tool, so every body field that carries the reason must be non-empty.
+ *
+ * {@link gatedResponse} derives each adapter's enforced render from its row,
+ * and the conformance harness holds every enforced render to the same row.
+ * @type {Readonly<Record<string, Readonly<{ exit_code: number, reason_stream: "stderr", reason_required: boolean }>>>}
+ */
+export const BLOCK_TRANSPORT: Readonly<Record<string, Readonly<{
+    exit_code: number;
+    reason_stream: "stderr";
+    reason_required: boolean;
+}>>>;
 /**
  * The translator for one agent's protocol. `parse` maps a native event to a
  * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the
@@ -566,7 +644,8 @@ export type EventMeta = {
 /**
  * The result of rendering a {@link Verdict} for a specific agent's transport —
  * the ATTACH mechanism, not the decision. A caller applies whichever channels
- * are present: write `stdout`, exit with `exit_code`, or `throw`.
+ * are present: write `stdout`, write `stderr`, then exit with `exit_code`
+ * (`emit` in `agent-control-plane-core/runtime` does all three).
  */
 export type NativeResponse = {
     transport: "external_hook" | "in_process" | "observe_only";

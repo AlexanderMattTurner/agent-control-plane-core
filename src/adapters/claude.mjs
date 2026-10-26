@@ -26,7 +26,7 @@ import {
   lookup,
   makeEvent,
   normalizeVerdict,
-  nativeResponse,
+  gatedResponse,
   UNRENDERED_ON_UNKNOWN,
   readonlySet,
   baseMeta,
@@ -260,20 +260,15 @@ export function render(verdict, event, { soleGate = false } = {}) {
       ? gatingBody(hookEventName, vd, soleGate)
       : nonGatingBody(hookEventName, kind, vd);
 
-  return nativeResponse({
+  // Claude Code parses hook stdout as JSON only on exit 0: on an exit-2 block it
+  // discards the body and reads STDERR, which `gatedResponse` fills from the
+  // BLOCK_TRANSPORT row.
+  return gatedResponse(AGENT, {
     transport: INTEGRATION_MODE,
-    exit_code: enforced ? 2 : 0,
+    unblocked_exit_code: 0,
     enforced,
     stdout,
-    // An ENFORCED deny exits 2, and Claude Code parses hook stdout as JSON only
-    // on exit 0: on an exit-2 PreToolUse block it discards the body and reads
-    // STDERR instead. So `permissionDecisionReason` never reached the model on
-    // the one path that actually blocks, and the call was refused with no
-    // rationale. Carry the reason on `NativeResponse.stderr`, which `emit`
-    // writes to fd 2 — the same block-reason channel the Amp and Gemini
-    // adapters use. ONLY the enforced path: an allow, an ask, and a deny this
-    // call cannot veto have blocked nothing, and their exit-0 body is read.
-    ...(enforced && vd.reason !== undefined ? { stderr: vd.reason } : {}),
+    reason: vd.reason,
   });
 }
 
@@ -326,7 +321,10 @@ function nonGatingBody(hookEventName, kind, vd) {
     hookSpecificOutput.additionalContext = vd.additional_context;
   /** @type {Record<string, unknown>} */
   const out = { hookSpecificOutput };
-  if (vd.decision !== Decision.ALLOW) {
+  // Not on an UNKNOWN kind either: Claude Code honours `decision: "block"` on
+  // events this adapter does not model (on Stop it keeps the agent running),
+  // so writing it there acts on the host while the render reports no block.
+  if (kind !== EventKind.UNKNOWN && vd.decision !== Decision.ALLOW) {
     out.decision = "block";
     if (vd.reason !== undefined) out.reason = vd.reason;
   }
