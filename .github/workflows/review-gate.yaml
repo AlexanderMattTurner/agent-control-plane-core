@@ -55,10 +55,10 @@ jobs:
       contents: read # the export sparse-checks-out the severity SSOT
       statuses: write # post the verdict on the head
       pull-requests: write # read the threads, free the re-check label
-    uses: AlexanderMattTurner/agent-review/.github/workflows/review-findings-gate.yaml@6791f8174011f569ad9bd8dfb15b139f21a96c09 # pin-comment-ok: agent-review cuts no release yet; re-pin at its first vX.Y
+    uses: AlexanderMattTurner/agent-review/.github/workflows/review-findings-gate.yaml@667f5f240c84496a55b09763a03c94927878733b # pin-comment-ok: agent-review cuts no release yet; re-pin at its first vX.Y
     with:
       reviewer-repository: AlexanderMattTurner/agent-review
-      reviewer-ref: 6791f8174011f569ad9bd8dfb15b139f21a96c09
+      reviewer-ref: 667f5f240c84496a55b09763a03c94927878733b
       # BYTE-IDENTICAL to `gate_context` in config/review-severities.json and to
       # the job name in review-gate-context.yaml.
       status-context: Automated review posted

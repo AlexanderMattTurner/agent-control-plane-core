@@ -50,14 +50,14 @@ jobs:
       contents: read
       pull-requests: write
       statuses: write
-    uses: AlexanderMattTurner/agent-review/.github/workflows/review-skipped-approval.yaml@6791f8174011f569ad9bd8dfb15b139f21a96c09 # pin-comment-ok: agent-review cuts no release yet; re-pin at its first vX.Y
+    uses: AlexanderMattTurner/agent-review/.github/workflows/review-skipped-approval.yaml@667f5f240c84496a55b09763a03c94927878733b # pin-comment-ok: agent-review cuts no release yet; re-pin at its first vX.Y
     with:
       reviewer-repository: AlexanderMattTurner/agent-review
       # Keep in lockstep with the `uses:` sha above. Left empty, the called
       # workflow reads it back out of `github.job_workflow_sha`, which resolves
       # to the empty string in the expression context, and every job then dies on
       # its own `reviewer-ref is empty` refusal.
-      reviewer-ref: 6791f8174011f569ad9bd8dfb15b139f21a96c09
+      reviewer-ref: 667f5f240c84496a55b09763a03c94927878733b
       # BYTE-IDENTICAL to `gate_context` in config/review-severities.json and to
       # the job name in review-gate-context.yaml. YAML cannot read a file, so
       # these are the restatements the design cannot remove; renaming one alone
@@ -94,10 +94,10 @@ jobs:
       statuses: write # the post-review command re-posts this head's verdict
       actions: read # the owed-review re-check lists this workflow's in-flight runs
       checks: read # the gate re-post reads the merge-delta reviewer's check run
-    uses: AlexanderMattTurner/agent-review/.github/workflows/review.yaml@6791f8174011f569ad9bd8dfb15b139f21a96c09 # pin-comment-ok: agent-review cuts no release yet; re-pin at its first vX.Y
+    uses: AlexanderMattTurner/agent-review/.github/workflows/review.yaml@667f5f240c84496a55b09763a03c94927878733b # pin-comment-ok: agent-review cuts no release yet; re-pin at its first vX.Y
     with:
       reviewer-repository: AlexanderMattTurner/agent-review
-      reviewer-ref: 6791f8174011f569ad9bd8dfb15b139f21a96c09
+      reviewer-ref: 667f5f240c84496a55b09763a03c94927878733b
       # The model the vendored reviewer already used. Explicit so an upstream
       # default change cannot silently re-price and re-score every review here.
       model: claude-opus-4-8
@@ -114,17 +114,16 @@ jobs:
           UNREVIEWED_STATE=failure \
           bash "${REVIEWER_DIR}/review-findings-gate.sh"
     secrets:
-      # Rung 1 is a metered API key, spent before any subscription token. This
-      # repository has none, and an empty rung is not a stop — the ladder drops
-      # it and reaches the rungs behind.
-      rung_1: ${{ secrets.FAR_ANTHROPIC_API_KEY }}
-      rung_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK }}
-      rung_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_2 }}
-      rung_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_3 }}
-      rung_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_4 }}
-      rung_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_5 }}
-      rung_7: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_6 }}
-      rung_8: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      # Every repository that calls the reviewer passes these seven
+      # subscription tokens in this order. No rung holds a metered API key, so
+      # a review never bills; the reviewer tries one last if a rung ever does.
+      rung_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK }}
+      rung_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_2 }}
+      rung_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_3 }}
+      rung_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_4 }}
+      rung_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_5 }}
+      rung_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_6 }}
+      rung_7: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   # ────────────────────────────────────────────────────────────────────────────
   # Claude merge-delta review (Sonnet) — formerly its own workflow file
