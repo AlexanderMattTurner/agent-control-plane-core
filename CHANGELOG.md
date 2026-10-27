@@ -12,9 +12,12 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.11.0] - 2026-10-27
+
 ### Added
 
 - `renderEscalated(adapter, verdict, event, { soleGate })` renders a verdict and re-renders it as a `deny` when the host would otherwise run a call the guardrail meant to stop: a non-allow verdict that renders unenforced on a vetoable call, unless it is an `ask` on a host whose `NATIVE_ASK_TIER` says the host suspends the call itself. A consumer that escalated with its own hand-typed list of agent ids calls this instead.
+- Opt-in `ACP_FAIL_CLOSED` mode and shared hook entry point for runtime integration with access control providers.
 
 ## [0.9.0] - 2026-10-27
 
