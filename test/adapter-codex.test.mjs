@@ -281,7 +281,7 @@ describe("codex: a subagent's call takes the SUBAGENT row, not the BUILTIN one",
   // agent_type=default / agent_id=<the one SubagentStart announced> on its
   // PreToolUse payload, with agent_type absent on the main thread's — so the
   // field discriminates, and the SUBAGENT row is PARTIAL (the hook fires, under
-  // the same Bash-only limit as the BUILTIN row) rather than UNKNOWN.
+  // the same limits as the BUILTIN row) rather than UNKNOWN.
   const shellCall = {
     hook_event_name: "PreToolUse",
     version: "0.151.0",

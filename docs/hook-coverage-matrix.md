@@ -16,7 +16,7 @@ classifies exactly the canonical `CALL_CLASSES`; a fixture case tagged with a
 `call_class` whose status doesn't permit a veto (uncovered/unknown — an ❓ is
 treated as ❌ via `coverageAllowsVeto`) MUST parse `this_call_vetoable: false`;
 and each adapter's `parse` derives vetoability from its own row, so an MCP-sourced
-call on a host whose MCP cell is not ✅ (Codex ❌, Gemini ❓) parses non-vetoable.
+call on a host whose MCP cell does not permit a veto (Gemini ❓) parses non-vetoable.
 The subagent cell is live on hosts that stamp `agent_type` (Claude Code, Codex);
 the resumed cell stays advisory-only in code, because no host marks a lone tool
 event as belonging to a resumed session — the tables below remain the SSOT for
