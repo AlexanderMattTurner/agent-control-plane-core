@@ -11,7 +11,7 @@ set -euo pipefail
 
 mkdir -p "$OUT_DIR"
 [[ -d "$OUT_DIR" ]] || {
-  echo "::error::could not create $OUT_DIR" >&2
+  echo "::error::could not create OUT_DIR ($OUT_DIR)" >&2
   exit 1
 }
 
