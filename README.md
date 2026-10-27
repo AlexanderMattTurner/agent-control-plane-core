@@ -183,9 +183,15 @@ codex and gemini run the call, and amp asks. Set `ACP_FAIL_CLOSED=1` to block
 instead, on every host. The entry then exits 2 with the reason on stderr when
 the payload does not parse, or when the judge throws or answers no decision.
 Register a fail-closed entry on tool-call events only. On a Stop event, exit 2
-means "keep working". The option cannot cover a hook the host kills, times out
-or fails to start. Claude Code covers those with `"onFailure": "block"` on the
-hook entry. Codex has no such option, so it still runs the call.
+means "keep working".
+
+A host that kills a hook on its timeout runs the call. Set
+`ACP_HOOK_TIMEOUT_MS` below the host's hook timeout, and the entry gives its
+failure response at that deadline instead. A judge that blocks the event loop
+past the deadline still loses to the host's timeout. Nothing in the entry can
+answer for a process that never starts (no `node`, a module that fails to
+load). Claude Code covers that case with `"onFailure": "block"` on the hook
+entry. Codex has no such option, so it still runs the call.
 
 The core contract and every adapter (`claude`, `codex`, `amp`, `gemini`) are
 also on the default entry:

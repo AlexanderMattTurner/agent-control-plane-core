@@ -18,6 +18,7 @@ import {
   HOST_FAILURE,
   failClosedResponse,
   failurePosture,
+  hookDeadlineMs,
   isRetryableWriteError,
   renderHookResponse,
   writeAllSync,
@@ -461,4 +462,25 @@ describe("renderHookResponse: a blocking onFailure beats the ask clamp", () => {
     assert.notEqual(out, CLOSED);
     assert.equal(out.exit_code, 0);
   });
+});
+
+describe("hookDeadlineMs: reads ACP_HOOK_TIMEOUT_MS", () => {
+  for (const [value, expected] of [
+    [undefined, undefined],
+    ["", undefined],
+    ["1", 1],
+    ["30000", 30000],
+  ])
+    it(`${JSON.stringify(value)} → ${expected}`, () => {
+      const env = value === undefined ? {} : { ACP_HOOK_TIMEOUT_MS: value };
+      assert.equal(hookDeadlineMs(env), expected);
+    });
+
+  for (const value of ["0", "-5", "1.5", "5s", " 100", "1e3"])
+    it(`refuses ${JSON.stringify(value)}`, () => {
+      assert.throws(
+        () => hookDeadlineMs({ ACP_HOOK_TIMEOUT_MS: value }),
+        /must be a positive integer/u,
+      );
+    });
 });

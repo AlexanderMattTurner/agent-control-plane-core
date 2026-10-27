@@ -53,9 +53,10 @@ export function failClosedResponse(agent: string, reason: string): import("./con
  * {@link failClosedResponse} when `ACP_FAIL_CLOSED=1`. A blocking failure
  * response also blocks a call whose judge threw or answered no decision.
  * Register a fail-closed entry on tool-call events only: on a Stop event,
- * exit 2 means "keep working". This cannot cover a hook the host kills, times
- * out or fails to start; only the host can, as Claude Code's
- * `"onFailure": "block"` does.
+ * exit 2 means "keep working". {@link runHookEntry} also answers a hang
+ * before the host's timeout. It cannot answer for a process that never starts
+ * or that the host kills for another reason; only the host can, as Claude
+ * Code's `"onFailure": "block"` does.
  * @param {string} agent
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {import("./control-plane.mjs").NativeResponse}
@@ -64,12 +65,22 @@ export function failurePosture(agent: string, env?: NodeJS.ProcessEnv): import("
 /**
  * The whole hook entry for `adapter`'s host: read stdin, run
  * {@link renderHookResponse} with that host's {@link failurePosture}, and
- * {@link emit} the result. Every `bin/<host>-hook.mjs` is this one call.
+ * {@link emit} the result. Every `bin/<host>-hook.mjs` is this one call. The
+ * failure response also answers a stdin read error and, when
+ * {@link hookDeadlineMs} is set, a hook still running at that deadline.
  * @param {import("./control-plane.mjs").Adapter} adapter
  * @param {(event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict} [judge]
  * @returns {Promise<never>}
  */
 export function runHookEntry(adapter: import("./control-plane.mjs").Adapter, judge?: (event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict): Promise<never>;
+/**
+ * `ACP_HOOK_TIMEOUT_MS` as a positive integer, or `undefined` when unset. Set it
+ * below the host's own hook timeout, so the hook's failure response lands
+ * before the host kills it.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {number|undefined}
+ */
+export function hookDeadlineMs(env?: NodeJS.ProcessEnv): number | undefined;
 /**
  * Whether a failed `writeSync` is the one recoverable case: EAGAIN, meaning the
  * non-blocking pipe is momentarily full because the host has not drained it
