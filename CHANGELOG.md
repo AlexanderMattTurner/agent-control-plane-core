@@ -22,6 +22,28 @@ the prose from the release's commits.
 
 - Pinned uv tool version restored to correct specification in session setup.
 
+## [0.9.0] - 2026-10-27
+
+### Added
+
+- Package bin map for publishing the four hook entries.
+- `schema-fit.md` documentation for schema validation guidance.
+
+### Changed
+
+- README usage example corrected and reformatted as a code block.
+- Gemini adapter refactored to build both render paths through a unified gated response call.
+- Control plane and runtime substantially expanded with additional conformance and integration capabilities.
+
+### Fixed
+
+- Adapters now use a single block-transport table with Codex version sourced from launcher.
+- Runtime judge that throws now clamps to ask instead of failing open.
+
+### Removed
+
+- Unused subscription token tests in adapter test suites.
+
 ## [0.8.1] - 2026-09-21
 
 ### Changed
