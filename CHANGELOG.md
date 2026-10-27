@@ -44,6 +44,39 @@ the prose from the release's commits.
 
 - Unused subscription token tests in adapter test suites.
 
+## [0.8.2] - 2026-10-27
+
+### Added
+
+- New shell library `lib-decide-range.sh` for determining commit ranges in CI workflows.
+- New shell library `lib-path-match.sh` for path matching operations.
+- New shell library `lib-github-token-ladder.bash` for GitHub token authentication fallback logic.
+- New shell library `lib-merge-conflict.bash` for merge conflict handling utilities.
+- New shell library `lib-reviewer-login.bash` for reviewer login management.
+- New shell library `lib-sticky-comment.bash` for persistent comment management.
+- `.gitattributes` file for standardized file attribute handling.
+- Pre-commit hook for clearing reviewer holds (`approve-if-reviewer-hold-clear.sh`).
+- Template sync preflight validation script.
+- Template sync marker gate for controlling sync behavior.
+- Template sync PR body generation script.
+- Multiple new GitHub Actions skills including `babysit-prs`, `defect-to-guard`, and `git-workflow`.
+- Enhanced Claude integration rules and documentation in `.claude/` directory.
+
+### Changed
+
+- Template sync logic now respects the template's release-token rule for more precise synchronization.
+- Improved template sync resolution to prioritize manual sync over scheduled re-sync.
+- Enhanced pre-commit configuration to allow shellcheck to follow libraries in `.github/scripts`.
+- Expanded Claude hook system with new validation and gating mechanisms.
+- Improved CI failure notification and rate tracking capabilities.
+- Enhanced PR review advisory system with better test coverage.
+
+### Fixed
+
+- Template sync now properly delivers `lib-decide-range.sh` and `.gitattributes` along with script tests.
+- Resolved conflicts from template repository synchronization.
+- Template sync resolution now correctly restores prioritized sync operations.
+
 ## [0.8.1] - 2026-09-21
 
 ### Changed
