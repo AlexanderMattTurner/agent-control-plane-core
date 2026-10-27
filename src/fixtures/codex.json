@@ -146,7 +146,7 @@
       }
     },
     {
-      "name": "PreToolUse MCP tool is non-vetoable (hook fires for Bash only)",
+      "name": "PreToolUse MCP tool is vetoable (the hook fires for MCP calls)",
       "call_class": "mcp",
       "native": {
         "hook_event_name": "PreToolUse",
@@ -162,7 +162,7 @@
         "input": {
           "title": "hi"
         },
-        "this_call_vetoable": false,
+        "this_call_vetoable": true,
         "meta": {
           "agent": "codex",
           "native_event": "PreToolUse",
@@ -195,15 +195,16 @@
           },
           "native": {
             "transport": "external_hook",
-            "exit_code": 0,
-            "enforced": false,
+            "exit_code": 2,
+            "enforced": true,
             "stdout": {
               "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason": "mcp blocked"
               }
-            }
+            },
+            "stderr": "mcp blocked"
           }
         }
       }

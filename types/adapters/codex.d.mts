@@ -72,25 +72,25 @@ export function createCodexAdapter({ version }?: {
 export const AGENT: "codex";
 export const INTEGRATION_MODE: "external_hook";
 /**
- * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). `PreToolUse`
- * intercepts the shell (Bash) tool ONLY — other builtins and MCP tools never
- * reach it — so builtin is PARTIAL and MCP is UNCOVERED. A live probe
- * ([X3]/[X4]) fired `PreToolUse` for a SUBAGENT's call and for a call in a
- * RESUMED session, so both are PARTIAL too: covered, under the same Bash-only
- * limit as [X1], rather than the ❓ the matrix carried before the probe ran.
+ * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). `PreToolUse` fires
+ * for the shell tools, `apply_patch`, every MCP tool call and every other
+ * function tool ([X1]/[X2], read from Codex's own source at the enforcement
+ * floor). It never fires for `write_stdin`, which types into a process an
+ * earlier call started, nor for a tool OpenAI runs on its own side, so builtin
+ * and MCP are both PARTIAL. A live probe ([X3]/[X4]) fired `PreToolUse` for a
+ * SUBAGENT's call and for a call in a RESUMED session, so both are PARTIAL too.
  *
  * These rows describe PRE-TOOL routing, which is the only thing the matrix's
  * [X1]/[X2] sources speak about. `parse` applies them to a pre-tool event only
- * (see {@link vetoableCall}); Codex's `PostToolUse` fires for tools `PreToolUse`
- * never sees, so a post-tool event judged by the MCP row would drop a block
- * Codex documents it honours.
+ * (see {@link vetoableCall}); a `PostToolUse` payload in hand is proof the
+ * post-tool hook fired for that call, whatever the pre-tool row says.
  *
  * The SUBAGENT row is the one the classifier now reaches on this host: the same
  * probe found `agent_id`/`agent_type` present on a subagent's `PreToolUse`
  * payload and ABSENT on the main thread's, so {@link classifyCallClass} answers
  * SUBAGENT from that payload alone. It is PARTIAL, so such a call stays vetoable
  * — the row's job here is to be honest, not to degrade. An MCP-named call takes
- * the UNCOVERED MCP row either way, subagent or not.
+ * the MCP row either way, subagent or not.
  *
  * The RESUMED row is DECLARATIVE ONLY, for a reason no longer about coverage: a
  * resumed session announces itself on `SessionStart` (`source: "resume"`), not on

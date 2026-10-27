@@ -281,7 +281,7 @@ describe("codex: a subagent's call takes the SUBAGENT row, not the BUILTIN one",
   // agent_type=default / agent_id=<the one SubagentStart announced> on its
   // PreToolUse payload, with agent_type absent on the main thread's — so the
   // field discriminates, and the SUBAGENT row is PARTIAL (the hook fires, under
-  // the same Bash-only limit as the BUILTIN row) rather than UNKNOWN.
+  // the same limits as the BUILTIN row) rather than UNKNOWN.
   const shellCall = {
     hook_event_name: "PreToolUse",
     version: "0.151.0",
@@ -309,7 +309,7 @@ describe("codex: a subagent's call takes the SUBAGENT row, not the BUILTIN one",
         ...extra,
         tool_name: "mcp__github__create_issue",
       });
-      assert.equal(event.this_call_vetoable, false);
+      assert.equal(event.this_call_vetoable, true);
     }
   });
 });
@@ -383,19 +383,15 @@ describe("codex: PostToolUse parses post_tool and blocks on the post-tool schema
     assert.equal(out.exit_code, 0);
   });
 
-  // The COVERAGE rows describe which calls reach PreToolUse. A PostToolUse
-  // payload is proof the post-tool hook fired for THIS call, so the pre-tool MCP
-  // row must not answer for it — the pre-tool half is the positive marker that
-  // the row is still live where it applies.
-  it("an MCP tool is vetoable post-tool though COVERAGE[mcp] is uncovered", () => {
+  // Codex runs PreToolUse for an MCP call at every enforcing version, so a deny
+  // there is a block Codex performs and the render must report it enforced.
+  it("an MCP tool is vetoable pre-tool and post-tool", () => {
     const mcp = { ...postCall, tool_name: "mcp__github__create_issue" };
-    assert.equal(COVERAGE[CallClass.MCP], CoverageStatus.UNCOVERED);
+    assert.equal(COVERAGE[CallClass.MCP], CoverageStatus.PARTIAL);
     assert.equal(codexAdapter.parse(mcp).this_call_vetoable, true);
-    assert.equal(
-      codexAdapter.parse({ ...mcp, hook_event_name: "PreToolUse" })
-        .this_call_vetoable,
-      false,
-    );
+    const pre = codexAdapter.parse({ ...mcp, hook_event_name: "PreToolUse" });
+    assert.equal(pre.this_call_vetoable, true);
+    assert.equal(codexAdapter.render({ decision: "deny" }, pre).enforced, true);
   });
 });
 
