@@ -170,8 +170,9 @@ emit(claudeAdapter.render(verdict, event));
 `agent-control-plane-core/runtime` publishes the rest of the plumbing the four
 hook entries share. `runHookEntry(adapter, judge)` is a whole entry: each
 `bin/<host>-hook.mjs` is that one call. `renderHookResponse` runs parse → judge
-→ render, and returns the failure response THAT host expects when the payload
-does not parse. `emit`
+→ `renderEscalated`, so a judge's `ask` on a host with no ask tier blocks a
+vetoable call instead of running it. It returns the failure response THAT host
+expects when the payload does not parse. `emit`
 drains the whole body before it exits, so a large deny body is never truncated
 on a non-blocking pipe. The entries ship as `acp-claude-hook`, `acp-codex-hook`,
 `acp-amp-hook` and `acp-gemini-hook`. Codex's hook stdin carries no version, so
