@@ -138,3 +138,49 @@ def test_preserves_pre_set_gh_repo(sandbox: Path) -> None:
         if line.startswith("export GH_REPO=")
     ]
     assert exports == []
+
+
+def _stub(bin_dir: Path, name: str, body: str) -> None:
+    path = bin_dir / name
+    path.write_text(f"#!/bin/bash\n{body}\n", encoding="utf-8")
+    path.chmod(0o755)
+
+
+@pytest.mark.parametrize(
+    "installed_ruff, expect_install",
+    [("0.16.9", True), ("0.14.5", False)],
+    ids=["wrong-version-reinstalls", "pinned-version-kept"],
+)
+def test_pinned_uv_tool_reinstalls_on_version_mismatch(
+    sandbox: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+    installed_ruff: str,
+    expect_install: bool,
+) -> None:
+    """A ruff already on PATH satisfies session-setup only at the pinned version.
+
+    `uv` is stubbed because a real `uv tool install` downloads from PyPI; the
+    stub records its argv so the test reads what session-setup asked for.
+    """
+    (sandbox / "pyproject.toml").write_text("[project]\nname = 'x'\n", encoding="utf-8")
+    bin_dir = tmp_path_factory.mktemp("bin")
+    log = bin_dir / "uv.log"
+    _stub(bin_dir, "uv", f'echo "$*" >> {str(log)!r}')
+    _stub(bin_dir, "ruff", f'echo "ruff {installed_ruff}"')
+    # zizmor is always off-pin, so its reinstall proves the stub uv is reached.
+    _stub(bin_dir, "zizmor", 'echo "zizmor 0.0.1"')
+    # session-setup puts $HOME/.local/bin first on PATH, where the host's own
+    # ruff would shadow the stub, so HOME is an empty directory.
+    home = tmp_path_factory.mktemp("home")
+    _, result = run_session_setup(
+        sandbox,
+        extra_env={"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": str(home)},
+    )
+    assert result.returncode == 0, result.stderr
+    tool_installs = [
+        c
+        for c in log.read_text(encoding="utf-8").splitlines()
+        if c.startswith("tool install")
+    ]
+    ruff = ["tool install --quiet --force ruff==0.14.5"] if expect_install else []
+    assert tool_installs == [*ruff, "tool install --quiet --force zizmor==1.25.2"]
