@@ -352,7 +352,7 @@ describe("classifyCallClass detects MCP, defaults undetectable to builtin", () =
 
   // MCP wins over the subagent signal: an MCP call made from inside a subagent
   // still goes out through the host's MCP surface, which is the axis most often
-  // left un-gated (Codex ❌, Gemini ❓).
+  // left un-gated (opencode ❌, Gemini ❓).
   it("an MCP-named tool from a subagent classifies mcp, not subagent", () => {
     assert.equal(
       classifyCallClass("mcp__github__create_issue", {

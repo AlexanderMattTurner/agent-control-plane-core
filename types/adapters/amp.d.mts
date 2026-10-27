@@ -98,7 +98,10 @@ export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
 export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
 /**
  * Amp honours a distinct ask tier: exit 1 is its "ask the user", a code Amp
- * treats as neither the allow (0) nor the reject (2). {@link render} emits it
+ * treats as neither the allow (0) nor the reject (2). Source: Amp's own notes,
+ * "`0` allows the tool call, `1` makes Amp ask, and `2` rejects the tool call"
+ * (https://ampcode.com/notes/permissions). No live probe has measured it, and
+ * no source says what exit 1 does in a headless run. {@link render} emits it
  * for every `ask`, so a consumer must NOT escalate an `ask` to a `deny` here.
  * The table below leans on the same tier for the non-vetoable deny, which is
  * only honest because the tier is real.
