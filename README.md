@@ -125,6 +125,9 @@ NATIVE_ASK_TIER = false;
 Read `NATIVE_ASK_TIER` instead of keeping a list of which agents to escalate an
 `ask` to a `deny` on: a guardrail that must not let an ask through escalates it
 where the flag is `false`, and leaves it alone where the host does the asking.
+`renderEscalated(adapter, verdict, event, { soleGate })` applies that rule: it
+re-renders as a `deny` any non-allow verdict that would render unenforced on a
+vetoable call, except an `ask` on a host whose flag is `true`.
 It describes the HOST, not the verdict — `ask` renders as `enforced: false`
 everywhere — and it names the pre-tool gate, since a tool that already ran has
 nothing left to suspend. Conformance probes your real `render` against it, so a
