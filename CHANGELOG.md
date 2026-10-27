@@ -16,11 +16,12 @@ the prose from the release's commits.
 
 - The hook entries render through `renderEscalated`. On Gemini, a judge's `ask` (or a malformed verdict, which clamps to `ask`) on a vetoable call now exits 2 and blocks; it used to exit 0 and run the call.
 
-## [0.10.0] - 2026-10-27
+## [0.11.0] - 2026-10-27
 
 ### Added
 
 - `renderEscalated(adapter, verdict, event, { soleGate })` renders a verdict and re-renders it as a `deny` when the host would otherwise run a call the guardrail meant to stop: a non-allow verdict that renders unenforced on a vetoable call, unless it is an `ask` on a host whose `NATIVE_ASK_TIER` says the host suspends the call itself. A consumer that escalated with its own hand-typed list of agent ids calls this instead.
+- Opt-in `ACP_FAIL_CLOSED` mode and shared hook entry point for runtime integration with access control providers.
 
 ### Fixed
 
