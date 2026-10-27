@@ -192,3 +192,38 @@ describe("integration: hook-suicide fail-safe is per host", () => {
     });
   }
 });
+
+// ACP_FAIL_CLOSED=1 swaps every host's fail-safe for that host's enforced block:
+// its BLOCK_TRANSPORT exit code, with a reason on stderr. A valid call still
+// gets its real verdict, so the option changes only what a FAILURE does.
+describe("integration: ACP_FAIL_CLOSED=1 blocks on every host", () => {
+  const CLOSED = { ACP_FAIL_CLOSED: "1", ACP_CODEX_VERSION: "0.163.0" };
+  for (const host of ["claude", "codex", "amp", "gemini"]) {
+    it(`${host} unparseable → exit 2 with a stderr reason, no body`, () => {
+      const out = runRaw(host, "not json at all {{{", CLOSED);
+      assert.equal(out.code, 2);
+      assert.equal(out.stdout, "");
+      assert.match(out.stderr, /\[acp\] hook pipeline error: /u);
+      assert.match(out.stderr, /ACP_FAIL_CLOSED blocks the call/u);
+    });
+  }
+
+  it("claude allow still exits 0 under ACP_FAIL_CLOSED=1", () => {
+    const out = runHook(
+      "claude",
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "ls" },
+      },
+      CLOSED,
+    );
+    assert.equal(out.code, 0);
+  });
+
+  it("an unrecognized ACP_FAIL_CLOSED value refuses to start", () => {
+    const out = runRaw("claude", "{}", { ACP_FAIL_CLOSED: "yes" });
+    assert.notEqual(out.code, 0);
+    assert.match(out.stderr, /ACP_FAIL_CLOSED must be "1" or "0"/u);
+  });
+});

@@ -14,10 +14,10 @@ export function demoJudge(event: import("./control-plane.mjs").ToolCallEvent): i
 /**
  * Run one host's parse→judge→render pipe over a raw stdin payload. If the payload
  * can't be parsed or the render throws, return `onFailure` — the host's OWN
- * fail-safe response — so a crashed hook degrades the way THAT host expects
- * (claude/codex fail OPEN = exit 0; amp fails to ASK = exit 1) instead of a
- * single shared default. This is the deliberate, necessary recovery the whole
- * per-host split exists for, not a blanket swallow.
+ * fail-safe response from {@link failurePosture} — so a crashed hook degrades
+ * the way THAT host expects instead of a single shared default. This is the
+ * deliberate, necessary recovery the whole per-host split exists for, not a
+ * blanket swallow.
  *
  * A judge that THROWS is not a malformed payload: the call parsed, and the judge
  * failed to answer. That takes the same path as a judge that answers garbage —
@@ -39,6 +39,37 @@ export function demoJudge(event: import("./control-plane.mjs").ToolCallEvent): i
  * @returns {import("./control-plane.mjs").NativeResponse}
  */
 export function renderHookResponse(adapter: import("./control-plane.mjs").Adapter, rawInput: string, onFailure: import("./control-plane.mjs").NativeResponse, judge?: (event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict): import("./control-plane.mjs").NativeResponse;
+/**
+ * The response that BLOCKS the call on `agent`'s host: its
+ * {@link BLOCK_TRANSPORT} row's exit code, with `reason` on the row's reason
+ * stream. Every row blocks, so this is the one fail-closed response for all hosts.
+ * @param {string} agent
+ * @param {string} reason
+ * @returns {import("./control-plane.mjs").NativeResponse}
+ */
+export function failClosedResponse(agent: string, reason: string): import("./control-plane.mjs").NativeResponse;
+/**
+ * The failure response for `agent`: its {@link HOST_FAILURE} row, or
+ * {@link failClosedResponse} when `ACP_FAIL_CLOSED=1`. A blocking failure
+ * response also blocks a call whose judge threw or answered no decision.
+ * Register a fail-closed entry on tool-call events only: on a Stop event,
+ * exit 2 means "keep working". This cannot cover a hook the host kills, times
+ * out or fails to start; only the host can, as Claude Code's
+ * `"onFailure": "block"` does.
+ * @param {string} agent
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {import("./control-plane.mjs").NativeResponse}
+ */
+export function failurePosture(agent: string, env?: NodeJS.ProcessEnv): import("./control-plane.mjs").NativeResponse;
+/**
+ * The whole hook entry for `adapter`'s host: read stdin, run
+ * {@link renderHookResponse} with that host's {@link failurePosture}, and
+ * {@link emit} the result. Every `bin/<host>-hook.mjs` is this one call.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {(event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict} [judge]
+ * @returns {Promise<never>}
+ */
+export function runHookEntry(adapter: import("./control-plane.mjs").Adapter, judge?: (event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict): Promise<never>;
 /**
  * Whether a failed `writeSync` is the one recoverable case: EAGAIN, meaning the
  * non-blocking pipe is momentarily full because the host has not drained it
@@ -80,3 +111,14 @@ export function writeAllSync(fd: number, text: string): void;
  * @returns {never}
  */
 export function emit(response: import("./control-plane.mjs").NativeResponse): never;
+/**
+ * Each host's DEFAULT response when its hook breaks, which is how that host
+ * degrades a hook it cannot read:
+ * - claude, codex, gemini: exit 0, so the call runs. Each host treats a crashed
+ *   or non-conforming hook as no objection, and a spurious block would wedge the
+ *   user. The sandbox is the backstop.
+ * - amp: exit 1, which Amp's delegate reads as "ask the human". That neither
+ *   runs nor rejects a call no judge saw.
+ * @type {Readonly<Record<string, import("./control-plane.mjs").NativeResponse>>}
+ */
+export const HOST_FAILURE: Readonly<Record<string, import("./control-plane.mjs").NativeResponse>>;

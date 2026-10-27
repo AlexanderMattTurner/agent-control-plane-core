@@ -165,13 +165,24 @@ emit(claudeAdapter.render(verdict, event));
 `JSON.stringify(render(...))` to stdout exits 0, so the host never blocks.
 
 `agent-control-plane-core/runtime` publishes the rest of the plumbing the four
-hook entries share. `renderHookResponse` runs parse → judge → render, and returns
-the failure response THAT host expects when the payload does not parse. `emit`
+hook entries share. `runHookEntry(adapter, judge)` is a whole entry: each
+`bin/<host>-hook.mjs` is that one call. `renderHookResponse` runs parse → judge
+→ render, and returns the failure response THAT host expects when the payload
+does not parse. `emit`
 drains the whole body before it exits, so a large deny body is never truncated
 on a non-blocking pipe. The entries ship as `acp-claude-hook`, `acp-codex-hook`,
 `acp-amp-hook` and `acp-gemini-hook`. Codex's hook stdin carries no version, so
 set `ACP_CODEX_VERSION` to the Codex version your launcher pins (or call
 `createCodexAdapter({ version })`); without it, Codex calls parse advisory.
+
+Each entry fails the way its host expects when the hook itself breaks: claude,
+codex and gemini run the call, and amp asks. Set `ACP_FAIL_CLOSED=1` to block
+instead, on every host. The entry then exits 2 with the reason on stderr when
+the payload does not parse, or when the judge throws or answers no decision.
+Register a fail-closed entry on tool-call events only. On a Stop event, exit 2
+means "keep working". The option cannot cover a hook the host kills, times out
+or fails to start. Claude Code covers those with `"onFailure": "block"` on the
+hook entry. Codex has no such option, so it still runs the call.
 
 The core contract and every adapter (`claude`, `codex`, `amp`, `gemini`) are
 also on the default entry:
