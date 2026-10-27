@@ -1,13 +1,11 @@
 /**
  * The EXTERNAL_HOOK runtime, published at `agent-control-plane-core/runtime` —
  * NOT a runtime host multiplexer. Each host has its OWN entry
- * (`bin/<host>-hook.mjs`) that hardcodes its adapter and declares its OWN
- * failure posture; this module only holds the transport mechanics they
- * genuinely share (stdin read, the demo judge, the parse→judge→render pipe with
- * a host-supplied fail-safe, and stdout+exit emission). The thing item ②
- * deleted was the `--agent` switch that let one binary impersonate every host
- * and so had to pick a single shared failure behavior; sharing pure plumbing
- * across distinct entries is not that.
+ * (`bin/<host>-hook.mjs`) that hardcodes its adapter; {@link runHookEntry}
+ * runs it with that host's OWN failure posture from {@link HOST_FAILURE}. The
+ * thing item ② deleted was the `--agent` switch that let one binary
+ * impersonate every host and so had to pick a single shared failure behavior;
+ * a per-host table keyed by the adapter's own AGENT is not that.
  *
  * It is exported because every consumer writing its own hook entry had to
  * re-implement the same two things, and both fail silently when they are wrong:
@@ -15,7 +13,7 @@
  * `process.exit` (see {@link writeAllSync}).
  */
 import { writeSync } from "node:fs";
-import { Decision, sanitizeVerdict } from "./control-plane.mjs";
+import { Decision, gatedResponse, sanitizeVerdict } from "./control-plane.mjs";
 
 /**
  * Read all of stdin to a string.
@@ -57,10 +55,10 @@ export function demoJudge(event) {
 /**
  * Run one host's parse→judge→render pipe over a raw stdin payload. If the payload
  * can't be parsed or the render throws, return `onFailure` — the host's OWN
- * fail-safe response — so a crashed hook degrades the way THAT host expects
- * (claude/codex fail OPEN = exit 0; amp fails to ASK = exit 1) instead of a
- * single shared default. This is the deliberate, necessary recovery the whole
- * per-host split exists for, not a blanket swallow.
+ * fail-safe response from {@link failurePosture} — so a crashed hook degrades
+ * the way THAT host expects instead of a single shared default. This is the
+ * deliberate, necessary recovery the whole per-host split exists for, not a
+ * blanket swallow.
  *
  * A judge that THROWS is not a malformed payload: the call parsed, and the judge
  * failed to answer. That takes the same path as a judge that answers garbage —
@@ -108,6 +106,10 @@ export function renderHookResponse(
       answer = { reason: `hook judge threw: ${describe(err).split("\n")[0]}` };
       report("hook judge error", err);
     }
+    // A host-supplied `onFailure` that BLOCKS (see {@link failurePosture}) wins
+    // over the clamp's ask: Codex and Gemini cannot enforce an ask, so the
+    // clamp would run a call no judge approved.
+    if (onFailure.enforced && !isDecision(answer)) return onFailure;
     // A judge's answer is clamped, not trusted. `normalizeVerdict` (inside
     // every adapter's render) THROWS on a decision outside allow/deny/ask, and
     // that throw would land in the catch below — the host's fail-safe, exit 0
@@ -121,6 +123,151 @@ export function renderHookResponse(
     report("hook pipeline error", err);
     return onFailure;
   }
+}
+
+/**
+ * Whether `answer` carries one of the three decisions a judge may return.
+ * @param {unknown} answer
+ * @returns {boolean}
+ */
+function isDecision(answer) {
+  const decision =
+    answer !== null && typeof answer === "object"
+      ? /** @type {{ decision?: unknown }} */ (answer).decision
+      : undefined;
+  return Object.values(Decision).includes(/** @type {any} */ (decision));
+}
+
+/**
+ * The response that BLOCKS the call on `agent`'s host: its
+ * {@link BLOCK_TRANSPORT} row's exit code, with `reason` on the row's reason
+ * stream. Every row blocks, so this is the one fail-closed response for all hosts.
+ * @param {string} agent
+ * @param {string} reason
+ * @returns {import("./control-plane.mjs").NativeResponse}
+ */
+export function failClosedResponse(agent, reason) {
+  return gatedResponse(agent, {
+    transport: "external_hook",
+    enforced: true,
+    unblocked_exit_code: 0,
+    reason,
+  });
+}
+
+/** @type {import("./control-plane.mjs").NativeResponse} */
+const RUN = Object.freeze({
+  transport: "external_hook",
+  exit_code: 0,
+  enforced: false,
+});
+
+/**
+ * Each host's DEFAULT response when its hook breaks, which is how that host
+ * degrades a hook it cannot read:
+ * - claude, codex, gemini: exit 0, so the call runs. Each host treats a crashed
+ *   or non-conforming hook as no objection, and a spurious block would wedge the
+ *   user. The sandbox is the backstop.
+ * - amp: exit 1, which Amp's delegate reads as "ask the human". That neither
+ *   runs nor rejects a call no judge saw.
+ * @type {Readonly<Record<string, import("./control-plane.mjs").NativeResponse>>}
+ */
+export const HOST_FAILURE = Object.freeze({
+  claude: RUN,
+  codex: RUN,
+  gemini: RUN,
+  amp: Object.freeze({
+    transport: "external_hook",
+    exit_code: 1,
+    enforced: false,
+  }),
+});
+
+/**
+ * The failure response for `agent`: its {@link HOST_FAILURE} row, or
+ * {@link failClosedResponse} when `ACP_FAIL_CLOSED=1`. A blocking failure
+ * response also blocks a call whose judge threw or answered no decision.
+ * Register a fail-closed entry on tool-call events only: on a Stop event,
+ * exit 2 means "keep working". {@link runHookEntry} also answers a hang
+ * before the host's timeout. It cannot answer for a process that never starts
+ * or that the host kills for another reason; only the host can, as Claude
+ * Code's `"onFailure": "block"` does.
+ * @param {string} agent
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {import("./control-plane.mjs").NativeResponse}
+ */
+export function failurePosture(agent, env = process.env) {
+  if (!Object.hasOwn(HOST_FAILURE, agent))
+    throw new Error(
+      `runtime: no HOST_FAILURE row for agent ${JSON.stringify(agent)}`,
+    );
+  const flag = env.ACP_FAIL_CLOSED;
+  if (flag === undefined || flag === "" || flag === "0")
+    return HOST_FAILURE[agent];
+  if (flag !== "1")
+    throw new Error(
+      `ACP_FAIL_CLOSED must be "1" or "0", got ${JSON.stringify(flag)}`,
+    );
+  return failClosedResponse(
+    agent,
+    "hook failed; ACP_FAIL_CLOSED blocks the call",
+  );
+}
+
+/**
+ * The whole hook entry for `adapter`'s host: read stdin, run
+ * {@link renderHookResponse} with that host's {@link failurePosture}, and
+ * {@link emit} the result. Every `bin/<host>-hook.mjs` is this one call. The
+ * failure response also answers a stdin read error and, when
+ * {@link hookDeadlineMs} is set, a hook still running at that deadline.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {(event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict} [judge]
+ * @returns {Promise<never>}
+ */
+export async function runHookEntry(adapter, judge = demoJudge) {
+  const onFailure = failurePosture(adapter.AGENT);
+  const deadline = hookDeadlineMs();
+  /** @param {string} what @param {unknown} err @returns {never} */
+  const fail = (what, err) => {
+    report(what, err);
+    return emit(onFailure);
+  };
+  // A host that kills a hung hook runs the call, so the hook answers first with
+  // its own failure response. A judge that blocks the event loop outlasts this.
+  if (deadline !== undefined)
+    setTimeout(
+      () =>
+        fail(
+          "hook deadline",
+          new Error(`no response within ACP_HOOK_TIMEOUT_MS=${deadline}`),
+        ),
+      deadline,
+    );
+  /** @type {string} */
+  let raw;
+  try {
+    raw = await readStdin();
+  } catch (err) {
+    return fail("hook stdin error", err);
+  }
+  return emit(renderHookResponse(adapter, raw, onFailure, judge));
+}
+
+/**
+ * `ACP_HOOK_TIMEOUT_MS` as a positive integer, or `undefined` when unset. Set it
+ * below the host's own hook timeout, so the hook's failure response lands
+ * before the host kills it.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {number|undefined}
+ */
+export function hookDeadlineMs(env = process.env) {
+  const value = env.ACP_HOOK_TIMEOUT_MS;
+  if (value === undefined || value === "") return undefined;
+  if (!/^[1-9]\d*$/u.test(value))
+    throw new Error(
+      `ACP_HOOK_TIMEOUT_MS must be a positive integer of milliseconds, got ${JSON.stringify(value)}`,
+    );
+  return Number(value);
 }
 
 /**
