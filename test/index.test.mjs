@@ -24,10 +24,15 @@ describe("public API surface (index barrel)", () => {
     "assertAliasTargetsModeled",
     "makeEvent",
     "normalizeVerdict",
+    "renderEscalated",
     "collectPassthrough",
     "baseMeta",
     "STANDARD_META_FIELDS",
     "nativeResponse",
+    "gatedResponse",
+    "BLOCK_TRANSPORT",
+    "DEFAULT_DENY_REASON",
+    "VETO_IMPOSSIBLE",
     "asObject",
     "asString",
     "asStringOrNull",
@@ -36,6 +41,7 @@ describe("public API surface (index barrel)", () => {
     // adapters + harness
     "claudeAdapter",
     "codexAdapter",
+    "createCodexAdapter",
     "ampAdapter",
     "geminiAdapter",
     "HookEvent",
@@ -122,7 +128,7 @@ describe("public API surface (index barrel)", () => {
     });
     assert.deepEqual(pkg.codexAdapter.COVERAGE, {
       builtin: "partial",
-      mcp: "uncovered",
+      mcp: "partial",
       subagent: "partial",
       resumed: "partial",
     });

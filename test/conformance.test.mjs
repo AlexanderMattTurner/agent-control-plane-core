@@ -19,9 +19,9 @@ import {
   VERDICT_CONTENT_FIELDS,
 } from "../src/control-plane.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
-import { codexAdapter } from "../src/adapters/codex.mjs";
-import { ampAdapter } from "../src/adapters/amp.mjs";
-import { geminiAdapter, GEMINI_TOOL_ALIASES } from "../src/adapters/gemini.mjs";
+import { GEMINI_TOOL_ALIASES } from "../src/adapters/gemini.mjs";
+import { AGENT_IDS } from "../src/registry.mjs";
+import { capturedAdapter } from "../.github/scripts/live-capture/assert-captured.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const loadFixture = (agent) =>
@@ -119,14 +119,19 @@ const echoAdapter = {
       transport: "external_hook",
       exit_code: enforced ? 2 : verdict.decision === "allow" ? 0 : 1,
       enforced,
+      ...(enforced ? { stderr: ECHO_BLOCK_REASON } : {}),
     };
   },
 };
+
+// Rule ④ asks an enforced block to carry its reason on stderr.
+const ECHO_BLOCK_REASON = "blocked";
 
 const deny = (exit_code, enforced) => ({
   transport: "external_hook",
   exit_code,
   enforced,
+  ...(enforced ? { stderr: ECHO_BLOCK_REASON } : {}),
 });
 
 function fullFixtures() {
@@ -304,6 +309,7 @@ describe("conformance harness self-tests (ask tier, rule ⑪)", () => {
         transport: "external_hook",
         exit_code: enforced ? 2 : verdict.decision === "deny" ? 1 : 0,
         enforced,
+        ...(enforced ? { stderr: ECHO_BLOCK_REASON } : {}),
       };
     },
   };
@@ -445,6 +451,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
         transport: "external_hook",
         exit_code: 0,
         enforced: v.decision === "deny",
+        ...(v.decision === "deny" ? { stderr: ECHO_BLOCK_REASON } : {}),
       }),
     };
     const fx = fullFixtures();
@@ -464,6 +471,7 @@ describe("conformance harness self-tests (non-vacuity)", () => {
           transport: "external_hook",
           exit_code: enforced ? 2 : 0,
           enforced,
+          ...(enforced ? { stderr: ECHO_BLOCK_REASON } : {}),
         };
       },
     };
@@ -1736,8 +1744,7 @@ describe("coverage-witness: an mcp class marked un-vetoable is proven by a fixtu
   // return BUILTIN or MCP from a lone payload — subagent/resumed have no
   // detectable signal — so no real fixture can witness them and a blanket
   // "every un-vetoable class is witnessed" assertion is unsatisfiable by design.
-  const shipped = [claudeAdapter, codexAdapter, ampAdapter, geminiAdapter];
-  for (const adapter of shipped) {
+  for (const adapter of AGENT_IDS.map(capturedAdapter)) {
     it(`${adapter.AGENT}: mcp coverage forbidding veto is witnessed by an mcp fixture`, () => {
       const fixtures = loadFixture(adapter.AGENT);
       const summary = runAdapterConformance({ adapter, fixtures, assert });
@@ -1758,12 +1765,7 @@ describe("rule ⑩ non-vacuity: every content field is witnessed on some adapter
   // field dropped, which is the vacuous suite it exists to prevent.
   it("the four shipped adapters together render every Verdict content field", () => {
     const seen = new Set();
-    for (const adapter of [
-      claudeAdapter,
-      codexAdapter,
-      ampAdapter,
-      geminiAdapter,
-    ])
+    for (const adapter of AGENT_IDS.map(capturedAdapter))
       for (const field of runAdapterConformance({
         adapter,
         fixtures: loadFixture(adapter.AGENT),

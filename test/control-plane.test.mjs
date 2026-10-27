@@ -6,6 +6,10 @@ import {
   EventKind,
   Decision,
   IntegrationMode,
+  VETO_IMPOSSIBLE,
+  BLOCK_TRANSPORT,
+  DEFAULT_DENY_REASON,
+  gatedResponse,
   CallClass,
   CALL_CLASSES,
   CoverageStatus,
@@ -27,9 +31,12 @@ import {
   asString,
   asStringOrNull,
 } from "../src/control-plane.mjs";
+import { toolCallEventSchema } from "../src/json-schema.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
-import { codexAdapter } from "../src/adapters/codex.mjs";
+import { codexAdapter, createCodexAdapter } from "../src/adapters/codex.mjs";
+import { AGENT_IDS } from "../src/registry.mjs";
 import { ampAdapter } from "../src/adapters/amp.mjs";
+import { geminiAdapter } from "../src/adapters/gemini.mjs";
 
 describe("control-plane contract is frozen and versioned", () => {
   it("pins the schema version (a bump must be deliberate)", () => {
@@ -226,8 +233,32 @@ describe("makeEvent fails loud on an internally-malformed event", () => {
     // adapter computing the flag its own way cannot reach the wire either.
     assert.throws(
       () => makeEvent({ ...base, event: EventKind.UNKNOWN }),
-      /vetoable UNKNOWN event/,
+      /vetoable event whose event is "unknown"/,
     );
+  });
+
+  it("throws on a vetoable OBSERVE_ONLY event, the rule the JSON schema states", () => {
+    // An observe-only transport reads a transcript and cannot pre-empt a call,
+    // so a veto reported on one is the same false block by another route.
+    assert.throws(
+      () =>
+        makeEvent({
+          ...base,
+          event: EventKind.PRE_TOOL,
+          meta: {
+            ...base.meta,
+            integration_mode: IntegrationMode.OBSERVE_ONLY,
+          },
+        }),
+      /vetoable event whose meta\.integration_mode is "observe_only"/,
+    );
+  });
+
+  it("every VETO_IMPOSSIBLE entry is one the JSON schema states", () => {
+    // makeEvent and the schema read the same list, so each entry must surface
+    // as one if/then rule in the published document.
+    assert.equal(toolCallEventSchema().allOf.length, VETO_IMPOSSIBLE.length);
+    assert.ok(VETO_IMPOSSIBLE.length >= 2);
   });
 
   it("throws on an unmodeled event kind", () => {
@@ -321,7 +352,7 @@ describe("classifyCallClass detects MCP, defaults undetectable to builtin", () =
 
   // MCP wins over the subagent signal: an MCP call made from inside a subagent
   // still goes out through the host's MCP surface, which is the axis most often
-  // left un-gated (Codex ❌, Gemini ❓).
+  // left un-gated (opencode ❌, Gemini ❓).
   it("an MCP-named tool from a subagent classifies mcp, not subagent", () => {
     assert.equal(
       classifyCallClass("mcp__github__create_issue", {
@@ -601,9 +632,12 @@ describe("forward-compat: unknown events/fields pass through", () => {
     assert.equal(event.this_call_vetoable, false);
     assert.equal(out.exit_code, 0);
     assert.equal(out.enforced, false);
-    // The objection still reaches the operator.
-    assert.equal(out.stdout.decision, "block");
-    assert.equal(out.stdout.reason, "r");
+    // No `decision` either: Claude Code honours `decision: "block"` on events
+    // the adapter does not model (on Stop it keeps the agent running), so a
+    // decision here would act on the host while the render reports no block.
+    assert.deepEqual(out.stdout, {
+      hookSpecificOutput: { hookEventName: "PreCompact" },
+    });
   });
 
   it("codex falls back to PreToolUse when the native event name is empty", () => {
@@ -625,5 +659,103 @@ describe("forward-compat: unknown events/fields pass through", () => {
       assert.doesNotThrow(() => codexAdapter.parse(bad));
       assert.doesNotThrow(() => ampAdapter.parse(bad));
     }
+  });
+});
+
+// ─── The enforced block's reason stream, one rule across every shipped adapter.
+describe("every shipped adapter: an enforced deny carries its reason on stderr", () => {
+  // A vetoable pre-tool event per host. Codex's stdin carries no version, so
+  // its adapter is the one a launcher pins at an enforcing version.
+  const enforcing = [
+    [
+      claudeAdapter,
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "x" },
+      },
+    ],
+    [
+      createCodexAdapter({ version: "0.151.0" }),
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "x" },
+      },
+    ],
+    [ampAdapter, { tool: "Bash", input: { command: "x" } }],
+    [
+      geminiAdapter,
+      {
+        hook_event_name: "BeforeTool",
+        tool_name: "run_shell_command",
+        tool_input: { command: "x" },
+      },
+    ],
+  ];
+  // Every host here reads the reason from stderr on exit 2, and Codex drops a
+  // block whose reason is empty. Before the shared row, Codex wrote none at all
+  // and the other three wrote none for a reasonless deny.
+  const reasons = [
+    [undefined, DEFAULT_DENY_REASON],
+    ["", DEFAULT_DENY_REASON],
+    ["   ", DEFAULT_DENY_REASON],
+    ["destructive delete", "destructive delete"],
+  ];
+  for (const [adapter, native] of enforcing)
+    for (const [reason, expected] of reasons)
+      it(`${adapter.AGENT}: reason ${JSON.stringify(reason)} → stderr ${JSON.stringify(expected)}`, () => {
+        const event = adapter.parse(native);
+        assert.equal(event.this_call_vetoable, true);
+        const out = adapter.render(
+          reason === undefined
+            ? { decision: "deny" }
+            : { decision: "deny", reason },
+          event,
+        );
+        assert.equal(out.enforced, true);
+        assert.equal(out.exit_code, BLOCK_TRANSPORT[adapter.AGENT].exit_code);
+        assert.equal(out.stderr, expected);
+      });
+
+  // Positive marker beside the rule: an allow blocks nothing, so it writes no
+  // reason stream on any host.
+  for (const [adapter, native] of enforcing)
+    it(`${adapter.AGENT}: an allow writes no stderr`, () => {
+      const out = adapter.render({ decision: "allow" }, adapter.parse(native));
+      assert.equal("stderr" in out, false);
+    });
+});
+
+describe("gatedResponse and BLOCK_TRANSPORT", () => {
+  it("has a row for every agent the registry ships", () => {
+    assert.deepEqual(
+      Object.keys(BLOCK_TRANSPORT).sort(),
+      [...AGENT_IDS].sort(),
+    );
+  });
+
+  it("throws for an agent with no row instead of rendering an exit-less block", () => {
+    assert.throws(
+      () =>
+        gatedResponse("nope", {
+          transport: "external_hook",
+          enforced: true,
+          unblocked_exit_code: 0,
+        }),
+      /no BLOCK_TRANSPORT row for agent "nope"/,
+    );
+  });
+
+  it("an unenforced render keeps the caller's exit code and writes no reason", () => {
+    assert.deepEqual(
+      gatedResponse("amp", {
+        transport: "external_hook",
+        enforced: false,
+        unblocked_exit_code: 1,
+        reason: "r",
+      }),
+      { transport: "external_hook", exit_code: 1, enforced: false },
+    );
   });
 });

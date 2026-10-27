@@ -5,6 +5,7 @@ import {
   IntegrationMode,
   MODELED_TOOL_INPUT_KEYS,
   TOOL_ALIASES,
+  BLOCK_TRANSPORT,
   canonicalTool,
   coverageAllowsVeto,
   isCoverageStatus,
@@ -861,6 +862,33 @@ function assertAliasedInput(agent, caseName, event, assert) {
 }
 
 /**
+ * Hold an enforced render to its host's {@link BLOCK_TRANSPORT} row: the row's
+ * exit code, and a non-empty reason on the row's reason stream. An adapter with
+ * no row (one this package does not ship) is held to the reason on `stderr`,
+ * the contract's block-reason channel. A block with no reason reaches the
+ * model with no rationale, and Codex drops it and runs the tool.
+ * @param {string} agent
+ * @param {import("./control-plane.mjs").NativeResponse} rendered
+ * @param {string} label
+ * @param {any} assert
+ */
+function assertBlockTransport(agent, rendered, label, assert) {
+  const row = lookup(BLOCK_TRANSPORT, agent);
+  if (row !== undefined)
+    assert.equal(
+      rendered.exit_code,
+      row.exit_code,
+      `enforced deny exits ${rendered.exit_code}, but ${agent} blocks on exit ${row.exit_code}: ${label}`,
+    );
+  const stream = row?.reason_stream ?? "stderr";
+  const reason = rendered[stream];
+  assert.ok(
+    typeof reason === "string" && reason.trim() !== "",
+    `enforced deny carries no reason on ${stream}: ${label}`,
+  );
+}
+
+/**
  * The control-plane conformance harness.
  *
  * Any adapter — the reference claude one, codex, or a future
@@ -879,7 +907,8 @@ function assertAliasedInput(agent, caseName, event, assert) {
  *      decision the contract requires every adapter to express.
  *   4. enforcement honesty: an enforceable deny (`rendered.enforced === true`)
  *      MUST carry a real block signal — a non-zero `exit_code` — not just a JSON
- *      body the agent is free to ignore. At least one enforced deny must appear,
+ *      body the agent is free to ignore — plus a non-empty reason on the
+ *      reason stream its {@link BLOCK_TRANSPORT} row names. At least one enforced deny must appear,
  *      so the honesty check is never vacuous.
  *   5. vetoability honesty, BOTH directions. When the parsed event's
  *      `this_call_vetoable` is false, EVERY render for that case must be
@@ -1032,6 +1061,12 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
         assert.ok(
           rendered.exit_code !== 0,
           `enforced deny carries no block signal: ${testCase.name} / ${scenario}`,
+        );
+        assertBlockTransport(
+          adapter.AGENT,
+          rendered,
+          `${testCase.name} / ${scenario}`,
+          assert,
         );
         enforcedDenySeen = true;
       }

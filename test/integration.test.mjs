@@ -13,8 +13,12 @@ const binDir = join(dirname(fileURLToPath(import.meta.url)), "..", "bin");
 const hookBin = (host) => join(binDir, `${host}-hook.mjs`);
 
 /** Spawn a host entry with a raw stdin string; return exit code + stdout. */
-function runRaw(host, input) {
-  const res = spawnSync("node", [hookBin(host)], { input, encoding: "utf8" });
+function runRaw(host, input, env = {}) {
+  const res = spawnSync("node", [hookBin(host)], {
+    input,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
   // A missing/renamed bin/<host>-hook.mjs makes spawnSync set `error` and leave
   // status null + empty stdout; assert the spawn itself succeeded so "the bin is
   // gone" fails loudly here instead of as a confusing downstream JSON.parse.
@@ -33,7 +37,8 @@ function runRaw(host, input) {
 }
 
 /** Spawn a host entry with a JSON payload. */
-const runHook = (host, payload) => runRaw(host, JSON.stringify(payload));
+const runHook = (host, payload, env) =>
+  runRaw(host, JSON.stringify(payload), env);
 
 describe("integration: per-host hook transports over a real process boundary", () => {
   it("claude deny → exit 2 + permissionDecision deny in stdout", () => {
@@ -74,6 +79,31 @@ describe("integration: per-host hook transports over a real process boundary", (
     // Amp surfaces the delegate helper's stderr, so the block reaches the user
     // with its rationale instead of a bare rejection.
     assert.match(out.stderr, /rm -rf blocked/);
+  });
+
+  // Codex's documented PreToolUse stdin has no `version`, so the launcher pins
+  // it through ACP_CODEX_VERSION. Without it a real payload cannot enforce.
+  const codexPayload = {
+    session_id: "s",
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "rm -rf /" },
+  };
+
+  it("codex with ACP_CODEX_VERSION ≥0.135 → exit 2, reason on stderr", () => {
+    const out = runHook("codex", codexPayload, {
+      ACP_CODEX_VERSION: "0.151.0",
+    });
+    assert.equal(out.code, 2);
+    assert.equal(out.json.hookSpecificOutput.permissionDecision, "deny");
+    // Codex reads the block reason from stderr on exit 2.
+    assert.match(out.stderr, /rm -rf blocked/);
+  });
+
+  it("codex with no launcher version and a real payload → exit 0 (advisory)", () => {
+    const out = runHook("codex", codexPayload, { ACP_CODEX_VERSION: "" });
+    assert.equal(out.code, 0);
+    assert.equal(out.stderr, "");
   });
 
   it("codex ≥v0.135 deny → exit 2 (enforcing)", () => {

@@ -56,19 +56,22 @@ export function demoJudge(event) {
 
 /**
  * Run one host's parse→judge→render pipe over a raw stdin payload. If the payload
- * can't be parsed or the pipe throws, return `onFailure` — the host's OWN
+ * can't be parsed or the render throws, return `onFailure` — the host's OWN
  * fail-safe response — so a crashed hook degrades the way THAT host expects
  * (claude/codex fail OPEN = exit 0; amp fails to ASK = exit 1) instead of a
  * single shared default. This is the deliberate, necessary recovery the whole
  * per-host split exists for, not a blanket swallow.
  *
- * Before returning the fail-safe, the error is written to STDERR (never stdout,
- * which belongs to the host transport) so a regression that silently disables
- * enforcement leaves a greppable trace. Every host tolerates hook stderr:
- * claude/codex surface it only in verbose/debug on a 0 exit, amp forwards the
- * helper's stderr, and gemini reads stderr as a reason only on exit 2 — none of
- * these fail-safe exits is a 2 for a stdout-carrying transport, and amp's ask
- * (exit 1) shows the diagnostic alongside the prompt, which is the point.
+ * A judge that THROWS is not a malformed payload: the call parsed, and the judge
+ * failed to answer. That takes the same path as a judge that answers garbage —
+ * the clamp's `ask` (see below) — so a crashing guardrail puts the call in front
+ * of a human instead of taking an exit-0 fail-safe that runs it.
+ *
+ * Every error is written to STDERR (never stdout, which belongs to the host
+ * transport) so a regression that silently disables enforcement leaves a
+ * greppable trace. Every host tolerates hook stderr: claude/codex surface it
+ * only in verbose/debug on a 0 exit, amp forwards the helper's stderr, and
+ * gemini reads stderr as a reason only on exit 2.
  * `judge` is the seam a real deployment fills — {@link demoJudge} is a stand-in,
  * so the guardrail is supplied here rather than by forking this file. Whatever
  * it returns is treated as untrusted (see the clamp below).
@@ -96,21 +99,47 @@ export function renderHookResponse(
         `hook payload must be a JSON object, got ${native === null ? "null" : Array.isArray(native) ? "array" : typeof native}`,
       );
     const event = adapter.parse(native);
+    /** @type {unknown} */
+    let answer;
+    try {
+      answer = judge(event);
+    } catch (err) {
+      // No `decision`, so the clamp below turns this into an `ask`.
+      answer = { reason: `hook judge threw: ${describe(err).split("\n")[0]}` };
+      report("hook judge error", err);
+    }
     // A judge's answer is clamped, not trusted. `normalizeVerdict` (inside
     // every adapter's render) THROWS on a decision outside allow/deny/ask, and
-    // that throw lands in the catch below — which returns the host's fail-safe,
-    // exit 0 on claude/codex/gemini. So a judge that means DENY but spells it
-    // "denied" would let the tool run. Clamping to "ask" first keeps a
-    // malformed answer in front of a human. Prose is passed through: scrubbing
-    // monitor-authored text needs a scrubber this transport module has no
-    // business choosing, and the decision is the half that gates the call.
-    const verdict = sanitizeVerdict(judge(event), (text) => text);
+    // that throw would land in the catch below — the host's fail-safe, exit 0
+    // on claude/codex/gemini. So a judge that means DENY but spells it "denied"
+    // would let the tool run. Clamping to "ask" first keeps a malformed answer
+    // in front of a human. Prose is passed through: scrubbing monitor-authored
+    // text needs a scrubber this transport module has no business choosing.
+    const verdict = sanitizeVerdict(answer, (text) => text);
     return adapter.render(verdict, event);
   } catch (err) {
-    const detail = err instanceof Error ? (err.stack ?? err.message) : `${err}`;
-    process.stderr.write(`[acp] hook pipeline error: ${detail}\n`);
+    report("hook pipeline error", err);
     return onFailure;
   }
+}
+
+/**
+ * A thrown value as readable text: an Error's stack (or message when it has no
+ * stack), or the value itself for a bare throw.
+ * @param {unknown} err
+ * @returns {string}
+ */
+function describe(err) {
+  return err instanceof Error ? (err.stack ?? err.message) : `${err}`;
+}
+
+/**
+ * Write one diagnostic line for `err` to stderr.
+ * @param {string} label
+ * @param {unknown} err
+ */
+function report(label, err) {
+  process.stderr.write(`[acp] ${label}: ${describe(err)}\n`);
 }
 
 /**

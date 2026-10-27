@@ -43,7 +43,7 @@ import {
   MODELED_TOOL_INPUT_KEYS,
   makeEvent,
   normalizeVerdict,
-  nativeResponse,
+  gatedResponse,
   UNRENDERED_ON_UNKNOWN,
   readonlySet,
   baseMeta,
@@ -374,31 +374,23 @@ export function render(verdict, event, { soleGate = false } = {}) {
   const vd = normalizeVerdict(verdict);
   const enforced = vd.decision === Decision.DENY && event.this_call_vetoable;
 
-  // Enforced deny is a System Block: exit 2, reason carried on STDERR (Gemini
-  // reads its block rationale from stderr, not the ignored stdout body). Carry it
-  // on NativeResponse.stderr so `emit` writes it to fd 2 — a genuine block is
-  // never surfaced to the user/model with no explanation.
-  // No stdout body at all on this path, so EVERY content field is dropped here,
-  // whatever UNRENDERED_FIELDS says for the kind — that map describes the allow
-  // path. Nothing is lost that a blocked call could still use: the tool never
-  // runs, so only `additional_context` had anywhere to go.
-  if (enforced)
-    return nativeResponse({
-      transport: INTEGRATION_MODE,
-      exit_code: 2,
-      enforced: true,
-      ...(vd.reason !== undefined ? { stderr: vd.reason } : {}),
-    });
-
-  const body =
-    event.event === EventKind.PROMPT_SUBMIT
-      ? promptSubmitBody(vd)
-      : decisionBody(vd, event.event, soleGate);
-  return nativeResponse({
+  // An enforced deny is a System Block: `gatedResponse` writes the exit code
+  // and the stderr reason from the BLOCK_TRANSPORT row, and there is no stdout
+  // body, so EVERY content field is dropped whatever UNRENDERED_FIELDS says —
+  // that map describes the allow path. The tool never runs, so only
+  // `additional_context` had anywhere to go.
+  let body;
+  if (!enforced)
+    body =
+      event.event === EventKind.PROMPT_SUBMIT
+        ? promptSubmitBody(vd)
+        : decisionBody(vd, event.event, soleGate);
+  return gatedResponse(AGENT, {
     transport: INTEGRATION_MODE,
-    exit_code: 0,
-    enforced: false,
-    ...(body === undefined ? {} : { stdout: body }),
+    unblocked_exit_code: 0,
+    enforced,
+    stdout: body,
+    reason: vd.reason,
   });
 }
 
@@ -436,7 +428,10 @@ function applyAdvisoryDeny(out, vd) {
 function decisionBody(vd, kind, soleGate) {
   /** @type {Record<string, unknown>} */
   const out = {};
-  if (!applyAdvisoryDeny(out, vd) && soleGate) out.decision = "allow";
+  // An UNKNOWN kind has no established decision channel, and Gemini acts on a
+  // `decision` it does see (AfterAgent's deny forces a retry), so it gets none.
+  if (kind !== EventKind.UNKNOWN && !applyAdvisoryDeny(out, vd) && soleGate)
+    out.decision = "allow";
   if (kind === EventKind.PRE_TOOL && vd.mutated_input !== undefined)
     out.hookSpecificOutput = { tool_input: vd.mutated_input };
   // `systemMessage` is documented on the TOOL events. An UNKNOWN kind is an

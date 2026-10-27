@@ -5,13 +5,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   codexAdapter,
+  createCodexAdapter,
   canEnforce,
   COVERAGE,
-  DEFAULT_DENY_REASON,
   MIN_ENFORCING_VERSION,
 } from "../src/adapters/codex.mjs";
 import { runAdapterConformance } from "../src/conformance.mjs";
+import { capturedAdapter } from "../.github/scripts/live-capture/assert-captured.mjs";
 import {
+  DEFAULT_DENY_REASON,
   CallClass,
   classifyCallClass,
   CoverageStatus,
@@ -26,7 +28,7 @@ const fixtures = JSON.parse(
 describe("codex adapter conformance", () => {
   it("parse/render golden across PreToolUse, PermissionRequest, and the version gate", () => {
     const summary = runAdapterConformance({
-      adapter: codexAdapter,
+      adapter: capturedAdapter("codex"),
       fixtures,
       assert,
     });
@@ -152,6 +154,47 @@ describe("codex adapter: enforced deny always carries a non-empty reason (Codex 
   });
 });
 
+describe("codex: the launcher pins the version, because Codex's stdin has none", () => {
+  const call = {
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "ls" },
+  };
+
+  it("a launcher version at or above v0.135 enforces a payload with no version", () => {
+    const adapter = createCodexAdapter({ version: "0.151.0" });
+    const event = adapter.parse(call);
+    assert.equal(event.this_call_vetoable, true);
+    assert.equal(event.meta.integration_mode, "external_hook");
+  });
+
+  it("the shipped adapter, given no version anywhere, stays advisory", () => {
+    const event = codexAdapter.parse(call);
+    assert.equal(event.this_call_vetoable, false);
+    assert.equal(event.meta.integration_mode, "observe_only");
+  });
+
+  it("the launcher version wins over a payload version, in both directions", () => {
+    const pinnedOld = createCodexAdapter({ version: "0.134.0" });
+    assert.equal(
+      pinnedOld.parse({ ...call, version: "0.151.0" }).this_call_vetoable,
+      false,
+    );
+    const pinnedNew = createCodexAdapter({ version: "0.151.0" });
+    assert.equal(
+      pinnedNew.parse({ ...call, version: "0.134.0" }).this_call_vetoable,
+      true,
+    );
+  });
+
+  it("with no launcher version, a payload version is the fallback", () => {
+    assert.equal(
+      codexAdapter.parse({ ...call, version: "0.151.0" }).this_call_vetoable,
+      true,
+    );
+  });
+});
+
 describe("canEnforce version gate (≥ v0.135)", () => {
   // Driven per boundary so just-below / exactly-at / above / prerelease /
   // garbage each pin a distinct branch. Fail-closed: anything semver.coerce
@@ -238,7 +281,7 @@ describe("codex: a subagent's call takes the SUBAGENT row, not the BUILTIN one",
   // agent_type=default / agent_id=<the one SubagentStart announced> on its
   // PreToolUse payload, with agent_type absent on the main thread's — so the
   // field discriminates, and the SUBAGENT row is PARTIAL (the hook fires, under
-  // the same Bash-only limit as the BUILTIN row) rather than UNKNOWN.
+  // the same limits as the BUILTIN row) rather than UNKNOWN.
   const shellCall = {
     hook_event_name: "PreToolUse",
     version: "0.151.0",
@@ -266,7 +309,7 @@ describe("codex: a subagent's call takes the SUBAGENT row, not the BUILTIN one",
         ...extra,
         tool_name: "mcp__github__create_issue",
       });
-      assert.equal(event.this_call_vetoable, false);
+      assert.equal(event.this_call_vetoable, true);
     }
   });
 });
@@ -340,19 +383,15 @@ describe("codex: PostToolUse parses post_tool and blocks on the post-tool schema
     assert.equal(out.exit_code, 0);
   });
 
-  // The COVERAGE rows describe which calls reach PreToolUse. A PostToolUse
-  // payload is proof the post-tool hook fired for THIS call, so the pre-tool MCP
-  // row must not answer for it — the pre-tool half is the positive marker that
-  // the row is still live where it applies.
-  it("an MCP tool is vetoable post-tool though COVERAGE[mcp] is uncovered", () => {
+  // Codex runs PreToolUse for an MCP call at every enforcing version, so a deny
+  // there is a block Codex performs and the render must report it enforced.
+  it("an MCP tool is vetoable pre-tool and post-tool", () => {
     const mcp = { ...postCall, tool_name: "mcp__github__create_issue" };
-    assert.equal(COVERAGE[CallClass.MCP], CoverageStatus.UNCOVERED);
+    assert.equal(COVERAGE[CallClass.MCP], CoverageStatus.PARTIAL);
     assert.equal(codexAdapter.parse(mcp).this_call_vetoable, true);
-    assert.equal(
-      codexAdapter.parse({ ...mcp, hook_event_name: "PreToolUse" })
-        .this_call_vetoable,
-      false,
-    );
+    const pre = codexAdapter.parse({ ...mcp, hook_event_name: "PreToolUse" });
+    assert.equal(pre.this_call_vetoable, true);
+    assert.equal(codexAdapter.render({ decision: "deny" }, pre).enforced, true);
   });
 });
 

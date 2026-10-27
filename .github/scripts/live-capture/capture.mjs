@@ -27,11 +27,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeHookConfig } from "./write-hook-config.mjs";
-import { assertCaptured } from "./assert-captured.mjs";
+import { assertCaptured, liveConformanceEntries } from "./assert-captured.mjs";
 import { readFlag } from "../lib/cli-args.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = join(HERE, "..", "..", "..");
 const DUMP = join(HERE, "dump.mjs");
 const MAX_ATTEMPTS = 5;
 const CANNED_PROMPT =
@@ -65,14 +64,6 @@ function fail(m) {
   process.exit(1);
 }
 
-function readSsot() {
-  const raw = readFileSync(
-    join(REPO_ROOT, "config", "live-conformance.json"),
-    "utf8",
-  );
-  return JSON.parse(raw).adapters;
-}
-
 /** @param {string} label @param {string} cmd @param {string[]} args @param {object} opts */
 function run(label, cmd, args, opts) {
   process.stdout.write(`live-capture: ${label}: ${cmd} ${args.join(" ")}\n`);
@@ -87,7 +78,7 @@ function captured(file) {
 const agent = readFlag(process.argv, "agent");
 if (!agent) fail("usage: capture.mjs --agent=<agent>");
 
-const entry = readSsot().find((a) => a.agent === agent);
+const entry = liveConformanceEntries().find((a) => a.agent === agent);
 if (!entry) fail(`no SSOT entry for agent ${agent}`);
 if (!RUN_ARGV[agent]) fail(`no run invocation defined for agent ${agent}`);
 

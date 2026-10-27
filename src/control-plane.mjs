@@ -398,7 +398,8 @@ export function classifyCallClass(tool, native) {
 /**
  * The result of rendering a {@link Verdict} for a specific agent's transport —
  * the ATTACH mechanism, not the decision. A caller applies whichever channels
- * are present: write `stdout`, exit with `exit_code`, or `throw`.
+ * are present: write `stdout`, write `stderr`, then exit with `exit_code`
+ * (`emit` in `agent-control-plane-core/runtime` does all three).
  * @typedef {object} NativeResponse
  * @property {"external_hook"|"in_process"|"observe_only"} transport
  * @property {number} exit_code process exit code carrying the decision (0 = proceed)
@@ -493,6 +494,30 @@ export function readonlySet(values) {
 export const UNRENDERED_ON_UNKNOWN = readonlySet(VERDICT_CONTENT_FIELDS);
 
 /**
+ * PROBLEM CLASS — an event marked vetoable on a path where the host can never
+ * veto it, so a deny reads downstream as a block that never happened.
+ *
+ * Each entry names a field (`path` into the {@link ToolCallEvent}) whose `value`
+ * makes `this_call_vetoable: true` a false claim. This is the ONE list:
+ * {@link makeEvent} refuses an event that breaks an entry, and the JSON-schema
+ * generator writes one `if`/`then` rule per entry, so the runtime and the
+ * published schema cannot hold different invariants.
+ * @type {ReadonlyArray<{ path: readonly string[], value: string, why: string }>}
+ */
+export const VETO_IMPOSSIBLE = Object.freeze([
+  Object.freeze({
+    path: Object.freeze(["event"]),
+    value: EventKind.UNKNOWN,
+    why: "an unmodelled event has no host response to veto, so reporting one is a false block",
+  }),
+  Object.freeze({
+    path: Object.freeze(["meta", "integration_mode"]),
+    value: IntegrationMode.OBSERVE_ONLY,
+    why: "an observe-only transport reads a transcript and cannot pre-empt a call, so reporting a veto is a false block",
+  }),
+]);
+
+/**
  * The translator for one agent's protocol. `parse` maps a native event to a
  * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the
  * integration mode / enforcement flags on `meta`); `render` maps a {@link Verdict}
@@ -537,16 +562,6 @@ export function makeEvent({
     throw new TypeError(
       `control-plane: makeEvent this_call_vetoable must be a boolean, got ${typeof this_call_vetoable}`,
     );
-  // The same fail-open seam, one step further: an event the adapter could not
-  // name is one whose host response nobody established, so a veto reported for
-  // it is a block the render claims and the host never performs. Refused HERE
-  // because every adapter builds its event through this call, so an adapter that
-  // computes the flag without `vetoableFor` cannot reach the wire either.
-  if (event === EventKind.UNKNOWN && this_call_vetoable)
-    throw new Error(
-      "control-plane: makeEvent got a vetoable UNKNOWN event — an unmodelled " +
-        "event has no host response to veto, so reporting one is a false block",
-    );
   /** @type {ToolCallEvent} */
   const evt = {
     schema_version: SCHEMA_VERSION,
@@ -557,6 +572,18 @@ export function makeEvent({
     meta,
   };
   if (response !== undefined) evt.response = response;
+  // Refused HERE because every adapter builds its event through this call, so an
+  // adapter that computes the flag without `vetoableFor` cannot reach the wire.
+  if (this_call_vetoable) {
+    const broken = VETO_IMPOSSIBLE.find(
+      ({ path, value }) =>
+        path.reduce((/** @type {any} */ at, key) => at[key], evt) === value,
+    );
+    if (broken !== undefined)
+      throw new Error(
+        `control-plane: makeEvent got a vetoable event whose ${broken.path.join(".")} is ${JSON.stringify(broken.value)} — ${broken.why}`,
+      );
+  }
   return evt;
 }
 
@@ -827,4 +854,138 @@ export function nativeResponse({
   if (stdout !== undefined) out.stdout = stdout;
   if (stderr !== undefined) out.stderr = stderr;
   return out;
+}
+
+/**
+ * The block reason a render writes when the judge gave none (or an empty one).
+ * Codex drops an enforced deny whose reason is empty and runs the tool, and on
+ * every host the model is refused with no rationale without one.
+ */
+export const DEFAULT_DENY_REASON = "blocked by monitor";
+
+/**
+ * PROBLEM CLASS — an enforced block whose reason never reaches the host, or
+ * whose exit code is not the one the host treats as a block, because each
+ * adapter hand-wired its own stderr and exit code.
+ *
+ * One row per agent, describing that host's ENFORCED block:
+ * - `exit_code`: the exit status the host treats as a block.
+ * - `reason_stream`: the stream the host reads the block reason from on that
+ *   exit. Every host here discards (or never gets) the stdout body on exit 2.
+ * - `reason_required`: the host drops a block whose reason is empty and runs
+ *   the tool, so every body field that carries the reason must be non-empty.
+ *
+ * {@link gatedResponse} derives each adapter's enforced render from its row,
+ * and the conformance harness holds every enforced render to the same row.
+ * @type {Readonly<Record<string, Readonly<{ exit_code: number, reason_stream: "stderr", reason_required: boolean }>>>}
+ */
+export const BLOCK_TRANSPORT = Object.freeze({
+  claude: Object.freeze({
+    exit_code: 2,
+    reason_stream: "stderr",
+    reason_required: false,
+  }),
+  codex: Object.freeze({
+    exit_code: 2,
+    reason_stream: "stderr",
+    reason_required: true,
+  }),
+  amp: Object.freeze({
+    exit_code: 2,
+    reason_stream: "stderr",
+    reason_required: false,
+  }),
+  gemini: Object.freeze({
+    exit_code: 2,
+    reason_stream: "stderr",
+    reason_required: false,
+  }),
+});
+
+/**
+ * The {@link BLOCK_TRANSPORT} row for `agent`. Throws for an agent with no row:
+ * a missing row would otherwise render an enforced block with no exit code.
+ * @param {string} agent
+ * @returns {Readonly<{ exit_code: number, reason_stream: "stderr", reason_required: boolean }>}
+ */
+export function blockTransportFor(agent) {
+  const row = lookup(BLOCK_TRANSPORT, agent);
+  if (row === undefined)
+    throw new Error(
+      `control-plane: no BLOCK_TRANSPORT row for agent ${JSON.stringify(agent)}`,
+    );
+  return row;
+}
+
+/**
+ * `reason` when it holds visible text, else {@link DEFAULT_DENY_REASON}.
+ * @param {unknown} reason
+ * @returns {string}
+ */
+export function blockReason(reason) {
+  return typeof reason === "string" && reason.trim() !== ""
+    ? reason
+    : DEFAULT_DENY_REASON;
+}
+
+/**
+ * Build an adapter's {@link NativeResponse} from its {@link BLOCK_TRANSPORT}
+ * row. When `enforced`, the exit code is the row's and the reason (or the
+ * default) goes on the row's reason stream. Otherwise `unblocked_exit_code`
+ * stands and no reason stream is written: nothing was blocked, so the host
+ * reads the exit-0 (or ask) body instead.
+ * @param {string} agent
+ * @param {{ transport: string, enforced: boolean, unblocked_exit_code: number, stdout?: unknown, reason?: string }} parts
+ * @returns {NativeResponse}
+ */
+export function gatedResponse(
+  agent,
+  { transport, enforced, unblocked_exit_code, stdout, reason },
+) {
+  if (!enforced)
+    return nativeResponse({
+      transport,
+      exit_code: unblocked_exit_code,
+      enforced,
+      stdout,
+    });
+  const row = blockTransportFor(agent);
+  return nativeResponse({
+    transport,
+    exit_code: row.exit_code,
+    enforced,
+    stdout,
+    [row.reason_stream]: blockReason(reason),
+  });
+}
+
+/**
+ * Render `verdict` on `adapter`'s host, escalating to a `deny` when the host
+ * would otherwise let the call run without the gate it asked for. A non-allow
+ * verdict that renders unenforced on a vetoable call is re-rendered as a deny,
+ * unless it is an `ask` and the host honours its own ask tier
+ * ({@link Adapter} `NATIVE_ASK_TIER`). Nothing changes for an allow, for a call
+ * this guardrail cannot veto (a deny there blocks nothing either), or for a
+ * render the host already enforces. The deny keeps the verdict's other fields.
+ * @param {Adapter} adapter
+ * @param {Verdict} verdict
+ * @param {ToolCallEvent} event
+ * @param {{ soleGate?: boolean }} [options] passed through to `render`
+ * @returns {NativeResponse}
+ */
+export function renderEscalated(adapter, verdict, event, options = {}) {
+  const { decision } = normalizeVerdict(verdict);
+  const response = adapter.render(verdict, event, options);
+  if (
+    response.enforced ||
+    decision === Decision.ALLOW ||
+    !event.this_call_vetoable ||
+    (decision === Decision.ASK && adapter.NATIVE_ASK_TIER)
+  )
+    return response;
+  return adapter.render(
+    { ...verdict, decision: Decision.DENY },
+    event,
+    options,
+  );
 }

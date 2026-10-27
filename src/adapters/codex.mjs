@@ -10,7 +10,9 @@
  *
  * VERSION GATE: hook enforcement only exists in v0.135+. Below that, there is no
  * veto, so parse marks the event OBSERVE_ONLY with this_call_vetoable=false —
- * the adapter must not pretend to enforce on an old Codex.
+ * the adapter must not pretend to enforce on an old Codex. Codex's hook stdin
+ * carries no version, so the launcher that pins the binary supplies it through
+ * {@link createCodexAdapter}.
  */
 
 import semver from "semver";
@@ -28,7 +30,9 @@ import {
   lookup,
   makeEvent,
   normalizeVerdict,
-  nativeResponse,
+  gatedResponse,
+  blockTransportFor,
+  blockReason,
   UNRENDERED_ON_UNKNOWN,
   readonlySet,
   baseMeta,
@@ -50,25 +54,25 @@ export const AGENT = "codex";
 export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
 
 /**
- * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). `PreToolUse`
- * intercepts the shell (Bash) tool ONLY — other builtins and MCP tools never
- * reach it — so builtin is PARTIAL and MCP is UNCOVERED. A live probe
- * ([X3]/[X4]) fired `PreToolUse` for a SUBAGENT's call and for a call in a
- * RESUMED session, so both are PARTIAL too: covered, under the same Bash-only
- * limit as [X1], rather than the ❓ the matrix carried before the probe ran.
+ * Hook-coverage matrix row (`docs/hook-coverage-matrix.md`). `PreToolUse` fires
+ * for the shell tools, `apply_patch`, every MCP tool call and every other
+ * function tool ([X1]/[X2], read from Codex's own source at the enforcement
+ * floor). It never fires for `write_stdin`, which types into a process an
+ * earlier call started, nor for a tool OpenAI runs on its own side, so builtin
+ * and MCP are both PARTIAL. A live probe ([X3]/[X4]) fired `PreToolUse` for a
+ * SUBAGENT's call and for a call in a RESUMED session, so both are PARTIAL too.
  *
  * These rows describe PRE-TOOL routing, which is the only thing the matrix's
  * [X1]/[X2] sources speak about. `parse` applies them to a pre-tool event only
- * (see {@link vetoableCall}); Codex's `PostToolUse` fires for tools `PreToolUse`
- * never sees, so a post-tool event judged by the MCP row would drop a block
- * Codex documents it honours.
+ * (see {@link vetoableCall}); a `PostToolUse` payload in hand is proof the
+ * post-tool hook fired for that call, whatever the pre-tool row says.
  *
  * The SUBAGENT row is the one the classifier now reaches on this host: the same
  * probe found `agent_id`/`agent_type` present on a subagent's `PreToolUse`
  * payload and ABSENT on the main thread's, so {@link classifyCallClass} answers
  * SUBAGENT from that payload alone. It is PARTIAL, so such a call stays vetoable
  * — the row's job here is to be honest, not to degrade. An MCP-named call takes
- * the UNCOVERED MCP row either way, subagent or not.
+ * the MCP row either way, subagent or not.
  *
  * The RESUMED row is DECLARATIVE ONLY, for a reason no longer about coverage: a
  * resumed session announces itself on `SessionStart` (`source: "resume"`), not on
@@ -80,7 +84,7 @@ export const INTEGRATION_MODE = IntegrationMode.EXTERNAL_HOOK;
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE = Object.freeze({
   [CallClass.BUILTIN]: CoverageStatus.PARTIAL,
-  [CallClass.MCP]: CoverageStatus.UNCOVERED,
+  [CallClass.MCP]: CoverageStatus.PARTIAL,
   [CallClass.SUBAGENT]: CoverageStatus.PARTIAL,
   [CallClass.RESUMED]: CoverageStatus.PARTIAL,
 });
@@ -184,10 +188,6 @@ export const NATIVE_EVENT_FOR = Object.freeze({
  */
 export const NATIVE_ASK_TIER = false;
 
-// Codex drops an enforced deny that carries no (or an empty) reason and runs the
-// tool, so a reasonless enforced deny still renders a non-empty one.
-export const DEFAULT_DENY_REASON = "blocked by monitor";
-
 // The STANDARD_META_FIELDS are consumed by `baseMeta`, not listed here.
 const CONSUMED = new Set([
   "hook_event_name",
@@ -203,16 +203,12 @@ const CONSUMED = new Set([
  * release core; anything it can't coerce to a valid version (missing, empty,
  * garbage) yields `null` and is treated as too old — fail closed to advisory.
  *
- * TRUST BOUNDARY (sandbox, not adapter): `version` is read from the hook stdin
- * payload, so a payload that under-reports it downgrades enforcement to advisory
- * (a deny renders exit 0). The adapter cannot distinguish a spoofed version from
- * a genuinely old Codex — the ground-truth version lives outside the payload —
- * so anti-spoofing belongs to the sandbox that controls what the hook is fed
- * (the same "pin it from outside" posture the managed-config mount enforces for
- * the hook binary; see docs/monitor-invariants.md §Invariant 1). Coercing an
- * absent/garbage version to enforcing HERE would break the legitimate old-Codex
- * case (rendering an exit-2 block a pre-0.135 Codex ignores, while dishonestly
- * marking it `enforced`), so the adapter stays faithful to what the payload says.
+ * WHERE THE VERSION COMES FROM: Codex's PreToolUse stdin carries no `version`
+ * field, so the launcher that pins the Codex binary supplies it, through
+ * {@link createCodexAdapter}. A payload `version` is a fallback only, and the
+ * payload is untrusted: one that under-reports downgrades a deny to advisory. Coercing an absent version to enforcing HERE would
+ * break the legitimate old-Codex case (an exit-2 block a pre-0.135 Codex
+ * ignores, dishonestly marked `enforced`), so an unknown version stays advisory.
  * @param {unknown} version
  * @returns {boolean}
  */
@@ -225,17 +221,13 @@ export function canEnforce(version) {
 /**
  * Whether an event of `kind` may be marked vetoable, given the tool it names.
  *
- * PRE_TOOL takes the coverage floor: `PreToolUse` fires for Bash only, so an
- * MCP-sourced call is un-vetoable regardless of version (COVERAGE.mcp).
+ * PRE_TOOL takes the coverage floor ({@link COVERAGE}).
  *
  * POST_TOOL does NOT, and that is deliberate: {@link COVERAGE} records which
  * calls reach `PreToolUse`, and a `PostToolUse` payload in hand is proof the
- * post-tool hook already fired for this call — Codex documents PostToolUse
- * firing for tools (apply_patch, MCP) that `PreToolUse` never sees. Judging it
- * by the pre-tool MCP row would degrade a block Codex honours to a notify,
- * which is a fail-CLOSED error but still a wrong one. It stays gated on
- * GATED_EVENTS and on the version floor, so nothing here can mark an unmodelled
- * or pre-0.135 event vetoable.
+ * post-tool hook already fired for this call. It stays gated on GATED_EVENTS
+ * and on the version floor, so nothing here can mark an unmodelled or pre-0.135
+ * event vetoable.
  * @param {string} kind an {@link EventKind} value
  * @param {string|null} nativeTool
  * @param {Record<string, unknown>} raw the native payload, for `mcp_context`
@@ -254,10 +246,16 @@ function vetoableCall(kind, nativeTool, raw) {
  * Parse a raw Codex hook payload. Never throws on unmodelled input. Marks the
  * event observe-only (this_call_vetoable=false) when the Codex version
  * predates hook enforcement.
+ *
+ * `version` is the Codex version the LAUNCHER pinned, and it wins. Codex's
+ * hook stdin documents no version field, so a payload `version` is read only
+ * when no launcher version was given: a wrapper that injects one into stdin
+ * keeps working. With neither, the event is advisory.
  * @param {any} native
+ * @param {{ version?: string }} [options]
  * @returns {ToolCallEvent}
  */
-export function parse(native) {
+export function parse(native, { version } = {}) {
   const raw = asObject(native);
   const nativeEvent = asString(raw.hook_event_name, "");
   const kind =
@@ -265,7 +263,7 @@ export function parse(native) {
       /** @type {Record<string, string>} */ (NATIVE_TO_KIND),
       nativeEvent,
     ) ?? EventKind.UNKNOWN;
-  const enforce = canEnforce(raw.version);
+  const enforce = canEnforce(version ?? raw.version);
 
   const meta = baseMeta({
     agent: AGENT,
@@ -330,10 +328,11 @@ export function render(verdict, event, { soleGate = false } = {}) {
   // PermissionRequest answers as itself; NATIVE_EVENT_FOR names the fallback.
   const hookEventName = event.meta.native_event || HookEvent.PRE_TOOL_USE;
 
-  return nativeResponse({
+  return gatedResponse(AGENT, {
     transport: event.meta.integration_mode,
-    exit_code: enforced ? 2 : 0,
+    unblocked_exit_code: 0,
     enforced,
+    reason: vd.reason,
     stdout:
       event.event === EventKind.POST_TOOL
         ? postToolBody(hookEventName, vd, enforced)
@@ -356,17 +355,21 @@ function preToolBody(hookEventName, vd, event, enforced, soleGate) {
   // deny/ask emit an explicit decision, unless `soleGate` opts into it.
   /** @type {Record<string, unknown>} */
   const body = { hookEventName };
-  if (vd.decision !== Decision.ALLOW || soleGate) {
+  // An UNKNOWN event reaches this body too. It has no established decision
+  // channel, so it carries none: a decision there would act on the host while
+  // the render reports no block.
+  if (
+    event.event === EventKind.PRE_TOOL &&
+    (vd.decision !== Decision.ALLOW || soleGate)
+  ) {
     body.permissionDecision = vd.decision;
     if (vd.reason !== undefined) body.permissionDecisionReason = vd.reason;
   }
   // Codex FAILS OPEN on an enforced deny whose permissionDecisionReason is missing
   // or empty: its PreToolUse output parser drops the block (block_reason = None)
-  // and runs the tool. Unlike Claude, which honours a bare deny, Codex needs a
-  // non-empty reason for the block to bite — so guarantee one on every enforced
-  // deny, whatever the judge supplied.
-  if (enforced && !body.permissionDecisionReason)
-    body.permissionDecisionReason = DEFAULT_DENY_REASON;
+  // and runs the tool (BLOCK_TRANSPORT.codex.reason_required).
+  if (enforced && blockTransportFor(AGENT).reason_required)
+    body.permissionDecisionReason = blockReason(vd.reason);
   // PRE_TOOL only. An UNKNOWN event reaches this body too, and an event the
   // adapter cannot name has no channel it can claim: emitting `updatedInput`
   // there names a key the host ignores while reading to the caller as a
@@ -403,18 +406,37 @@ function postToolBody(hookEventName, vd, enforced) {
   // whose reason Codex may drop is a block that may not bite. Unverified for
   // PostToolUse specifically — a non-empty reason is the safe side of that, and
   // the model needs the text either way.
-  if (enforced && !body.reason) body.reason = DEFAULT_DENY_REASON;
+  if (enforced && blockTransportFor(AGENT).reason_required)
+    body.reason = blockReason(vd.reason);
   return body;
 }
 
-/** @type {import("../control-plane.mjs").Adapter} */
-export const codexAdapter = {
-  AGENT,
-  INTEGRATION_MODE,
-  COVERAGE,
-  UNRENDERED_FIELDS,
-  NATIVE_ASK_TIER,
-  NATIVE_EVENT_FOR,
-  parse,
-  render,
-};
+/**
+ * Build a Codex adapter whose `parse` judges every payload against `version`,
+ * the Codex version the launcher pinned (Codex's hook stdin carries none).
+ * Below {@link MIN_ENFORCING_VERSION} every event parses observe-only and a
+ * deny renders advisory. With no `version`, `parse` falls back to a payload
+ * `version` (see {@link parse}).
+ * @param {{ version?: string }} [options]
+ * @returns {import("../control-plane.mjs").Adapter}
+ */
+export function createCodexAdapter({ version } = {}) {
+  return {
+    AGENT,
+    INTEGRATION_MODE,
+    COVERAGE,
+    UNRENDERED_FIELDS,
+    NATIVE_ASK_TIER,
+    NATIVE_EVENT_FOR,
+    parse: (native) => parse(native, { version }),
+    render,
+  };
+}
+
+/**
+ * The Codex adapter with no launcher-pinned version. Real Codex sends no
+ * version, so every event it sends parses observe-only here. A deployment that
+ * runs Codex ≥ v0.135 builds its own with {@link createCodexAdapter}.
+ * @type {import("../control-plane.mjs").Adapter}
+ */
+export const codexAdapter = createCodexAdapter();

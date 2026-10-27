@@ -34,12 +34,18 @@ emit_path_prepend() {
   echo "export PATH=${dir@Q}:\$PATH" >>"$CLAUDE_ENV_FILE"
 }
 
-# Install a command via uv if missing
+# Install a command via uv if missing. When $2 pins `name==X.Y.Z`, a command
+# already on PATH counts only if its `--version` names X.Y.Z: an image that ships
+# a newer ruff otherwise satisfies the check, and its new default rules fail the
+# pre-push gate on files CI's pinned ruff passes.
 uv_install_if_missing() {
-  local cmd="$1" pkg="${2:-$1}"
-  if ! command -v "$cmd" &>/dev/null; then
-    uv tool install --quiet "$pkg" || warn "Failed to install $pkg"
+  local cmd="$1" pkg="${2:-$1}" want=""
+  [[ "$pkg" == *==* ]] && want="${pkg##*==}"
+  if command -v "$cmd" &>/dev/null; then
+    [[ -z "$want" ]] && return 0
+    [[ " $("$cmd" --version 2>/dev/null) " == *" $want "* ]] && return 0
   fi
+  uv tool install --quiet --force "$pkg" || warn "Failed to install $pkg"
 }
 
 # Install a Go-based tool at a PINNED version via `go install module@vX.Y.Z`.

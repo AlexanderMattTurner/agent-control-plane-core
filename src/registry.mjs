@@ -16,7 +16,7 @@
 
 import { lookup } from "./control-plane.mjs";
 import { claudeAdapter } from "./adapters/claude.mjs";
-import { codexAdapter } from "./adapters/codex.mjs";
+import { codexAdapter, createCodexAdapter } from "./adapters/codex.mjs";
 import { ampAdapter } from "./adapters/amp.mjs";
 import { geminiAdapter } from "./adapters/gemini.mjs";
 
@@ -64,18 +64,38 @@ export function assertRegistryConsistent(adapters) {
 assertRegistryConsistent(ADAPTERS);
 
 /**
+ * The adapters that take launcher options, keyed by agent id. Only Codex does:
+ * its hook stdin carries no version, so the launcher pins one.
+ * @type {Readonly<Record<string, (options: any) => Adapter>>}
+ */
+const CONFIGURABLE = Object.freeze({
+  [codexAdapter.AGENT]: createCodexAdapter,
+});
+
+/**
  * Resolve an agent id to its adapter. Throws (fail loud) on an unknown id — a
  * selection signal that names no shipped adapter is a misconfiguration, not a
  * reason to silently fall back to a default agent (which would run the wrong
  * translator against the payloads and mis-render every verdict).
+ *
+ * `options` are the launcher's settings for that adapter (Codex:
+ * `{ version }`). Passing options to an adapter that takes none throws, so a
+ * setting the launcher believes it applied cannot be dropped in silence.
  * @param {string} id agent id (a {@link AGENT_IDS} member)
+ * @param {Record<string, unknown>} [options]
  * @returns {Adapter}
  */
-export function adapterFor(id) {
+export function adapterFor(id, options) {
   const adapter = lookup(ADAPTERS, id);
   if (adapter === undefined)
     throw new Error(
       `registry: no adapter for agent id ${JSON.stringify(id)} (known: ${AGENT_IDS.join(", ")})`,
     );
-  return adapter;
+  if (options === undefined) return adapter;
+  const configure = lookup(CONFIGURABLE, id);
+  if (configure === undefined)
+    throw new Error(
+      `registry: adapter ${JSON.stringify(id)} takes no options, got ${JSON.stringify(options)}`,
+    );
+  return configure(options);
 }
