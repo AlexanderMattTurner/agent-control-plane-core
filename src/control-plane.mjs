@@ -958,3 +958,30 @@ export function gatedResponse(
     [row.reason_stream]: blockReason(reason),
   });
 }
+
+/**
+ * Render `verdict` on `adapter`'s host, escalating to a `deny` when the host
+ * would otherwise let the call run without the gate it asked for. A non-allow
+ * verdict that renders unenforced on a vetoable call is re-rendered as a deny,
+ * unless it is an `ask` and the host honours its own ask tier
+ * ({@link Adapter} `NATIVE_ASK_TIER`). Nothing changes for an allow, for a call
+ * this guardrail cannot veto (a deny there blocks nothing either), or for a
+ * render the host already enforces. The deny keeps the verdict's `reason`.
+ * @param {Adapter} adapter
+ * @param {Verdict} verdict
+ * @param {ToolCallEvent} event
+ * @param {{ soleGate?: boolean }} [options] passed through to `render`
+ * @returns {NativeResponse}
+ */
+export function renderOrEscalate(adapter, verdict, event, options = {}) {
+  const { decision, reason } = normalizeVerdict(verdict);
+  const response = adapter.render(verdict, event, options);
+  if (
+    response.enforced ||
+    decision === Decision.ALLOW ||
+    !event.this_call_vetoable ||
+    (decision === Decision.ASK && adapter.NATIVE_ASK_TIER)
+  )
+    return response;
+  return adapter.render({ decision: Decision.DENY, reason }, event, options);
+}
