@@ -22,7 +22,9 @@ export function demoJudge(event: import("./control-plane.mjs").ToolCallEvent): i
  * A judge that THROWS is not a malformed payload: the call parsed, and the judge
  * failed to answer. That takes the same path as a judge that answers garbage —
  * the clamp's `ask` (see below) — so a crashing guardrail puts the call in front
- * of a human instead of taking an exit-0 fail-safe that runs it.
+ * of a human instead of taking an exit-0 fail-safe that runs it. The verdict
+ * renders through `renderEscalated`, so on a host with no ask tier that ask
+ * blocks a vetoable call rather than running it.
  *
  * Every error is written to STDERR (never stdout, which belongs to the host
  * transport) so a regression that silently disables enforcement leaves a
