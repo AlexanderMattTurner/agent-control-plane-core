@@ -966,15 +966,15 @@ export function gatedResponse(
  * unless it is an `ask` and the host honours its own ask tier
  * ({@link Adapter} `NATIVE_ASK_TIER`). Nothing changes for an allow, for a call
  * this guardrail cannot veto (a deny there blocks nothing either), or for a
- * render the host already enforces. The deny keeps the verdict's `reason`.
+ * render the host already enforces. The deny keeps the verdict's other fields.
  * @param {Adapter} adapter
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
  * @param {{ soleGate?: boolean }} [options] passed through to `render`
  * @returns {NativeResponse}
  */
-export function renderOrEscalate(adapter, verdict, event, options = {}) {
-  const { decision, reason } = normalizeVerdict(verdict);
+export function renderEscalated(adapter, verdict, event, options = {}) {
+  const { decision } = normalizeVerdict(verdict);
   const response = adapter.render(verdict, event, options);
   if (
     response.enforced ||
@@ -983,5 +983,9 @@ export function renderOrEscalate(adapter, verdict, event, options = {}) {
     (decision === Decision.ASK && adapter.NATIVE_ASK_TIER)
   )
     return response;
-  return adapter.render({ decision: Decision.DENY, reason }, event, options);
+  return adapter.render(
+    { ...verdict, decision: Decision.DENY },
+    event,
+    options,
+  );
 }

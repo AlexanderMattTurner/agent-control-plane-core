@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Decision, renderOrEscalate } from "../src/control-plane.mjs";
+import { Decision, renderEscalated } from "../src/control-plane.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
 import { createCodexAdapter } from "../src/adapters/codex.mjs";
 import { ampAdapter } from "../src/adapters/amp.mjs";
@@ -50,7 +50,7 @@ const VETOABLE_RENDERS = {
   gemini: { [ALLOW]: ALLOW, [ASK]: DENY, [DENY]: DENY },
 };
 
-describe("renderOrEscalate: escalates only what the host would let run", () => {
+describe("renderEscalated: escalates only what the host would let run", () => {
   for (const [agent, { adapter, native }] of Object.entries(HOSTS)) {
     const vetoable = adapter.parse(native);
     const events = {
@@ -65,7 +65,7 @@ describe("renderOrEscalate: escalates only what the host would let run", () => {
         const expected =
           label === "vetoable" ? VETOABLE_RENDERS[agent][decision] : decision;
         it(`${agent}: ${decision} on a ${label} call renders as ${expected}`, () => {
-          const out = renderOrEscalate(
+          const out = renderEscalated(
             adapter,
             { decision, reason: "r" },
             event,
@@ -81,7 +81,7 @@ describe("renderOrEscalate: escalates only what the host would let run", () => {
 
   it("passes soleGate through to render", () => {
     const event = claudeAdapter.parse(HOSTS.claude.native);
-    const gated = renderOrEscalate(claudeAdapter, { decision: ALLOW }, event, {
+    const gated = renderEscalated(claudeAdapter, { decision: ALLOW }, event, {
       soleGate: true,
     });
     assert.deepEqual(
@@ -98,7 +98,7 @@ describe("renderOrEscalate: escalates only what the host would let run", () => {
     const event = claudeAdapter.parse(HOSTS.claude.native);
     assert.throws(
       () =>
-        renderOrEscalate(
+        renderEscalated(
           claudeAdapter,
           /** @type {any} */ ({ decision: "denied" }),
           event,

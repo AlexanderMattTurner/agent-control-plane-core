@@ -14,7 +14,7 @@ the prose from the release's commits.
 
 ### Added
 
-- `renderOrEscalate(adapter, verdict, event, { soleGate })` renders a verdict and re-renders it as a `deny` when the host would otherwise run a call the guardrail meant to stop: a non-allow verdict that renders unenforced on a vetoable call, unless it is an `ask` on a host whose `NATIVE_ASK_TIER` says the host suspends the call itself. A consumer that escalated with its own hand-typed list of agent ids calls this instead.
+- `renderEscalated(adapter, verdict, event, { soleGate })` renders a verdict and re-renders it as a `deny` when the host would otherwise run a call the guardrail meant to stop: a non-allow verdict that renders unenforced on a vetoable call, unless it is an `ask` on a host whose `NATIVE_ASK_TIER` says the host suspends the call itself. A consumer that escalated with its own hand-typed list of agent ids calls this instead.
 
 ## [0.8.1] - 2026-09-21
 

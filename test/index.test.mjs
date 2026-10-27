@@ -24,7 +24,7 @@ describe("public API surface (index barrel)", () => {
     "assertAliasTargetsModeled",
     "makeEvent",
     "normalizeVerdict",
-    "renderOrEscalate",
+    "renderEscalated",
     "collectPassthrough",
     "baseMeta",
     "STANDARD_META_FIELDS",

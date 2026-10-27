@@ -295,14 +295,14 @@ export function gatedResponse(agent: string, { transport, enforced, unblocked_ex
  * unless it is an `ask` and the host honours its own ask tier
  * ({@link Adapter} `NATIVE_ASK_TIER`). Nothing changes for an allow, for a call
  * this guardrail cannot veto (a deny there blocks nothing either), or for a
- * render the host already enforces. The deny keeps the verdict's `reason`.
+ * render the host already enforces. The deny keeps the verdict's other fields.
  * @param {Adapter} adapter
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
  * @param {{ soleGate?: boolean }} [options] passed through to `render`
  * @returns {NativeResponse}
  */
-export function renderOrEscalate(adapter: Adapter, verdict: Verdict, event: ToolCallEvent, options?: {
+export function renderEscalated(adapter: Adapter, verdict: Verdict, event: ToolCallEvent, options?: {
     soleGate?: boolean;
 }): NativeResponse;
 /**
