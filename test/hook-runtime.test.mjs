@@ -25,7 +25,7 @@ import {
 } from "../src/runtime.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
 import { ampAdapter } from "../src/adapters/amp.mjs";
-import { createCodexAdapter } from "../src/adapters/codex.mjs";
+import { geminiAdapter } from "../src/adapters/gemini.mjs";
 
 // The runtime is published at `agent-control-plane-core/runtime`, so these
 // in-process tests pin its LOGIC with real assertions against the same module a
@@ -426,15 +426,14 @@ describe("failurePosture: ACP_FAIL_CLOSED picks the host's block", () => {
 });
 
 describe("renderHookResponse: a blocking onFailure beats the ask clamp", () => {
-  // Codex cannot enforce an ask: it renders exit 0 and runs the call. So
-  // under a blocking onFailure, a judge that fails to answer must block.
-  const codex = createCodexAdapter({ version: "0.163.0" });
+  // Claude honours an ask, so `renderEscalated` leaves the clamp's ask alone.
+  // Under a blocking onFailure, a judge that fails to answer must block instead.
   const payload = JSON.stringify({
     hook_event_name: "PreToolUse",
     tool_name: "Bash",
     tool_input: { command: "ls" },
   });
-  const CLOSED = failClosedResponse("codex", "fail closed");
+  const CLOSED = failClosedResponse("claude", "fail closed");
   const answers = {
     throws: () => {
       throw new Error("judge down");
@@ -448,7 +447,7 @@ describe("renderHookResponse: a blocking onFailure beats the ask clamp", () => {
       process.stderr.write = () => true;
       let out;
       try {
-        out = renderHookResponse(codex, payload, CLOSED, judge);
+        out = renderHookResponse(claudeAdapter, payload, CLOSED, judge);
       } finally {
         process.stderr.write = realWrite;
       }
@@ -456,11 +455,57 @@ describe("renderHookResponse: a blocking onFailure beats the ask clamp", () => {
     });
 
   it("a judge that answers still gets its own verdict", () => {
-    const out = renderHookResponse(codex, payload, CLOSED, () => ({
+    const out = renderHookResponse(claudeAdapter, payload, CLOSED, () => ({
       decision: "allow",
     }));
     assert.notEqual(out, CLOSED);
     assert.equal(out.exit_code, 0);
+  });
+});
+
+describe("renderHookResponse: an ask the host cannot honour blocks", () => {
+  // Gemini has no ask tier: its rendered ask exits 0 and the call runs. On a
+  // vetoable call the entry escalates it to Gemini's enforced deny.
+  const FAIL = { transport: "external_hook", exit_code: 0, enforced: false };
+  const shell = JSON.stringify({
+    hook_event_name: "BeforeTool",
+    tool_name: "run_shell_command",
+    tool_input: { command: "ls" },
+  });
+  const answers = {
+    "answers ask": () => ({ decision: "ask", reason: "confirm" }),
+    "answers a malformed decision": () => ({ decision: "denied" }),
+  };
+  for (const [label, judge] of Object.entries(answers))
+    it(`a judge that ${label} blocks a vetoable Gemini call`, () => {
+      const out = renderHookResponse(geminiAdapter, shell, FAIL, judge);
+      assert.equal(out.exit_code, 2);
+      assert.equal(out.enforced, true);
+      assert.match(
+        out.stderr,
+        label === "answers ask" ? /^confirm/u : /clamped to "ask"/u,
+      );
+    });
+
+  it("leaves a non-vetoable Gemini call's ask as rendered", () => {
+    const out = renderHookResponse(
+      geminiAdapter,
+      JSON.stringify({
+        hook_event_name: "BeforeTool",
+        tool_name: "read_file",
+        tool_input: { path: "/etc/hosts" },
+        mcp_context: { server: "fs" },
+        original_request_name: "fs__read_file",
+      }),
+      FAIL,
+      () => ({ decision: "ask", reason: "confirm" }),
+    );
+    assert.deepEqual(out, {
+      transport: "external_hook",
+      exit_code: 0,
+      enforced: false,
+      stdout: { decision: "deny", reason: "confirm" },
+    });
   });
 });
 

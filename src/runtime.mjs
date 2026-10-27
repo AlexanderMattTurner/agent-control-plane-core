@@ -13,7 +13,12 @@
  * `process.exit` (see {@link writeAllSync}).
  */
 import { writeSync } from "node:fs";
-import { Decision, gatedResponse, sanitizeVerdict } from "./control-plane.mjs";
+import {
+  Decision,
+  gatedResponse,
+  renderEscalated,
+  sanitizeVerdict,
+} from "./control-plane.mjs";
 
 /**
  * Read all of stdin to a string.
@@ -63,7 +68,9 @@ export function demoJudge(event) {
  * A judge that THROWS is not a malformed payload: the call parsed, and the judge
  * failed to answer. That takes the same path as a judge that answers garbage —
  * the clamp's `ask` (see below) — so a crashing guardrail puts the call in front
- * of a human instead of taking an exit-0 fail-safe that runs it.
+ * of a human instead of taking an exit-0 fail-safe that runs it. The verdict
+ * renders through `renderEscalated`, so on a host with no ask tier that ask
+ * blocks a vetoable call rather than running it.
  *
  * Every error is written to STDERR (never stdout, which belongs to the host
  * transport) so a regression that silently disables enforcement leaves a
@@ -107,8 +114,9 @@ export function renderHookResponse(
       report("hook judge error", err);
     }
     // A host-supplied `onFailure` that BLOCKS (see {@link failurePosture}) wins
-    // over the clamp's ask: Codex and Gemini cannot enforce an ask, so the
-    // clamp would run a call no judge approved.
+    // over the clamp's ask. `renderEscalated` keeps an ask on a host that
+    // honours one (Claude, Amp), so without this a fail-closed entry would ask
+    // about a call no judge approved instead of blocking it.
     if (onFailure.enforced && !isDecision(answer)) return onFailure;
     // A judge's answer is clamped, not trusted. `normalizeVerdict` (inside
     // every adapter's render) THROWS on a decision outside allow/deny/ask, and
@@ -118,7 +126,7 @@ export function renderHookResponse(
     // in front of a human. Prose is passed through: scrubbing monitor-authored
     // text needs a scrubber this transport module has no business choosing.
     const verdict = sanitizeVerdict(answer, (text) => text);
-    return adapter.render(verdict, event);
+    return renderEscalated(adapter, verdict, event);
   } catch (err) {
     report("hook pipeline error", err);
     return onFailure;
