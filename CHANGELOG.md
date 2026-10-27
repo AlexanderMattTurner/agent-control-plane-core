@@ -16,6 +16,28 @@ the prose from the release's commits.
 
 - `renderEscalated(adapter, verdict, event, { soleGate })` renders a verdict and re-renders it as a `deny` when the host would otherwise run a call the guardrail meant to stop: a non-allow verdict that renders unenforced on a vetoable call, unless it is an `ask` on a host whose `NATIVE_ASK_TIER` says the host suspends the call itself. A consumer that escalated with its own hand-typed list of agent ids calls this instead.
 
+## [0.9.0] - 2026-10-27
+
+### Added
+
+- Package bin map for publishing the four hook entries.
+- `schema-fit.md` documentation for schema validation guidance.
+
+### Changed
+
+- README usage example corrected and reformatted as a code block.
+- Gemini adapter refactored to build both render paths through a unified gated response call.
+- Control plane and runtime substantially expanded with additional conformance and integration capabilities.
+
+### Fixed
+
+- Adapters now use a single block-transport table with Codex version sourced from launcher.
+- Runtime judge that throws now clamps to ask instead of failing open.
+
+### Removed
+
+- Unused subscription token tests in adapter test suites.
+
 ## [0.8.1] - 2026-09-21
 
 ### Changed
