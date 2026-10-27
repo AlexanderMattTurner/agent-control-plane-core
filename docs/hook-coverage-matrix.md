@@ -77,12 +77,12 @@ this row is declarative, since `classifyCallClass` never returns `resumed`, so
 no call is judged by it — and it stops being a judgement call at all once a
 probe supplies both a signal and a citation.
 
-| Call class                    | Claude Code     | Codex CLI             | Amp               | opencode                     | Gemini CLI               |
-| ----------------------------- | --------------- | --------------------- | ----------------- | ---------------------------- | ------------------------ |
-| **Builtin tool**              | ✅ [C1]         | ⚠️ Bash only [X1][X2] | ✅ [A1]           | ✅ [O1]                      | ✅ (v0.26+) [G1]         |
-| **MCP-server tool**           | ✅ [C2]         | ❌ [X1][X2]           | ✅ [A2]           | ❌ #2319 [O2]                | ✅ likely, med-conf [G2] |
-| **Subagent-spawned tool**     | ✅ [C3]         | ⚠️ Bash only [X3]     | ✅ (context) [A3] | ❓ [O3]                      | ⚠️ load-bug [G3]         |
-| **Resumed/continued session** | ✅ struct. [C4] | ⚠️ Bash only [X4]     | ✅ struct. [A4]   | ⚠️ builtin only struct. [O4] | ❓ [G4]                  |
+| Call class                    | Claude Code     | Codex CLI          | Amp               | opencode                     | Gemini CLI               |
+| ----------------------------- | --------------- | ------------------ | ----------------- | ---------------------------- | ------------------------ |
+| **Builtin tool**              | ✅ [C1]         | ⚠️ not stdin [X1]  | ✅ [A1]           | ✅ [O1]                      | ✅ (v0.26+) [G1]         |
+| **MCP-server tool**           | ✅ [C2]         | ⚠️ [X2]            | ✅ [A2]           | ❌ #2319 [O2]                | ✅ likely, med-conf [G2] |
+| **Subagent-spawned tool**     | ✅ [C3]         | ⚠️ as builtin [X3] | ✅ (context) [A3] | ❓ [O3]                      | ⚠️ load-bug [G3]         |
+| **Resumed/continued session** | ✅ struct. [C4] | ⚠️ as builtin [X4] | ✅ struct. [A4]   | ⚠️ builtin only struct. [O4] | ❓ [G4]                  |
 
 ### Per-cell reasons + citations
 
@@ -107,18 +107,25 @@ probe supplies both a signal and a citation.
 Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
 `src/adapters/codex.mjs`)
 
-- **[X1] builtin ⚠️ Bash only** — `PreToolUse` "intercepts the shell (Bash) tool
-  only — by design." `apply_patch`, Read/Edit/Write, and web fetch do **not**
-  fire it, so a hook-only layer never sees a Codex file edit. Medium confidence
-  (third-party reference, corroborated below).
-  [ACP Codex hooks reference](https://agenticcontrolplane.com/blog/codex-cli-hooks-reference);
-  [OpenAI Codex hooks docs](https://developers.openai.com/codex/hooks).
-- **[X2] MCP ❌** — MCP tool calls are explicitly outside `PreToolUse` coverage.
-  Same sources as [X1]. This is a confirmed un-vetoable class today.
-- **[X3] subagent ⚠️ Bash only (probe-confirmed)** — no source documented this
+- **[X1] builtin ⚠️ not stdin** — read from Codex's source at `rust-v0.135.0`,
+  the enforcement floor, and unchanged through `rust-v0.163.0`. The tool
+  registry runs `PreToolUse` for every function tool by default
+  ([`registry.rs`](https://github.com/openai/codex/blob/rust-v0.135.0/codex-rs/core/src/tools/registry.rs)), and the shell (`exec_command`) and
+  `apply_patch` handlers each supply their own payload. Two gaps remain.
+  `write_stdin`, which types into a process an earlier call started, returns no
+  payload, because Codex treats it as part of that earlier command
+  ([`write_stdin.rs`](https://github.com/openai/codex/blob/rust-v0.135.0/codex-rs/core/src/tools/handlers/unified_exec/write_stdin.rs)). So a model
+  that starts an interactive shell can send it commands the hook never sees. A
+  tool OpenAI runs on its own side, such as web search, never reaches a local
+  hook. An earlier third-party reference said `PreToolUse` saw Bash only; the
+  source says otherwise at every enforcing version.
+- **[X2] MCP ⚠️** — the MCP handler supplies a `PreToolUse` payload with the
+  call's resolved arguments ([`mcp.rs`](https://github.com/openai/codex/blob/rust-v0.135.0/codex-rs/core/src/tools/handlers/mcp.rs)), so an MCP call
+  is vetoable. PARTIAL, not ✅, because no live probe has driven one yet.
+- **[X3] subagent ⚠️ as builtin (probe-confirmed)** — no source documented this
   either way, so it was ❓ until an item-⑤ probe ran it. The probe drove a real
   subagent and reports `subagent_pretooluse=covered`: `PreToolUse` fires for a
-  subagent's shell call, under the same Bash-only limit as [X1] ⇒ PARTIAL, not
+  subagent's shell call, under the same limits as [X1] ⇒ PARTIAL, not
   ❓. The probe also settled the RUNTIME question the docs answered wrongly:
   a subagent's `PreToolUse` payload carries `agent_id` and `agent_type`
   (`agent_type=default`, `agent_id` equal to the one `SubagentStart` announced),
@@ -127,7 +134,7 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   [openai/codex#16226](https://github.com/openai/codex/issues/16226) (still open,
   asking for exactly these fields) are both stale on this point; the measurement
   wins. Probe runs `33346707822`, `33347870937` on `claude/sbx-codex-support-gtknyl`.
-- **[X4] resumed ⚠️ Bash only (probe-confirmed)** — same probe:
+- **[X4] resumed ⚠️ as builtin (probe-confirmed)** — same probe:
   `resumed_pretooluse=covered`, so a `codex exec resume` session re-arms the hook
   surface and its new calls fire `PreToolUse` ⇒ PARTIAL. Its SESSION does
   announce itself — `session_start_sources=startup,resume,startup` across the
@@ -148,8 +155,7 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   included, and honours `decision: "block"` (exit 2 blocks further processing)
   but cannot rewrite the output. So `src/adapters/codex.mjs` applies COVERAGE to
   a pre-tool event only — a `PostToolUse` payload in hand is proof the post-tool
-  hook fired for that call, and judging it by the pre-tool MCP ❌ would degrade a
-  block Codex honours into a notify.
+  hook fired for that call.
   [OpenAI Codex hooks docs](https://developers.openai.com/codex/hooks).
 
 **Amp** (`external_hook`; per-tool permission engine, decision = delegate binary
@@ -246,8 +252,9 @@ false`. Subagents get their own `Agent` (own gate) but "only spawn under
 event never arrives), and a monitor MUST degrade `deny → notify`:**
 
 - opencode **MCP-server tool** calls — #2319 (event never parsed).
-- Codex **MCP-server tool** calls **and non-Bash builtins** (`apply_patch`,
-  Read/Edit/Write, web fetch) — hook fires for Bash only.
+- Codex **`write_stdin`** calls, which type into a process an earlier call
+  started, and tools OpenAI runs on its own side — no `PreToolUse` fires for
+  either ([X1]).
 - Gemini CLI **any call when the host is < v0.26.0** — no hook surface exists.
 - Goose **any call under Auto mode**; OpenHands calls made via
   `execute_tool()` or shielded by a `readOnlyHint` — for the in-process hosts,
@@ -323,9 +330,7 @@ is built to close.
 
 **Confidence / provenance notes.** Claude Code, Amp, opencode-#2319, Gemini
 version-gate, and both in-process hosts rest on primary docs / issue trackers /
-source reads (the last two via `schema-fit.md`). The **Codex Bash-only /
-MCP-excluded** coverage claim is corroborated by a third-party reference and
-OpenAI's own hooks docs but was **not** reproduced against a live Codex here —
-treat as medium confidence and the first thing a probe should verify, since it
-drives the largest confirmed un-vetoable surface in the matrix. Every ❓ is
+source reads (the last two via `schema-fit.md`). The Codex
+builtin and MCP rows rest on a read of Codex's own source at its enforcement
+floor; no live probe has driven an MCP or `apply_patch` call yet. Every ❓ is
 undocumented as of this writing, not inferred.

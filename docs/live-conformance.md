@@ -134,7 +134,7 @@ a main-thread shell call, the same call inside a resumed session
 the hook. All three came back covered
 (`baseline_builtin_pretooluse=covered`, `resumed_pretooluse=covered`,
 `subagent_pretooluse=covered`), so neither row is `❓` any longer; both are
-PARTIAL, under the same Bash-only limit as the builtin row.
+PARTIAL, under the same limits as the builtin row.
 
 Three findings the probe settled that the docs had wrong:
 
