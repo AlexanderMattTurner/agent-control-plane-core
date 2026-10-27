@@ -32,7 +32,7 @@ removes.
   declaration of what that agent's transport cannot carry. `parse` turns that
   agent's raw hook payload into a `ToolCallEvent`; `render` turns your `Verdict`
   back into the **real** native signal that agent enforces (the right JSON body,
-  exit code, or thrown error — not just a print).
+  exit code and stderr reason — not just a print).
 
 You write your logic **once** against the normalized types. Adding support for a
 new agent is a new adapter (~one file + fixtures), not a rewrite of your tool.
@@ -85,7 +85,8 @@ pnpm add agent-control-plane-core
 // Verdict — a normalized guardrail decision.
 {
   decision: "allow" | "deny" | "ask",
-  mutated_input?: object,           // replacement tool input
+  mutated_input?: object,           // replacement tool input (pre_tool)
+  mutated_output?: unknown,         // replacement tool output the model sees (post_tool)
   additional_context?: string,      // extra context to splice into the agent's stream
   reason?: string,                  // shown on deny/ask
 }
@@ -144,9 +145,10 @@ the render does not carry.
 
 ```js
 import { claudeAdapter } from "agent-control-plane-core/claude";
+import { readStdin, emit } from "agent-control-plane-core/runtime";
 
 // 1. Normalize the agent's raw hook payload.
-const event = claudeAdapter.parse(rawHookJson);
+const event = claudeAdapter.parse(JSON.parse(await readStdin()));
 
 // 2. Your guardrail decides, using only the normalized types.
 const verdict =
@@ -154,16 +156,22 @@ const verdict =
     ? { decision: "deny", reason: "destructive command blocked" }
     : { decision: "allow" };
 
-// 3. Render back to the agent's native response.
-process.stdout.write(JSON.stringify(claudeAdapter.render(verdict, event)));
+// 3. Send the native response: the stdout body, the block reason on stderr,
+//    and the exit code (2 on this deny), which is what makes Claude Code block.
+emit(claudeAdapter.render(verdict, event));
 ```
 
-Writing your own hook entry? `agent-control-plane-core/runtime` publishes the
-plumbing the four `bin/*-hook.mjs` entries share — `readStdin`,
-`renderHookResponse` (parse → judge → render, falling back to the failure
-response THAT host expects) and `emit`, whose fully-drained write is what stops
-a large deny body being truncated on a non-blocking pipe and silently becoming
-an allow.
+`render` returns the whole native response, not a body to print. Writing
+`JSON.stringify(render(...))` to stdout exits 0, so the host never blocks.
+
+`agent-control-plane-core/runtime` publishes the rest of the plumbing the four
+hook entries share. `renderHookResponse` runs parse → judge → render, and returns
+the failure response THAT host expects when the payload does not parse. `emit`
+drains the whole body before it exits, so a large deny body is never truncated
+on a non-blocking pipe. The entries ship as `acp-claude-hook`, `acp-codex-hook`,
+`acp-amp-hook` and `acp-gemini-hook`. Codex's hook stdin carries no version, so
+set `ACP_CODEX_VERSION` to the Codex version your launcher pins (or call
+`createCodexAdapter({ version })`); without it, Codex calls parse advisory.
 
 The core contract and every adapter (`claude`, `codex`, `amp`, `gemini`) are
 also on the default entry:
@@ -285,7 +293,7 @@ and bumps the version.
 ```bash
 ./setup.sh          # install deps + git hooks
 pnpm test           # node --test
-pnpm test:coverage  # c8, 100% lines/branches/functions per file
+pnpm test:coverage  # c8, the per-file floor .c8rc.json sets
 pnpm check          # tsc --noEmit (JSDoc types)
 pnpm gen:schema     # regenerate schema/ from the contract
 pnpm lint           # eslint

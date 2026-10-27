@@ -88,6 +88,27 @@ describe("adapter registry", () => {
     assert.ok(Object.isFrozen(ADAPTERS));
     assert.ok(Object.isFrozen(AGENT_IDS));
   });
+
+  it("adapterFor passes launcher options to Codex (its stdin has no version)", () => {
+    const call = {
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    };
+    assert.equal(
+      adapterFor("codex", { version: "0.151.0" }).parse(call)
+        .this_call_vetoable,
+      true,
+    );
+    assert.equal(adapterFor("codex").parse(call).this_call_vetoable, false);
+  });
+
+  it("adapterFor throws on options for an adapter that takes none", () => {
+    assert.throws(
+      () => adapterFor("claude", { version: "1.0.0" }),
+      /adapter "claude" takes no options/,
+    );
+  });
 });
 
 // The EventMeta fields every adapter must map, checked adapter by adapter rather

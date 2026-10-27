@@ -49,6 +49,7 @@ import {
   SCHEMA_VERSION,
   STANDARD_META_FIELDS,
   VERDICT_CONTENT_FIELDS,
+  VETO_IMPOSSIBLE,
 } from "./control-plane.mjs";
 
 /** The JSON Schema dialect these documents are written in. */
@@ -236,42 +237,29 @@ export function toolCallEventSchema() {
       meta: { $ref: "#/$defs/EventMeta" },
     },
     additionalProperties: false,
-    // Two claims a producer must not make, both the same fail-open: a veto the
-    // host will never perform, read downstream as a block that happened.
-    //
-    // An event the adapter could not name has no host response to veto, so a
-    // vetoable UNKNOWN is that claim. `makeEvent` throws on one. An OBSERVE_ONLY
-    // transport reads a transcript and cannot pre-empt anything, so a vetoable
-    // event on one is the same claim by a different route — every shipped
-    // adapter derives both flags from one "can this host enforce" answer, but
-    // `makeEvent` does NOT refuse it, so this document is the only place a
-    // producer is held to it.
-    allOf: [
-      vetoImpossibleWhen({ event: { const: EventKind.UNKNOWN } }),
-      vetoImpossibleWhen({
-        meta: {
-          required: ["integration_mode"],
-          properties: {
-            integration_mode: { const: IntegrationMode.OBSERVE_ONLY },
-          },
-        },
-      }),
-    ],
+    // One rule per VETO_IMPOSSIBLE entry — the same list `makeEvent` enforces.
+    allOf: VETO_IMPOSSIBLE.map(({ path, value }) => ({
+      if: pathMatch(path, value),
+      then: { properties: { this_call_vetoable: { const: false } } },
+    })),
     $defs: { EventMeta: eventMetaSchema() },
   };
 }
 
 /**
- * A conditional subschema forcing `this_call_vetoable: false` wherever `match`
- * holds. `required` names every key `match` constrains, because an absent key
- * satisfies a bare `properties` and would leave the `then` branch dead.
- * @param {Record<string, unknown>} match
+ * A subschema that holds where the field at `path` equals `value`. Each level
+ * names its key in `required`, because an absent key satisfies a bare
+ * `properties` and would leave the `then` branch dead.
+ * @param {readonly string[]} path
+ * @param {string} value
  * @returns {Record<string, unknown>}
  */
-function vetoImpossibleWhen(match) {
+function pathMatch([key, ...rest], value) {
   return {
-    if: { required: Object.keys(match), properties: match },
-    then: { properties: { this_call_vetoable: { const: false } } },
+    required: [key],
+    properties: {
+      [key]: rest.length === 0 ? { const: value } : pathMatch(rest, value),
+    },
   };
 }
 

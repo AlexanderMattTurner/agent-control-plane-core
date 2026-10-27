@@ -28,6 +28,10 @@ describe("public API surface (index barrel)", () => {
     "baseMeta",
     "STANDARD_META_FIELDS",
     "nativeResponse",
+    "gatedResponse",
+    "BLOCK_TRANSPORT",
+    "DEFAULT_DENY_REASON",
+    "VETO_IMPOSSIBLE",
     "asObject",
     "asString",
     "asStringOrNull",
@@ -36,6 +40,7 @@ describe("public API surface (index barrel)", () => {
     // adapters + harness
     "claudeAdapter",
     "codexAdapter",
+    "createCodexAdapter",
     "ampAdapter",
     "geminiAdapter",
     "HookEvent",

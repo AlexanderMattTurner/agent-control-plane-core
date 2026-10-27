@@ -77,7 +77,8 @@ export function assertAliasedInputsCanonical(fixturesList: any[], assert: any): 
  *      decision the contract requires every adapter to express.
  *   4. enforcement honesty: an enforceable deny (`rendered.enforced === true`)
  *      MUST carry a real block signal — a non-zero `exit_code` — not just a JSON
- *      body the agent is free to ignore. At least one enforced deny must appear,
+ *      body the agent is free to ignore — plus a non-empty reason on the
+ *      reason stream its {@link BLOCK_TRANSPORT} row names. At least one enforced deny must appear,
  *      so the honesty check is never vacuous.
  *   5. vetoability honesty, BOTH directions. When the parsed event's
  *      `this_call_vetoable` is false, EVERY render for that case must be

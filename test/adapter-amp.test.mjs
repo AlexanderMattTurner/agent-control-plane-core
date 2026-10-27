@@ -79,14 +79,6 @@ describe("amp render: the full (decision × this_call_vetoable) table", () => {
     });
   }
 
-  it("an enforced deny with no reason carries no stderr rather than an empty one", () => {
-    assert.deepEqual(render({ decision: "deny" }, eventFor(true)), {
-      transport: "external_hook",
-      exit_code: 2,
-      enforced: true,
-    });
-  });
-
   it("an unenforceable deny is never Amp's allow signal", () => {
     const event = eventFor(false);
     assert.notDeepEqual(

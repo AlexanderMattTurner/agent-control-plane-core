@@ -133,12 +133,6 @@ describe("claude render: an enforced deny repeats its reason on stderr", () => {
       );
     }
   });
-
-  it("an enforced deny with no reason writes no empty stderr", () => {
-    const out = claudeAdapter.render({ decision: "deny" }, preTool);
-    assert.equal(out.enforced, true);
-    assert.equal("stderr" in out, false);
-  });
 });
 
 describe("claude render: updatedToolOutput is a PostToolUse-only channel", () => {

@@ -50,16 +50,6 @@ describe("gemini render: BeforeTool decision channel", () => {
     assert.equal(out.stderr, "r"); // reason carried to fd 2, never dropped
   });
 
-  it("enforced deny with no reason carries no stderr key at all", () => {
-    // An absent key, not `stderr: undefined`. Gemini reads its block rationale
-    // from fd 2, and `emit` would write the word "undefined" there, which the
-    // user then reads as the reason the call was blocked.
-    const out = geminiAdapter.render({ decision: "deny" }, event);
-    assert.equal(out.exit_code, 2);
-    assert.equal(out.enforced, true);
-    assert.equal("stderr" in out, false);
-  });
-
   it("allow abstains by default (exit 0, no decision body)", () => {
     const out = geminiAdapter.render({ decision: "allow" }, event);
     assert.equal(out.exit_code, 0);
@@ -380,10 +370,10 @@ describe("gemini parse: never throws, preserves unmodelled fields", () => {
     const out = geminiAdapter.render({ decision: "deny", reason: "r" }, event);
     assert.equal(out.enforced, false);
     assert.equal(out.exit_code, 0);
-    // The objection still reaches the operator — only the false claim of
-    // enforcement is dropped. stderr is the System Block channel, so an
-    // un-enforced deny takes the advisory decision body instead.
+    // No decision body either: Gemini acts on a `decision` it sees on an event
+    // this adapter does not model (AfterAgent's deny forces a retry), so the
+    // render writes nothing the host would act on.
     assert.equal(out.stderr, undefined);
-    assert.deepEqual(out.stdout, { decision: "deny", reason: "r" });
+    assert.equal(out.stdout, undefined);
   });
 });
