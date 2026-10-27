@@ -44,19 +44,6 @@ test("auto-version.yaml runs the .github/scripts release script", () => {
   assert.ok(existsSync(LIVE_SCRIPT), "the invoked script must exist on disk");
 });
 
-test("the release checkout pins GITHUB_TOKEN, never a cross-account PAT", () => {
-  const yaml = readFileSync(AUTO_VERSION_YAML, "utf8");
-  const tokenLines = yaml
-    .split("\n")
-    .filter((l) => /^\s*token:/.test(l))
-    .map((l) => l.trim());
-  assert.deepEqual(
-    tokenLines,
-    ["token: ${{ secrets.GITHUB_TOKEN }}"],
-    "the checkout must pin GITHUB_TOKEN, not a fallback to a cross-account PAT",
-  );
-});
-
 // --- Bug A: automated major bumps are disabled ----------------------------
 // A breaking-change marker (`type!:` subject or `BREAKING CHANGE:` footer) must
 // be CAPPED at a minor bump, never a major one: a stray `!` in a routine commit

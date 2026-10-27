@@ -1,118 +1,137 @@
 name: Claude reviewers
 
-# The automated PR reviewers, as CALLS into the repository that owns them:
-# AlexanderMattTurner/agent-review. That repository holds the reviewer itself —
-# the skip routing, the read budget, the per-file shard fan-out, the input
-# sanitizer, the credential ladder and the posting path. Its scripts run from the
-# commit the `uses:` lines below pin, so a pull request here cannot rewrite the
-# code that reviews it.
-#
-# Two things stay HERE: the review prompt (.github/prompts/claude-pr-review.md)
-# and the merge-delta reviewer, which agent-review publishes no reusable version
-# of.
-#
-# The merge lever changed with this move. The old vendored reviewer posted a
-# REQUEST_CHANGES review that held the merge, and three mechanisms existed only
-# to lift it again — a Haiku thread resolver, a push-time approver and an hourly
-# sweep. agent-review's reviewer posts a COMMENT and holds nothing; the lever is
-# the "Automated review posted" commit status that review-gate.yaml evaluates
-# from the review's own unresolved threads. A status is recomputed per head, so
-# it cannot strand a verdict on a commit two pushes old.
+# Umbrella for the PR automation that runs on one shared pull_request_target
+# trigger: the first-pass reviewer (the `review` job, a CALL into
+# AlexanderMattTurner/agent-review, which owns the reviewer), the auto-approval
+# for the classes that reviewer skips, and the Sonnet merge-delta reviewer. One
+# file cuts the per-PR workflow fan-out on a shared, capped runner pool. Every
+# job stays self-contained and carries its own SECURITY header, `permissions:`,
+# base-only checkout posture, and `if:` guards. Each is guarded by
+# `github.event.action` so it fires on exactly the events it acts on.
+# Concurrency is declared PER JOB (never workflow-level), so the jobs never
+# cancel one another. The `review` job declares none because the CALLED workflow
+# owns it — see that job's annotation.
 #
 # The merge-conflict auto-resolver stays a SEPARATE file
-# (auto-resolve-conflicts.yaml): it checks out the PR HEAD to merge into it, and
+# (auto-resolve-conflicts.yaml), and it CALLS its own upstream reusable workflow
+# in AlexanderMattTurner/agent-resolve-merge-conflicts the same way this file
+# calls the reviewer. It checks out the PR HEAD to merge into it, and
 # co-locating a head checkout with pull_request_target trips CodeQL's
 # untrusted-checkout query (file-scoped, blind to per-job event gating) and would
-# blind that query to these secrets-bearing reviewer jobs.
+# blind that query to these secrets-bearing reviewer jobs. The scheduled
+# reviewer-hold sweeper (claude-reviewer-hold-clear.yaml) is likewise separate.
 
 on: # zizmor: ignore[dangerous-triggers] — reviewer jobs are base-only checkout + least privilege; see each job's header
   # `opened`/`ready_for_review`/`synchronize` drive the first-pass reviewer and
-  # the merge-delta reviewer; `labeled` is the reviewer's on-demand escape hatch
-  # (the `needs-auto-review` label). Each job's `if:` re-scopes it to its own
-  # events. Because pull_request_target always runs the workflow file from the
-  # base branch, these reviewers only take effect once merged to the default
-  # branch.
+  # the merge-delta reviewer; `opened`/`ready_for_review` drive the auto-approval;
+  # `labeled` is the first-pass reviewer's on-demand escape hatch (the
+  # `needs-auto-review` label). Each job's `if:` re-scopes it to its own events.
+  # Because pull_request_target always runs the workflow file from the base
+  # branch, these reviewers only take effect once merged to the default branch.
   pull_request_target: # not-required-check
     types: [opened, ready_for_review, synchronize, labeled]
 
 permissions: {}
 
 jobs:
-  # Routes a pull request into "the reviewer reads it" or "the reviewer skips it,
-  # so post the stand-in approval a review-required ruleset would otherwise
-  # strand". `review` below negates this job's `skip` output, so the two are
-  # exact complements: every pull request is reviewed or approved, never neither
-  # and never both.
-  classify:
-    name: Reviewer skip routing
-    # not-required-check: routes a pull request and reports no verdict of its own.
-    permissions:
-      contents: read
-      pull-requests: write
-      statuses: write
-    uses: AlexanderMattTurner/agent-review/.github/workflows/review-skipped-approval.yaml@667f5f240c84496a55b09763a03c94927878733b # pin-comment-ok: agent-review cuts no release yet; re-pin at its first vX.Y
-    with:
-      reviewer-repository: AlexanderMattTurner/agent-review
-      # Keep in lockstep with the `uses:` sha above. Left empty, the called
-      # workflow reads it back out of `github.job_workflow_sha`, which resolves
-      # to the empty string in the expression context, and every job then dies on
-      # its own `reviewer-ref is empty` refusal.
-      reviewer-ref: 667f5f240c84496a55b09763a03c94927878733b
-      # BYTE-IDENTICAL to `gate_context` in config/review-severities.json and to
-      # the job name in review-gate-context.yaml. YAML cannot read a file, so
-      # these are the restatements the design cannot remove; renaming one alone
-      # leaves every pull request waiting on a context nothing reports.
-      status-context: Automated review posted
-      # `failure`, not `pending`: a pending status does not appear in
-      # `gh pr checks` at all, so a reader cannot tell "the reviewer has not
-      # spoken yet" from "no gate here". Both block the required context.
-      unreviewed-state: failure
-
-  # The first-pass reviewer: `max-reviews-per-pr` whole-diff reads per pull
-  # request, sharded across parallel passes and posted as one review.
+  # ────────────────────────────────────────────────────────────────────────────
+  # Claude PR review (first pass) — the `review` job
   #
-  # SECURITY — the reviewer's own header states the posture in full: a base-only
-  # checkout of THIS repository's default branch, the pull request's changes read
-  # only as sanitized DATA, and least privilege per job. The `permissions:` block
-  # below is the CEILING those jobs are narrowed from, never a grant — GitHub
-  # lets a called workflow request only what the calling job holds, so a caller
-  # that grants less ends the run in `startup_failure` before any job starts.
+  # The reviewer itself lives in AlexanderMattTurner/agent-review as a reusable
+  # workflow, and this job only CALLS it. That repository holds the whole
+  # reviewer: the one-read-per-PR budget, the per-file split for a diff that
+  # outgrows one model context, the input sanitizer, the credential ladder and
+  # the posting path. Its scripts run from the commit the `uses:` line pins,
+  # cloned from a repository a pull request here cannot write, so the tree under
+  # review can no longer rewrite the code that reviews it.
+  #
+  # One piece stays HERE, because the reviewer takes it as an input: the review
+  # prompt (.github/prompts/claude-pr-review.md), which carries the conventions a
+  # reviewer of THIS tree should hold it to.
+  #
+  # SECURITY — the called workflow's own header states the posture in full: a
+  # base-only checkout, the PR's changes read only as sanitized DATA, and least
+  # privilege per job. The `permissions:` block below is the CEILING those jobs
+  # are narrowed from, never a grant — GitHub lets a called workflow request only
+  # what the calling job holds, so a caller that grants less ends the run in
+  # `startup_failure` before any job starts.
+  #
+  # THE TITLE AND BOT SKIPS ARE GATED ON A TRUSTED AUTHOR, and the same guard
+  # appears verbatim on auto-approve-skipped below. A PR title is written by the
+  # PR AUTHOR, so on its own it is an attacker-chosen string that decides whether
+  # this repo reviews the PR at all: an outside contributor titling a fork PR
+  # `chore: bump` skipped the review AND collected the auto-approval, clearing
+  # three merge levers with one string. A Bot author is no better: any GitHub App
+  # can open a fork PR. The guard is the pair GitHub sets, not the author:
+  # `head.repo.full_name` (same-repo branch, so the author already has push
+  # access) or `author_association` in OWNER/MEMBER/COLLABORATOR.
+  #
+  # It must gate BOTH jobs or neither. Guarding only the approval leaves an
+  # untrusted `chore:` PR skipped here and approved by nobody — reviewed by
+  # nobody, with no event able to produce either outcome. Guarded on both, the
+  # skip set is simply EMPTY for an untrusted author: their PR always gets the
+  # real review, whatever its title.
+  #
+  # This `if:` carries the cheap payload-only skips (no runner boots for a
+  # draft/bot/chore PR); the called workflow's own decide job then spends the
+  # one-read-per-PR budget. A `labeled` event bypasses the title/author skips
+  # entirely — the label IS the request to review a PR the skips would otherwise
+  # drop — and the reviewer's decide script confirms the label is
+  # `needs-auto-review` before running, so every other label edit costs one
+  # skipped job. The label arm carries NO bot guard: auto-approve-skipped-pr.sh
+  # offers this label on a bot-authored PR too, and a guard here would leave that
+  # offer doing nothing.
+  # ────────────────────────────────────────────────────────────────────────────
   review:
-    # Reads `classify`, so this is the exact complement of the approval that job
-    # posts. `labeled` is the on-demand hatch: it starts the read the stand-in
-    # approval offers, whatever the class says.
-    needs: classify
+    # concurrency-not-required: the called workflow keys its own per-PR groups —
+    # `claude-pr-review-<n>` and `claude-pr-review-synthesis-<n>`, both with
+    # `cancel-in-progress: false`, so a read this repository has already paid for
+    # finishes and a newer push queues behind it. A group here would cancel that
+    # call tree mid-read and throw the spend away.
     if: >-
-      github.event.action == 'labeled' ||
+      github.event.label.name == 'needs-auto-review' ||
       (
-        contains(fromJSON('["opened","ready_for_review","synchronize"]'), github.event.action) &&
-        needs.classify.outputs.skip != 'true'
+        github.event.action != 'labeled' &&
+        github.event.pull_request.draft == false &&
+        !(
+          (
+            github.event.pull_request.head.repo.full_name == github.repository ||
+            contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+          ) &&
+          (
+            github.event.pull_request.user.type == 'Bot' ||
+            startsWith(github.event.pull_request.title, 'chore:') ||
+            startsWith(github.event.pull_request.title, 'chore(') ||
+            startsWith(github.event.pull_request.title, 'style:') ||
+            startsWith(github.event.pull_request.title, 'style(') ||
+            startsWith(github.event.pull_request.title, 'release:') ||
+            startsWith(github.event.pull_request.title, 'release(')
+          )
+        )
       )
     permissions:
       contents: read # the reviewer checks out this repository's default branch
       pull-requests: write # post the review
-      statuses: write # the post-review command re-posts this head's verdict
+      statuses: write # the reviewer reports its own verdict on the head
       actions: read # the owed-review re-check lists this workflow's in-flight runs
-      checks: read # the gate re-post reads the merge-delta reviewer's check run
+      checks: read # the owed-review re-check reads the head's check runs
     uses: AlexanderMattTurner/agent-review/.github/workflows/review.yaml@667f5f240c84496a55b09763a03c94927878733b # pin-comment-ok: agent-review cuts no release yet; re-pin at its first vX.Y
     with:
       reviewer-repository: AlexanderMattTurner/agent-review
+      # The SAME sha the `uses:` line above pins. Change both together. Leaving
+      # it unset reads the pin out of `github.job_workflow_sha`, which resolves
+      # to the EMPTY string in the expression context: the reviewer's own guard
+      # then refuses to clone rather than run unpinned code, and the review never
+      # runs.
       reviewer-ref: 667f5f240c84496a55b09763a03c94927878733b
       # The model the vendored reviewer already used. Explicit so an upstream
       # default change cannot silently re-price and re-score every review here.
       model: claude-opus-4-8
       review-prompt: .github/prompts/claude-pr-review.md
-      # Re-post the gate verdict once the review and its finding threads exist.
-      # Nothing else would: the review posts with the workflow GITHUB_TOKEN,
-      # whose events start no workflow run, so review-gate.yaml never hears about
-      # it and the head would keep its pre-review red until the next push.
-      # `${REVIEWER_DIR}` is the reviewer's own clone, which the called workflow
-      # exports; `${PWD}` is this repository's checkout, where the severity SSOT
-      # is.
-      post-review-command: |
-        SEVERITY_CONFIG="${PWD}/config/review-severities.json" \
-          UNREVIEWED_STATE=failure \
-          bash "${REVIEWER_DIR}/review-findings-gate.sh"
+      # The review posts with the Actions token, whose events start no workflow
+      # run, so review-gate.yaml never hears of it and "Automated review posted"
+      # holds at pending until the next push. Re-run the gate on the reviewed head.
+      post-review-command: HEAD_SHA="$REPORT_SHA" bash .github/scripts/review-gate.sh
     secrets:
       # Every repository that calls the reviewer passes these seven
       # subscription tokens in this order. No rung holds a metered API key, so
@@ -124,9 +143,68 @@ jobs:
       rung_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_5 }}
       rung_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_6 }}
       rung_7: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+  auto-approve-skipped:
+    name: Auto-approve low-risk and bot PRs the reviewer skips
+    if: >-
+      (github.event.action == 'opened' || github.event.action == 'ready_for_review') &&
+      github.event.pull_request.draft == false &&
+      (
+        github.event.pull_request.head.repo.full_name == github.repository ||
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+      ) &&
+      (
+        github.event.pull_request.user.type == 'Bot' ||
+        startsWith(github.event.pull_request.title, 'chore:') ||
+        startsWith(github.event.pull_request.title, 'chore(') ||
+        startsWith(github.event.pull_request.title, 'style:') ||
+        startsWith(github.event.pull_request.title, 'style(') ||
+        startsWith(github.event.pull_request.title, 'release:') ||
+        startsWith(github.event.pull_request.title, 'release(')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read # sparse-checkout the trusted approval and gate scripts
+      pull-requests: write # submit an approving review, and read reviews for the gate
+      statuses: write # re-post the "Automated review posted" gate on the head
+    steps:
+      - name: Checkout base (trusted) approval script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Default branch only (trusted) — never the untrusted PR head, and
+          # never base.ref, which a PR author can write. Matches the
+          # merge-delta reviewer: the script is trusted repo content, no PR code runs.
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          # Each script with the library it sources: a list that names only the
+          # entrypoint leaves the runner without the library.
+          sparse-checkout: |
+            .github/scripts/auto-approve-skipped-pr.sh
+            .github/scripts/lib-post-review-with-retry.sh
+            .github/scripts/review-gate.sh
+            .github/scripts/lib/reviewer-login.bash
+          sparse-checkout-cone-mode: false
+      - name: Approve so a review-required ruleset doesn't strand a skipped PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: bash .github/scripts/auto-approve-skipped-pr.sh
+      # The approval posts with the Actions token, which starts no workflow run,
+      # so review-gate.yaml never re-evaluates. `always()` re-runs the gate even
+      # after a failed approval, so the head carries the current verdict.
+      - name: Re-run the automated-review gate on the head
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/review-gate.sh
 
   # ────────────────────────────────────────────────────────────────────────────
-  # Claude merge-delta review (Sonnet) — formerly its own workflow file
+  # Claude merge-delta review (Sonnet)
   #
   # A dedicated Sonnet reviewer for a PR's hand-authored MERGE-RESOLUTION deltas
   # (`git show --remerge-diff`) — the one channel through which a conflict
@@ -201,13 +279,17 @@ jobs:
         if: steps.prepare.outputs.has_deltas == 'true'
         uses: ./.github/actions/claude-run
         with:
-          oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          fallback_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK }}
-          fallback_oauth_token_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_2 }}
-          fallback_oauth_token_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_3 }}
-          fallback_oauth_token_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_4 }}
-          fallback_oauth_token_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_5 }}
-          fallback_oauth_token_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_6 }}
+          # CLAUDE_CODE_OAUTH_TOKEN fills the LAST tier: it is the account an
+          # operator already has, so CI spends every token provisioned for CI
+          # first. A tier left unset is skipped, so a setup that configures only
+          # that one secret reaches it with no wasted attempt.
+          oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK }}
+          fallback_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_2 }}
+          fallback_oauth_token_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_3 }}
+          fallback_oauth_token_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_4 }}
+          fallback_oauth_token_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_5 }}
+          fallback_oauth_token_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_6 }}
+          fallback_oauth_token_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Give the action the workflow token directly. Without it, the action
           # tries to mint one via an OIDC→GitHub-App token exchange that isn't
           # authorized here and fails with "401 Invalid OIDC token" before Claude
@@ -217,10 +299,10 @@ jobs:
           # first-pass reviewer (base-only checkout, least-privilege token,
           # sanitized data-only input).
           allowed_non_write_users: "*"
-          model: claude-sonnet-5
+          model: sonnet
           claude_args: >-
             --setting-sources user
-            --allowedTools "Read(./**),Read(//${{ runner.temp }}/pr-input/**),Edit(//${{ runner.temp }}/pr-input/**)"
+            --allowedTools "Read(/${{ runner.temp }}/pr-input/**),Edit(/${{ runner.temp }}/pr-input/**)"
             --add-dir "${{ runner.temp }}/pr-input"
           prompt: |
             You are the merge-delta reviewer for PR #${{ github.event.pull_request.number }} in ${{ github.repository }}.

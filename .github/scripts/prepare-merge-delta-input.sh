@@ -24,7 +24,7 @@ set -euo pipefail
 
 mkdir -p "$PR_INPUT_DIR"
 [[ -d "$PR_INPUT_DIR" ]] || {
-  echo "::error::could not create $PR_INPUT_DIR" >&2
+  echo "::error::could not create PR_INPUT_DIR ($PR_INPUT_DIR)" >&2
   exit 1
 }
 
