@@ -141,6 +141,18 @@ describe("renderEscalated: a payload that names no event", () => {
     });
   }
 
+  for (const [label, adapter] of [
+    ["codex below 0.135", createCodexAdapter({ version: "0.134.0" })],
+    ["codex with no pinned version", createCodexAdapter()],
+  ])
+    it(`${label}: deny stays unenforced on an observe-only parse`, () => {
+      const event = adapter.parse({});
+      assert.deepEqual(
+        renderEscalated(adapter, { decision: DENY, reason: "r" }, event),
+        { transport: "observe_only", exit_code: 0, enforced: false },
+      );
+    });
+
   it("leaves a named but unmodelled event to the adapter's render", () => {
     // A block on Claude Code's Stop keeps the agent running, so a deny there
     // must not take the block transport.

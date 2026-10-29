@@ -300,7 +300,8 @@ export function gatedResponse(agent: string, { transport, enforced, unblocked_ex
  * A payload that names no event at all (`meta.native_event` empty) is the one
  * exception: `render` has no channel for it, so a non-allow verdict there takes
  * the host's {@link BLOCK_TRANSPORT} block, which stops whatever call the hook
- * was run for. An event the payload names but no adapter models keeps the rule
+ * was run for. An observe-only parse renders that block unenforced (exit 0),
+ * since its host cannot veto. An event the payload names but no adapter models keeps the rule
  * above: on Claude Code's Stop, a block would keep the agent running.
  * @param {Adapter} adapter
  * @param {Verdict} verdict

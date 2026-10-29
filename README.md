@@ -129,7 +129,8 @@ where the flag is `false`, and leaves it alone where the host does the asking.
 re-renders as a `deny` any non-allow verdict that would render unenforced on a
 vetoable call, except an `ask` on a host whose flag is `true`. A non-allow
 verdict on a payload that names no event at all blocks through the host's exit
-code and stderr, since `render` has no channel for it.
+code and stderr, since `render` has no channel for it, unless the event parsed
+observe-only (a Codex below its enforcing version), which cannot veto.
 It describes the HOST, not the verdict — `ask` renders as `enforced: false`
 everywhere — and it names the pre-tool gate, since a tool that already ran has
 nothing left to suspend. Conformance probes your real `render` against it, so a

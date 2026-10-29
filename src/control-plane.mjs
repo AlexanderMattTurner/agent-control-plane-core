@@ -971,7 +971,8 @@ export function gatedResponse(
  * A payload that names no event at all (`meta.native_event` empty) is the one
  * exception: `render` has no channel for it, so a non-allow verdict there takes
  * the host's {@link BLOCK_TRANSPORT} block, which stops whatever call the hook
- * was run for. An event the payload names but no adapter models keeps the rule
+ * was run for. An observe-only parse renders that block unenforced (exit 0),
+ * since its host cannot veto. An event the payload names but no adapter models keeps the rule
  * above: on Claude Code's Stop, a block would keep the agent running.
  * @param {Adapter} adapter
  * @param {Verdict} verdict
@@ -985,8 +986,10 @@ export function renderEscalated(adapter, verdict, event, options = {}) {
   // rendering as an empty exit 0, which every host runs.
   if (event.meta.native_event === "" && decision !== Decision.ALLOW)
     return gatedResponse(adapter.AGENT, {
-      transport: adapter.INTEGRATION_MODE,
-      enforced: true,
+      transport: event.meta.integration_mode,
+      // An observe-only parse (a Codex below its enforcing version) has no
+      // veto, so claiming the block was enforced would report a false block.
+      enforced: event.meta.integration_mode !== IntegrationMode.OBSERVE_ONLY,
       unblocked_exit_code: 0,
       reason,
     });
