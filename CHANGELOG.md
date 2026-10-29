@@ -12,9 +12,12 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.11.2] - 2026-10-29
+
 ### Fixed
 
 - The hook entries render through `renderEscalated`. On Gemini, a judge's `ask` (or a malformed verdict, which clamps to `ask`) on a vetoable call now exits 2 and blocks; it used to exit 0 and run the call.
+- `renderEscalated` blocks a non-allow verdict on a payload that names no event.
 
 ## [0.11.0] - 2026-10-27
 
