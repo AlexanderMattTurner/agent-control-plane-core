@@ -967,6 +967,12 @@ export function gatedResponse(
  * ({@link Adapter} `NATIVE_ASK_TIER`). Nothing changes for an allow, for a call
  * this guardrail cannot veto (a deny there blocks nothing either), or for a
  * render the host already enforces. The deny keeps the verdict's other fields.
+ *
+ * A payload that names no event at all (`meta.native_event` empty) is the one
+ * exception: `render` has no channel for it, so a non-allow verdict there takes
+ * the host's {@link BLOCK_TRANSPORT} block, which stops whatever call the hook
+ * was run for. An event the payload names but no adapter models keeps the rule
+ * above: on Claude Code's Stop, a block would keep the agent running.
  * @param {Adapter} adapter
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
@@ -974,7 +980,16 @@ export function gatedResponse(
  * @returns {NativeResponse}
  */
 export function renderEscalated(adapter, verdict, event, options = {}) {
-  const { decision } = normalizeVerdict(verdict);
+  const { decision, reason } = normalizeVerdict(verdict);
+  // This block is what stops a guardrail's deny on an unreadable payload from
+  // rendering as an empty exit 0, which every host runs.
+  if (event.meta.native_event === "" && decision !== Decision.ALLOW)
+    return gatedResponse(adapter.AGENT, {
+      transport: adapter.INTEGRATION_MODE,
+      enforced: true,
+      unblocked_exit_code: 0,
+      reason,
+    });
   const response = adapter.render(verdict, event, options);
   if (
     response.enforced ||
