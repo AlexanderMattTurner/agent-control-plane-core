@@ -1,6 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Decision, renderEscalated } from "../src/control-plane.mjs";
+import {
+  BLOCK_TRANSPORT,
+  Decision,
+  renderEscalated,
+} from "../src/control-plane.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
 import { createCodexAdapter } from "../src/adapters/codex.mjs";
 import { ampAdapter } from "../src/adapters/amp.mjs";
@@ -105,5 +109,56 @@ describe("renderEscalated: escalates only what the host would let run", () => {
         ),
       /invalid verdict decision/u,
     );
+  });
+});
+
+describe("renderEscalated: a payload that names no event", () => {
+  // Amp's payload carries no event name, so its adapter always stamps one.
+  const NAMELESS = { claude: {}, codex: {}, gemini: {} };
+  for (const [agent, native] of Object.entries(NAMELESS)) {
+    const { adapter } = HOSTS[agent];
+    const event = adapter.parse(native);
+    it(`${agent}: the fixture names no event`, () => {
+      assert.equal(event.meta.native_event, "");
+    });
+    for (const decision of [ASK, DENY])
+      it(`${agent}: ${decision} blocks through the host's block transport`, () => {
+        assert.deepEqual(
+          renderEscalated(adapter, { decision, reason: "r" }, event),
+          {
+            transport: adapter.INTEGRATION_MODE,
+            exit_code: BLOCK_TRANSPORT[agent].exit_code,
+            enforced: true,
+            stderr: "r",
+          },
+        );
+      });
+    it(`${agent}: allow renders as the adapter renders it`, () => {
+      assert.deepEqual(
+        renderEscalated(adapter, { decision: ALLOW }, event),
+        adapter.render({ decision: ALLOW }, event),
+      );
+    });
+  }
+
+  for (const [label, adapter] of [
+    ["codex below 0.135", createCodexAdapter({ version: "0.134.0" })],
+    ["codex with no pinned version", createCodexAdapter()],
+  ])
+    it(`${label}: deny stays unenforced on an observe-only parse`, () => {
+      const event = adapter.parse({});
+      assert.deepEqual(
+        renderEscalated(adapter, { decision: DENY, reason: "r" }, event),
+        { transport: "observe_only", exit_code: 0, enforced: false },
+      );
+    });
+
+  it("leaves a named but unmodelled event to the adapter's render", () => {
+    // A block on Claude Code's Stop keeps the agent running, so a deny there
+    // must not take the block transport.
+    const event = claudeAdapter.parse({ hook_event_name: "Stop" });
+    const out = renderEscalated(claudeAdapter, { decision: DENY }, event);
+    assert.deepEqual(out, claudeAdapter.render({ decision: DENY }, event));
+    assert.equal(out.exit_code, 0);
   });
 });
