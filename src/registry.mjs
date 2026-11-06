@@ -16,7 +16,11 @@
 
 import { lookup } from "./control-plane.mjs";
 import { claudeAdapter } from "./adapters/claude.mjs";
-import { codexAdapter, createCodexAdapter } from "./adapters/codex.mjs";
+import {
+  codexAdapter,
+  createCodexAdapter,
+  OPTION_NAMES as CODEX_OPTION_NAMES,
+} from "./adapters/codex.mjs";
 import { ampAdapter } from "./adapters/amp.mjs";
 import { geminiAdapter } from "./adapters/gemini.mjs";
 
@@ -71,7 +75,7 @@ assertRegistryConsistent(ADAPTERS);
  */
 const CONFIGURABLE = Object.freeze({
   [codexAdapter.AGENT]: Object.freeze({
-    options: Object.freeze(["version"]),
+    options: CODEX_OPTION_NAMES,
     create: createCodexAdapter,
   }),
 });
@@ -98,8 +102,9 @@ export const LAUNCHER_OPTIONS = Object.freeze(
  * translator against the payloads and mis-render every verdict).
  *
  * `options` are the launcher's settings for that adapter, named by its
- * {@link LAUNCHER_OPTIONS} row. An option the adapter does not read throws, so
- * a setting the launcher believes it applied cannot be dropped in silence.
+ * {@link LAUNCHER_OPTIONS} row. Options for an adapter that takes none throw
+ * here, and an option a configurable adapter does not read throws in its
+ * factory, so a setting the launcher believes it applied is never dropped.
  * @param {string} id agent id (a {@link AGENT_IDS} member)
  * @param {Record<string, unknown>} [options]
  * @returns {Adapter}
@@ -115,13 +120,6 @@ export function adapterFor(id, options) {
   if (configurable === undefined)
     throw new Error(
       `registry: adapter ${JSON.stringify(id)} takes no options, got ${JSON.stringify(options)}`,
-    );
-  const unread = Object.keys(options).filter(
-    (name) => !configurable.options.includes(name),
-  );
-  if (unread.length > 0)
-    throw new Error(
-      `registry: adapter ${JSON.stringify(id)} reads no option ${unread.map((name) => JSON.stringify(name)).join(", ")} (reads: ${configurable.options.join(", ")})`,
     );
   return configurable.create(options);
 }

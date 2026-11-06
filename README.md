@@ -184,15 +184,17 @@ set `ACP_CODEX_VERSION` to the Codex version your launcher pins (or call
 
 A judge may return its verdict or a promise of one, so a judge can ask a
 remote monitor before it answers. `renderHookResponse` returns a promise.
+`adapterFor(id, options)` takes the options its `LAUNCHER_OPTIONS[id]` row
+names, so a launcher passes a pinned version to whichever agents read one
+without naming them.
 
 A consumer that cannot import these modules (a bash hook wrapper, a Python
 monitor) reads `schema/control-plane/v1/agents.json` instead. It is generated
 from the adapters, with one row per agent: its block exit code and reason
-stream, whether a block needs a reason, whether it has an ask tier, how it
-degrades a broken hook, the launcher options `adapterFor` reads
-(`LAUNCHER_OPTIONS`), its hook coverage, and the verdict fields it cannot
-render. Read the file from the installed package, so it always matches the
-adapters that version ships.
+stream, whether a block needs a reason, whether it has an ask tier, the entry's
+default response when the hook breaks, its hook coverage, and the verdict
+fields an allow cannot carry. Read the file from the installed package, so it
+always matches the adapters that version ships.
 
 Each entry fails the way its host expects when the hook itself breaks: claude,
 codex and gemini run the call, and amp asks. Set `ACP_FAIL_CLOSED=1` to block

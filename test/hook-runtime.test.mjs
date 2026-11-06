@@ -149,7 +149,14 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
   // A judge that throws has failed to answer, the same as one that answers
   // garbage, so it takes the clamp's ask rather than the host's exit-0
   // fail-safe. The diagnostic must stay readable whatever was thrown: a judge
-  // can throw a bare string, and an Error can reach here with no `stack`.
+  // can throw a bare string, and an Error can reach here with no `stack`. An
+  // asynchronous judge fails the same way by rejecting.
+  const failingForms = {
+    throws: (thrown) => () => {
+      throw thrown;
+    },
+    rejects: (thrown) => () => Promise.reject(thrown),
+  };
   const thrownShapes = {
     "a bare string": ["judge exploded", /judge exploded/u],
     "an Error with no stack": [
@@ -157,38 +164,41 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
       /no stack here/u,
     ],
   };
-  for (const [label, [thrown, named]] of Object.entries(thrownShapes))
-    it(`a judge that throws ${label} clamps to ask and reports it`, async () => {
-      const written = [];
-      const realWrite = process.stderr.write;
-      process.stderr.write = (chunk) => {
-        written.push(String(chunk));
-        return true;
-      };
-      let out;
-      try {
-        out = await renderHookResponse(
-          claudeAdapter,
-          claudePayload("ls"),
+  for (const [form, failing] of Object.entries(failingForms))
+    for (const [label, [thrown, named]] of Object.entries(thrownShapes))
+      it(`a judge that ${form} ${label} clamps to ask and reports it`, async () => {
+        const written = [];
+        const realWrite = process.stderr.write;
+        process.stderr.write = (chunk) => {
+          written.push(String(chunk));
+          return true;
+        };
+        let out;
+        try {
+          out = await renderHookResponse(
+            claudeAdapter,
+            claudePayload("ls"),
+            FAIL,
+            failing(thrown),
+          );
+        } finally {
+          process.stderr.write = realWrite;
+        }
+        assert.notEqual(
+          out,
           FAIL,
-          () => {
-            throw thrown;
-          },
+          `a judge that ${form} took the fail-open path`,
         );
-      } finally {
-        process.stderr.write = realWrite;
-      }
-      assert.notEqual(out, FAIL, "a throwing judge took the fail-open path");
-      assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "ask");
-      assert.equal(out.exit_code, 0);
-      assert.match(
-        out.stdout.hookSpecificOutput.permissionDecisionReason,
-        /^hook judge threw: .*clamped to "ask"/u,
-      );
-      assert.match(written[0], /^\[acp\] hook judge error: /u);
-      assert.match(written[0], named);
-      assert.doesNotMatch(written[0], /error: undefined/u);
-    });
+        assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "ask");
+        assert.equal(out.exit_code, 0);
+        assert.match(
+          out.stdout.hookSpecificOutput.permissionDecisionReason,
+          /^hook judge threw: .*clamped to "ask"/u,
+        );
+        assert.match(written[0], /^\[acp\] hook judge error: /u);
+        assert.match(written[0], named);
+        assert.doesNotMatch(written[0], /error: undefined/u);
+      });
 
   it("clamps a malformed judge decision to ask instead of failing open", async () => {
     // The failure this closes: `normalizeVerdict` throws on a decision outside
@@ -234,8 +244,7 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     assert.notEqual(out.exit_code, 0);
   });
 
-  // A judge that asks a remote monitor answers with a promise. Its verdict is
-  // awaited, and a rejection is a judge that failed to answer: the clamp's ask.
+  // A judge that asks a remote monitor answers with a promise, awaited.
   it("awaits an asynchronous judge's verdict", async () => {
     const out = await renderHookResponse(
       claudeAdapter,
@@ -247,36 +256,6 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     assert.equal(out.exit_code, 2);
     assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "deny");
     assert.equal(out.stderr, "remote monitor said no");
-  });
-
-  it("clamps a rejected asynchronous judge to ask and reports it", async () => {
-    const written = [];
-    const realWrite = process.stderr.write;
-    process.stderr.write = (chunk) => {
-      written.push(String(chunk));
-      return true;
-    };
-    let out;
-    try {
-      out = await renderHookResponse(
-        claudeAdapter,
-        claudePayload("ls"),
-        FAIL,
-        () => Promise.reject(new Error("monitor unreachable")),
-      );
-    } finally {
-      process.stderr.write = realWrite;
-    }
-    assert.notEqual(out, FAIL, "a rejected judge took the fail-open path");
-    assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "ask");
-    assert.match(
-      out.stdout.hookSpecificOutput.permissionDecisionReason,
-      /^hook judge threw: Error: monitor unreachable/u,
-    );
-    assert.match(
-      written[0],
-      /^\[acp\] hook judge error: .*monitor unreachable/u,
-    );
   });
 
   it("carries the adapter's transport through (amp = pure exit code)", async () => {
@@ -492,6 +471,8 @@ describe("renderHookResponse: a blocking onFailure beats the ask clamp", () => {
     },
     "answers no decision": () => ({ decision: "denied" }),
     "answers null": () => null,
+    rejects: () => Promise.reject(new Error("monitor down")),
+    "resolves no decision": async () => ({ decision: "denied" }),
   };
   for (const [label, judge] of Object.entries(answers))
     it(`a judge that ${label} blocks under a blocking onFailure`, async () => {
@@ -532,6 +513,7 @@ describe("renderHookResponse: an ask the host cannot honour blocks", () => {
   const answers = {
     "answers ask": () => ({ decision: "ask", reason: "confirm" }),
     "answers a malformed decision": () => ({ decision: "denied" }),
+    "resolves ask": async () => ({ decision: "ask", reason: "confirm" }),
   };
   for (const [label, judge] of Object.entries(answers))
     it(`a judge that ${label} blocks a vetoable Gemini call`, async () => {
@@ -540,7 +522,7 @@ describe("renderHookResponse: an ask the host cannot honour blocks", () => {
       assert.equal(out.enforced, true);
       assert.match(
         out.stderr,
-        label === "answers ask" ? /^confirm/u : /clamped to "ask"/u,
+        label.endsWith(" ask") ? /^confirm/u : /clamped to "ask"/u,
       );
     });
 

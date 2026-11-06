@@ -71,10 +71,6 @@
     "./json-schema": {
       "types": "./types/json-schema.d.mts",
       "import": "./src/json-schema.mjs"
-    },
-    "./agent-manifest": {
-      "types": "./types/agent-manifest.d.mts",
-      "import": "./src/agent-manifest.mjs"
     }
   },
   "files": [

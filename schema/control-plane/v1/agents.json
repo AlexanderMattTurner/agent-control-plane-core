@@ -9,22 +9,15 @@
     },
     "host_failure": {
       "exit_code": 0,
-      "blocks": false
+      "enforced": false
     },
-    "launcher_options": [],
     "coverage": {
       "builtin": "covered",
       "mcp": "covered",
       "subagent": "covered",
       "resumed": "covered"
     },
-    "native_event_for": {
-      "pre_tool": "PreToolUse",
-      "post_tool": "PostToolUse",
-      "prompt_submit": "UserPromptSubmit",
-      "session_start": "SessionStart"
-    },
-    "unrendered_fields": {
+    "unrendered_fields_on_allow": {
       "pre_tool": [
         "mutated_output"
       ],
@@ -56,22 +49,15 @@
     },
     "host_failure": {
       "exit_code": 0,
-      "blocks": false
+      "enforced": false
     },
-    "launcher_options": [
-      "version"
-    ],
     "coverage": {
       "builtin": "partial",
       "mcp": "partial",
       "subagent": "partial",
       "resumed": "partial"
     },
-    "native_event_for": {
-      "pre_tool": "PreToolUse",
-      "post_tool": "PostToolUse"
-    },
-    "unrendered_fields": {
+    "unrendered_fields_on_allow": {
       "pre_tool": [
         "additional_context",
         "mutated_output"
@@ -107,19 +93,15 @@
     },
     "host_failure": {
       "exit_code": 1,
-      "blocks": false
+      "enforced": false
     },
-    "launcher_options": [],
     "coverage": {
       "builtin": "covered",
       "mcp": "covered",
       "subagent": "covered",
       "resumed": "unknown"
     },
-    "native_event_for": {
-      "pre_tool": "delegate"
-    },
-    "unrendered_fields": {
+    "unrendered_fields_on_allow": {
       "pre_tool": [
         "additional_context",
         "mutated_input",
@@ -157,21 +139,15 @@
     },
     "host_failure": {
       "exit_code": 0,
-      "blocks": false
+      "enforced": false
     },
-    "launcher_options": [],
     "coverage": {
       "builtin": "covered",
       "mcp": "unknown",
       "subagent": "unknown",
       "resumed": "unknown"
     },
-    "native_event_for": {
-      "pre_tool": "BeforeTool",
-      "post_tool": "AfterTool",
-      "prompt_submit": "BeforeAgent"
-    },
-    "unrendered_fields": {
+    "unrendered_fields_on_allow": {
       "pre_tool": [
         "mutated_output"
       ],

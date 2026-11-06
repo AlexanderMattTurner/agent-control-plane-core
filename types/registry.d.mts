@@ -14,8 +14,9 @@ export function assertRegistryConsistent(adapters: Record<string, Adapter>): voi
  * translator against the payloads and mis-render every verdict).
  *
  * `options` are the launcher's settings for that adapter, named by its
- * {@link LAUNCHER_OPTIONS} row. An option the adapter does not read throws, so
- * a setting the launcher believes it applied cannot be dropped in silence.
+ * {@link LAUNCHER_OPTIONS} row. Options for an adapter that takes none throw
+ * here, and an option a configurable adapter does not read throws in its
+ * factory, so a setting the launcher believes it applied is never dropped.
  * @param {string} id agent id (a {@link AGENT_IDS} member)
  * @param {Record<string, unknown>} [options]
  * @returns {Adapter}

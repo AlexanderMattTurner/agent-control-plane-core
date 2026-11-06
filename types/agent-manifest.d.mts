@@ -1,13 +1,8 @@
 /**
- * The manifest, keyed by agent id in {@link AGENT_IDS} order.
+ * Every generated file, keyed by its package-relative path: the JSON Schema
+ * documents and their data maps, plus `agents.json`, keyed by agent id in
+ * {@link AGENT_IDS} order. The SSOT the generator writes and the freshness test
+ * reads, so neither carries its own list of filenames.
  * @returns {Record<string, Record<string, unknown>>}
  */
-export function agentManifest(): Record<string, Record<string, unknown>>;
-/**
- * The manifest keyed by its package-relative path, the shape the generator
- * writes and the freshness test reads.
- * @returns {Record<string, Record<string, unknown>>}
- */
-export function agentManifestDocuments(): Record<string, Record<string, unknown>>;
-/** Basename of the generated manifest, beside the schema documents. */
-export const AGENT_MANIFEST_FILE: "agents.json";
+export function generatedDocuments(): Record<string, Record<string, unknown>>;

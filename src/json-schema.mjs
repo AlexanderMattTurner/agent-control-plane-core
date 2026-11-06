@@ -291,10 +291,10 @@ export function verdictSchema() {
 }
 
 /**
- * Every generated file, keyed by its package-relative path — the SSOT the
- * generator writes and the freshness test reads, so neither carries its own
- * list of filenames. The two `.schema.json` entries are JSON Schema documents;
- * `tool-input-keys.json` is the data map {@link TOOL_INPUT_KEYS_FILE} describes.
+ * The contract's generated files, keyed by package-relative path. The two
+ * `.schema.json` entries are JSON Schema documents; `tool-input-keys.json` is
+ * the data map {@link TOOL_INPUT_KEYS_FILE} describes. `agent-manifest.mjs`'s
+ * `generatedDocuments` adds the per-agent manifest to these.
  * @returns {Record<string, Record<string, unknown>>}
  */
 export function jsonSchemaDocuments() {

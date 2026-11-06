@@ -14,12 +14,12 @@ the prose from the release's commits.
 
 ### Added
 
-- `schema/control-plane/v1/agents.json` (and `agent-control-plane-core/agent-manifest`): one generated row per agent with its block exit code and reason stream, whether a block needs a reason, whether it has an ask tier, how it degrades a broken hook, the launcher options its adapter reads, its hook coverage, and the verdict fields it cannot render. A hook wrapper or monitor in another language reads these facts here, without keeping its own per-agent copy.
-- `LAUNCHER_OPTIONS` in `agent-control-plane-core/registry`: the options `adapterFor` reads for each agent id. `adapterFor` now throws on an option the adapter does not read (a misspelled `verison` used to be dropped silently).
+- `schema/control-plane/v1/agents.json`: one generated row per agent with its block exit code and reason stream, whether a block needs a reason, whether it has an ask tier, the hook entry's default response when the hook breaks, its hook coverage, and the verdict fields an allow cannot carry. A hook wrapper or monitor in another language reads these facts here, without keeping its own per-agent copy.
+- `LAUNCHER_OPTIONS` in `agent-control-plane-core/registry`: the options `adapterFor` reads for each agent id. `createCodexAdapter` (and so `adapterFor`) now throws on an option it does not read (a misspelled `verison` used to be dropped silently).
 
 ### Changed
 
-- **Breaking:** `renderHookResponse` returns a promise, and a judge passed to it or to `runHookEntry` may answer with one, so a judge can ask a remote monitor. A rejected judge is treated like one that throws: its call goes to `ask`. `ACP_HOOK_TIMEOUT_MS` also answers a judge that is still waiting.
+- **Breaking:** `renderHookResponse` returns a promise, and a judge passed to it or to `runHookEntry` may answer with one, so a judge can ask a remote monitor. A rejected judge is treated like one that throws: its call goes to `ask`. `ACP_HOOK_TIMEOUT_MS` also answers a judge that is still waiting, and with no deadline set the entry gives its failure response when a judge's promise never settles, instead of exiting 13 with no response.
 
 ### Fixed
 
