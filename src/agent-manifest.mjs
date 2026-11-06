@@ -6,8 +6,8 @@
  * wrapper, a Python validator) re-types each agent's rules by hand: which exit
  * code blocks, whether a block needs a reason, whether an `ask` has a tier.
  * Each copy is one more place an agent's next release has to be chased into.
- * This file is the copy they read instead, generated from the live exports, so
- * changing an agent here changes what they read.
+ * `agents.json` is the copy they read instead, generated from the adapters'
+ * exports, so an adapter change reaches them on the next `pnpm gen:schema`.
  *
  * `pnpm gen:schema` writes every {@link generatedDocuments} entry, and
  * `json-schema.test.mjs` regenerates each in-process and byte-compares.

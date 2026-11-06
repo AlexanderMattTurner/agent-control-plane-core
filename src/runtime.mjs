@@ -237,7 +237,7 @@ export function failurePosture(agent, env = process.env) {
  * failure response also answers a stdin read error and, when
  * {@link hookDeadlineMs} is set, a hook still running at that deadline. It also
  * answers a judge promise that never settles once nothing else keeps node alive,
- * which would otherwise exit 13 with no response.
+ * which would otherwise end the process with no response.
  * @param {import("./control-plane.mjs").Adapter} adapter
  * @param {Judge} [judge]
  * @returns {Promise<never>}
@@ -261,14 +261,6 @@ export async function runHookEntry(adapter, judge = demoJudge) {
         ),
       deadline,
     );
-  // An unsettled judge promise with no pending I/O drains the event loop, and
-  // node then exits 13 with no response, which a fail-open host runs.
-  process.once("beforeExit", () =>
-    fail(
-      "hook judge never answered",
-      new Error("the judge's promise never settled"),
-    ),
-  );
   /** @type {string} */
   let raw;
   try {
@@ -276,6 +268,16 @@ export async function runHookEntry(adapter, judge = demoJudge) {
   } catch (err) {
     return fail("hook stdin error", err);
   }
+  // An unsettled judge promise with no pending I/O drains the event loop, and
+  // node then exits with no response (13 under top-level await, 0 otherwise),
+  // which a fail-open host runs. Registered after stdin is read, so only the
+  // judge can be what never answered.
+  process.once("beforeExit", () =>
+    fail(
+      "hook judge never answered",
+      new Error("the judge's promise never settled"),
+    ),
+  );
   return emit(await renderHookResponse(adapter, raw, onFailure, judge));
 }
 

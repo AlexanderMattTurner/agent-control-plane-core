@@ -511,19 +511,25 @@ describe("renderHookResponse: an ask the host cannot honour blocks", () => {
     tool_input: { command: "ls" },
   });
   const answers = {
-    "answers ask": () => ({ decision: "ask", reason: "confirm" }),
-    "answers a malformed decision": () => ({ decision: "denied" }),
-    "resolves ask": async () => ({ decision: "ask", reason: "confirm" }),
+    "answers ask": [
+      () => ({ decision: "ask", reason: "confirm" }),
+      /^confirm/u,
+    ],
+    "answers a malformed decision": [
+      () => ({ decision: "denied" }),
+      /clamped to "ask"/u,
+    ],
+    "resolves ask": [
+      async () => ({ decision: "ask", reason: "confirm" }),
+      /^confirm/u,
+    ],
   };
-  for (const [label, judge] of Object.entries(answers))
+  for (const [label, [judge, reason]] of Object.entries(answers))
     it(`a judge that ${label} blocks a vetoable Gemini call`, async () => {
       const out = await renderHookResponse(geminiAdapter, shell, FAIL, judge);
       assert.equal(out.exit_code, 2);
       assert.equal(out.enforced, true);
-      assert.match(
-        out.stderr,
-        label.endsWith(" ask") ? /^confirm/u : /clamped to "ask"/u,
-      );
+      assert.match(out.stderr, reason);
     });
 
   it("leaves a non-vetoable Gemini call's ask as rendered", async () => {

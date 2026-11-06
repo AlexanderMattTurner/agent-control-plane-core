@@ -78,7 +78,7 @@ export function failurePosture(agent: string, env?: NodeJS.ProcessEnv): import("
  * failure response also answers a stdin read error and, when
  * {@link hookDeadlineMs} is set, a hook still running at that deadline. It also
  * answers a judge promise that never settles once nothing else keeps node alive,
- * which would otherwise exit 13 with no response.
+ * which would otherwise end the process with no response.
  * @param {import("./control-plane.mjs").Adapter} adapter
  * @param {Judge} [judge]
  * @returns {Promise<never>}
