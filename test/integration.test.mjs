@@ -272,6 +272,30 @@ describe("integration: ACP_HOOK_TIMEOUT_MS answers a hung hook", () => {
       assert.match(out.stderr, /ACP_FAIL_CLOSED blocks the call/u);
     });
 
+  // The deadline is a timer, so it also answers a judge still awaiting a
+  // remote monitor: the case an asynchronous judge exists for.
+  it("an asynchronous judge that never answers gets the block at the deadline", () => {
+    const entry = `
+      import { runHookEntry } from ${JSON.stringify(new URL("../src/runtime.mjs", import.meta.url).href)};
+      import { claudeAdapter } from ${JSON.stringify(new URL("../src/adapters/claude.mjs", import.meta.url).href)};
+      await runHookEntry(claudeAdapter, () => new Promise(() => {}));
+    `;
+    const res = spawnSync("node", ["--input-type=module", "-e", entry], {
+      input: JSON.stringify({
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "ls" },
+      }),
+      encoding: "utf8",
+      env: { ...process.env, ACP_FAIL_CLOSED: "1", ACP_HOOK_TIMEOUT_MS: "300" },
+      timeout: 10_000,
+    });
+    assert.equal(res.signal, null, "the entry was killed, not answered");
+    assert.equal(res.status, 2);
+    assert.equal(res.stdout, "");
+    assert.match(res.stderr, /hook deadline: .*ACP_HOOK_TIMEOUT_MS=300/u);
+  });
+
   it("amp without ACP_FAIL_CLOSED takes its own default (ask) at the deadline", async () => {
     const out = await runHung("amp", { ACP_HOOK_TIMEOUT_MS: "300" });
     assert.equal(out.signal, null);

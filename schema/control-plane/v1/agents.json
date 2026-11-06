@@ -1,0 +1,198 @@
+{
+  "claude": {
+    "integration_mode": "external_hook",
+    "native_ask_tier": true,
+    "block": {
+      "exit_code": 2,
+      "reason_stream": "stderr",
+      "reason_required": false
+    },
+    "host_failure": {
+      "exit_code": 0,
+      "blocks": false
+    },
+    "launcher_options": [],
+    "coverage": {
+      "builtin": "covered",
+      "mcp": "covered",
+      "subagent": "covered",
+      "resumed": "covered"
+    },
+    "native_event_for": {
+      "pre_tool": "PreToolUse",
+      "post_tool": "PostToolUse",
+      "prompt_submit": "UserPromptSubmit",
+      "session_start": "SessionStart"
+    },
+    "unrendered_fields": {
+      "pre_tool": [
+        "mutated_output"
+      ],
+      "post_tool": [
+        "mutated_input"
+      ],
+      "prompt_submit": [
+        "mutated_input",
+        "mutated_output"
+      ],
+      "session_start": [
+        "mutated_input",
+        "mutated_output"
+      ],
+      "unknown": [
+        "additional_context",
+        "mutated_input",
+        "mutated_output"
+      ]
+    }
+  },
+  "codex": {
+    "integration_mode": "external_hook",
+    "native_ask_tier": false,
+    "block": {
+      "exit_code": 2,
+      "reason_stream": "stderr",
+      "reason_required": true
+    },
+    "host_failure": {
+      "exit_code": 0,
+      "blocks": false
+    },
+    "launcher_options": [
+      "version"
+    ],
+    "coverage": {
+      "builtin": "partial",
+      "mcp": "partial",
+      "subagent": "partial",
+      "resumed": "partial"
+    },
+    "native_event_for": {
+      "pre_tool": "PreToolUse",
+      "post_tool": "PostToolUse"
+    },
+    "unrendered_fields": {
+      "pre_tool": [
+        "additional_context",
+        "mutated_output"
+      ],
+      "post_tool": [
+        "mutated_input",
+        "mutated_output"
+      ],
+      "prompt_submit": [
+        "additional_context",
+        "mutated_input",
+        "mutated_output"
+      ],
+      "session_start": [
+        "additional_context",
+        "mutated_input",
+        "mutated_output"
+      ],
+      "unknown": [
+        "additional_context",
+        "mutated_input",
+        "mutated_output"
+      ]
+    }
+  },
+  "amp": {
+    "integration_mode": "external_hook",
+    "native_ask_tier": true,
+    "block": {
+      "exit_code": 2,
+      "reason_stream": "stderr",
+      "reason_required": false
+    },
+    "host_failure": {
+      "exit_code": 1,
+      "blocks": false
+    },
+    "launcher_options": [],
+    "coverage": {
+      "builtin": "covered",
+      "mcp": "covered",
+      "subagent": "covered",
+      "resumed": "unknown"
+    },
+    "native_event_for": {
+      "pre_tool": "delegate"
+    },
+    "unrendered_fields": {
+      "pre_tool": [
+        "additional_context",
+        "mutated_input",
+        "mutated_output"
+      ],
+      "post_tool": [
+        "additional_context",
+        "mutated_input",
+        "mutated_output"
+      ],
+      "prompt_submit": [
+        "additional_context",
+        "mutated_input",
+        "mutated_output"
+      ],
+      "session_start": [
+        "additional_context",
+        "mutated_input",
+        "mutated_output"
+      ],
+      "unknown": [
+        "additional_context",
+        "mutated_input",
+        "mutated_output"
+      ]
+    }
+  },
+  "gemini": {
+    "integration_mode": "external_hook",
+    "native_ask_tier": false,
+    "block": {
+      "exit_code": 2,
+      "reason_stream": "stderr",
+      "reason_required": false
+    },
+    "host_failure": {
+      "exit_code": 0,
+      "blocks": false
+    },
+    "launcher_options": [],
+    "coverage": {
+      "builtin": "covered",
+      "mcp": "unknown",
+      "subagent": "unknown",
+      "resumed": "unknown"
+    },
+    "native_event_for": {
+      "pre_tool": "BeforeTool",
+      "post_tool": "AfterTool",
+      "prompt_submit": "BeforeAgent"
+    },
+    "unrendered_fields": {
+      "pre_tool": [
+        "mutated_output"
+      ],
+      "post_tool": [
+        "mutated_input",
+        "mutated_output"
+      ],
+      "prompt_submit": [
+        "mutated_input",
+        "mutated_output"
+      ],
+      "session_start": [
+        "additional_context",
+        "mutated_input",
+        "mutated_output"
+      ],
+      "unknown": [
+        "additional_context",
+        "mutated_input",
+        "mutated_output"
+      ]
+    }
+  }
+}

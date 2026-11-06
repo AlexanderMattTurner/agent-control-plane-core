@@ -12,6 +12,15 @@ the prose from the release's commits.
 
 ## Unreleased
 
+### Added
+
+- `schema/control-plane/v1/agents.json` (and `agent-control-plane-core/agent-manifest`): one generated row per agent with its block exit code and reason stream, whether a block needs a reason, whether it has an ask tier, how it degrades a broken hook, the launcher options its adapter reads, its hook coverage, and the verdict fields it cannot render. A hook wrapper or monitor in another language reads these facts here, without keeping its own per-agent copy.
+- `LAUNCHER_OPTIONS` in `agent-control-plane-core/registry`: the options `adapterFor` reads for each agent id. `adapterFor` now throws on an option the adapter does not read (a misspelled `verison` used to be dropped silently).
+
+### Changed
+
+- **Breaking:** `renderHookResponse` returns a promise, and a judge passed to it or to `runHookEntry` may answer with one, so a judge can ask a remote monitor. A rejected judge is treated like one that throws: its call goes to `ask`. `ACP_HOOK_TIMEOUT_MS` also answers a judge that is still waiting.
+
 ### Fixed
 
 - The hook entries render through `renderEscalated`. On Gemini, a judge's `ask` (or a malformed verdict, which clamps to `ask`) on a vetoable call now exits 2 and blocks; it used to exit 0 and run the call.

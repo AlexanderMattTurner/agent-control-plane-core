@@ -64,13 +64,32 @@ export function assertRegistryConsistent(adapters) {
 assertRegistryConsistent(ADAPTERS);
 
 /**
- * The adapters that take launcher options, keyed by agent id. Only Codex does:
- * its hook stdin carries no version, so the launcher pins one.
- * @type {Readonly<Record<string, (options: any) => Adapter>>}
+ * The adapters that take launcher options, keyed by agent id: the option names
+ * each reads, and its factory. Only Codex takes one: its hook stdin carries no
+ * version, so the launcher pins one.
+ * @type {Readonly<Record<string, Readonly<{ options: readonly string[], create: (options: any) => Adapter }>>>}
  */
 const CONFIGURABLE = Object.freeze({
-  [codexAdapter.AGENT]: createCodexAdapter,
+  [codexAdapter.AGENT]: Object.freeze({
+    options: Object.freeze(["version"]),
+    create: createCodexAdapter,
+  }),
 });
+
+/**
+ * The launcher option names each agent's adapter reads, for EVERY agent id (an
+ * empty list when it reads none). A launcher builds the options for any agent
+ * from this instead of naming the agents that take a version.
+ * @type {Readonly<Record<string, readonly string[]>>}
+ */
+export const LAUNCHER_OPTIONS = Object.freeze(
+  Object.fromEntries(
+    AGENT_IDS.map((id) => [
+      id,
+      lookup(CONFIGURABLE, id)?.options ?? Object.freeze([]),
+    ]),
+  ),
+);
 
 /**
  * Resolve an agent id to its adapter. Throws (fail loud) on an unknown id — a
@@ -78,9 +97,9 @@ const CONFIGURABLE = Object.freeze({
  * reason to silently fall back to a default agent (which would run the wrong
  * translator against the payloads and mis-render every verdict).
  *
- * `options` are the launcher's settings for that adapter (Codex:
- * `{ version }`). Passing options to an adapter that takes none throws, so a
- * setting the launcher believes it applied cannot be dropped in silence.
+ * `options` are the launcher's settings for that adapter, named by its
+ * {@link LAUNCHER_OPTIONS} row. An option the adapter does not read throws, so
+ * a setting the launcher believes it applied cannot be dropped in silence.
  * @param {string} id agent id (a {@link AGENT_IDS} member)
  * @param {Record<string, unknown>} [options]
  * @returns {Adapter}
@@ -92,10 +111,17 @@ export function adapterFor(id, options) {
       `registry: no adapter for agent id ${JSON.stringify(id)} (known: ${AGENT_IDS.join(", ")})`,
     );
   if (options === undefined) return adapter;
-  const configure = lookup(CONFIGURABLE, id);
-  if (configure === undefined)
+  const configurable = lookup(CONFIGURABLE, id);
+  if (configurable === undefined)
     throw new Error(
       `registry: adapter ${JSON.stringify(id)} takes no options, got ${JSON.stringify(options)}`,
     );
-  return configure(options);
+  const unread = Object.keys(options).filter(
+    (name) => !configurable.options.includes(name),
+  );
+  if (unread.length > 0)
+    throw new Error(
+      `registry: adapter ${JSON.stringify(id)} reads no option ${unread.map((name) => JSON.stringify(name)).join(", ")} (reads: ${configurable.options.join(", ")})`,
+    );
+  return configurable.create(options);
 }

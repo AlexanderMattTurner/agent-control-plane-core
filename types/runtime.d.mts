@@ -32,15 +32,17 @@ export function demoJudge(event: import("./control-plane.mjs").ToolCallEvent): i
  * only in verbose/debug on a 0 exit, amp forwards the helper's stderr, and
  * gemini reads stderr as a reason only on exit 2.
  * `judge` is the seam a real deployment fills — {@link demoJudge} is a stand-in,
+ * and it may answer asynchronously (a judge that asks a remote monitor), so the
+ * whole pipe is awaited. A rejected promise takes the same path as a throw.
  * so the guardrail is supplied here rather than by forking this file. Whatever
  * it returns is treated as untrusted (see the clamp below).
  * @param {import("./control-plane.mjs").Adapter} adapter
  * @param {string} rawInput
  * @param {import("./control-plane.mjs").NativeResponse} onFailure
- * @param {(event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict} [judge]
- * @returns {import("./control-plane.mjs").NativeResponse}
+ * @param {Judge} [judge]
+ * @returns {Promise<import("./control-plane.mjs").NativeResponse>}
  */
-export function renderHookResponse(adapter: import("./control-plane.mjs").Adapter, rawInput: string, onFailure: import("./control-plane.mjs").NativeResponse, judge?: (event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict): import("./control-plane.mjs").NativeResponse;
+export function renderHookResponse(adapter: import("./control-plane.mjs").Adapter, rawInput: string, onFailure: import("./control-plane.mjs").NativeResponse, judge?: Judge): Promise<import("./control-plane.mjs").NativeResponse>;
 /**
  * The response that BLOCKS the call on `agent`'s host: its
  * {@link BLOCK_TRANSPORT} row's exit code, with `reason` on the row's reason
@@ -69,12 +71,15 @@ export function failurePosture(agent: string, env?: NodeJS.ProcessEnv): import("
  * {@link renderHookResponse} with that host's {@link failurePosture}, and
  * {@link emit} the result. Every `bin/<host>-hook.mjs` is this one call. The
  * failure response also answers a stdin read error and, when
- * {@link hookDeadlineMs} is set, a hook still running at that deadline.
+ * {@link hookDeadlineMs} is set, a hook still running at that deadline. Set it
+ * for an asynchronous judge: without it, a judge promise that never settles and
+ * holds no pending I/O ends node with exit 13 and no response, which a fail-open
+ * host runs.
  * @param {import("./control-plane.mjs").Adapter} adapter
- * @param {(event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict} [judge]
+ * @param {Judge} [judge]
  * @returns {Promise<never>}
  */
-export function runHookEntry(adapter: import("./control-plane.mjs").Adapter, judge?: (event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict): Promise<never>;
+export function runHookEntry(adapter: import("./control-plane.mjs").Adapter, judge?: Judge): Promise<never>;
 /**
  * `ACP_HOOK_TIMEOUT_MS` as a positive integer, or `undefined` when unset. Set it
  * below the host's own hook timeout, so the hook's failure response lands
@@ -135,3 +140,8 @@ export function emit(response: import("./control-plane.mjs").NativeResponse): ne
  * @type {Readonly<Record<string, import("./control-plane.mjs").NativeResponse>>}
  */
 export const HOST_FAILURE: Readonly<Record<string, import("./control-plane.mjs").NativeResponse>>;
+/**
+ * A guardrail judge: one normalized event in, its verdict out, synchronously or
+ * as a promise. Its answer is untrusted either way (see {@link renderHookResponse}).
+ */
+export type Judge = (event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict | Promise<import("./control-plane.mjs").Verdict>;

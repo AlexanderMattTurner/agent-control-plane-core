@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ADAPTERS,
   AGENT_IDS,
+  LAUNCHER_OPTIONS,
   adapterFor,
   assertRegistryConsistent,
 } from "../src/registry.mjs";
@@ -108,6 +109,31 @@ describe("adapter registry", () => {
       () => adapterFor("claude", { version: "1.0.0" }),
       /adapter "claude" takes no options/,
     );
+  });
+
+  it("adapterFor throws on an option the adapter does not read", () => {
+    assert.throws(
+      () => adapterFor("codex", { verison: "0.151.0" }),
+      /adapter "codex" reads no option "verison" \(reads: version\)/,
+    );
+  });
+
+  // A launcher builds every agent's options from this table, so each adapter it
+  // says reads an option must accept exactly that option, and every other
+  // adapter must refuse one.
+  it("LAUNCHER_OPTIONS names every agent, and adapterFor agrees with each row", () => {
+    assert.deepEqual(Object.keys(LAUNCHER_OPTIONS), [...AGENT_IDS]);
+    assert.deepEqual(LAUNCHER_OPTIONS.codex, ["version"]);
+    for (const [id, names] of Object.entries(LAUNCHER_OPTIONS)) {
+      const options = Object.fromEntries(names.map((name) => [name, "1.0.0"]));
+      if (names.length > 0) assert.equal(adapterFor(id, options).AGENT, id);
+      else
+        assert.throws(
+          () => adapterFor(id, { version: "1.0.0" }),
+          /takes no options/,
+        );
+    }
+    assert.ok(Object.isFrozen(LAUNCHER_OPTIONS));
   });
 });
 
