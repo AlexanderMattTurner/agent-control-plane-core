@@ -53,16 +53,16 @@ function manifestRow(id) {
     coverage: { ...adapter.COVERAGE },
     native_event_for: { ...adapter.NATIVE_EVENT_FOR },
     unrendered_fields: Object.fromEntries(
-      Object.values(EventKind).map((kind) => {
-        const fields = lookup(adapter.UNRENDERED_FIELDS, kind);
-        // An empty list would publish "every field renders", the reverse of a
-        // missing row's truth, so a gap refuses to generate.
-        if (fields === undefined)
-          throw new Error(
-            `agent-manifest: ${id} has no UNRENDERED_FIELDS row for ${kind}`,
-          );
-        return [kind, [...fields].sort()];
-      }),
+      // The conformance harness refuses an adapter missing a row, and spreading
+      // a missing one throws here, so a gap never publishes as "every field renders".
+      Object.values(EventKind).map((kind) => [
+        kind,
+        [
+          .../** @type {ReadonlySet<string>} */ (
+            lookup(adapter.UNRENDERED_FIELDS, kind)
+          ),
+        ].sort(),
+      ]),
     ),
   };
 }
