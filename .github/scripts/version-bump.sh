@@ -24,6 +24,24 @@ source "$SCRIPT_DIR/lib/git-auth.bash"
 
 log() { echo "$@" >&2; }
 
+# dispatch_required_checks BRANCH — start, on BRANCH, every workflow that reports
+# a check the default branch's ruleset requires. A release-docs PR opened with
+# GITHUB_TOKEN starts no pull_request run (GitHub's loop guard exempts only
+# workflow_dispatch and repository_dispatch), so without this its required
+# checks never report and its auto-merge never fires. A dispatched run's check
+# runs land on BRANCH's head, which is the commit the ruleset evaluates.
+dispatch_required_checks() {
+  local branch="$1" contexts workflows workflow
+  contexts=$(gh api "repos/{owner}/{repo}/rules/branches/$DEFAULT_BRANCH" \
+    --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context') || return 1
+  workflows=$(bash "$SCRIPT_DIR/run-with-pyyaml.sh" "$SCRIPT_DIR/required-check-workflows.py" .github/workflows <<<"$contexts") || return 1
+  while IFS= read -r workflow; do
+    [[ -n "$workflow" ]] || continue
+    gh workflow run "$workflow" --ref "$branch" || return 1
+    log "Dispatched $workflow on $branch"
+  done <<<"$workflows"
+}
+
 # Self-publish guard. `private: true` marks a package that must never reach the
 # registry (npm itself refuses to publish it); for this flow it also means "this
 # repo is not a versioned npm app", so skip the whole release. This is the sole
@@ -468,6 +486,9 @@ else
     # waiting to merge it (mirrors template-sync-automerge.sh's same check).
     elif [[ "$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')" != "true" ]]; then
       log "auto-merge did not stick on $PR_URL. Enable 'Allow auto-merge' in the repository settings."
+      PR_FAILED=1
+    elif ! dispatch_required_checks "$RELEASE_BRANCH"; then
+      log "could not start the required checks on $RELEASE_BRANCH, so auto-merge on $PR_URL has nothing to wait for."
       PR_FAILED=1
     fi
     if [[ "$PR_FAILED" -eq 1 ]]; then

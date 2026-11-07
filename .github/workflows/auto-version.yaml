@@ -33,6 +33,9 @@ permissions:
   # Lets version-bump.sh open a release-docs PR when a branch ruleset rejects
   # its direct push to main (see the step below).
   pull-requests: write
+  # Lets version-bump.sh dispatch the required-check workflows on that PR's
+  # branch: a GITHUB_TOKEN-opened PR starts no pull_request run of its own.
+  actions: write
 
 jobs:
   version-and-publish:
@@ -91,10 +94,10 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_5 }}
           CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_6 }}
           # Only the release-docs PR fallback uses this. A GITHUB_TOKEN-opened PR
-          # starts no pull_request workflow (GitHub's loop guard), so its required
-          # checks never report and auto-merge never fires. RELEASE_BYPASS_TOKEN
-          # is the own-owner PAT the checkout above already accepts; no
-          # cross-account PAT reaches this workflow.
+          # starts no pull_request workflow (GitHub's loop guard), so
+          # version-bump.sh dispatches the required-check workflows on its branch
+          # instead. RELEASE_BYPASS_TOKEN is the own-owner PAT the checkout above
+          # already accepts; no cross-account PAT reaches this workflow.
           # token-fallback-ok: deliberate — the fallback only opens a PR from a
           # new branch, never pushes to main (see the comment above).
           GH_TOKEN: ${{ secrets.RELEASE_BYPASS_TOKEN || secrets.GITHUB_TOKEN }}

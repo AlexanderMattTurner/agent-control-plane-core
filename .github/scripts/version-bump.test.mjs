@@ -163,6 +163,7 @@ const NPM_RELEASABLE_STUB =
 function makeReleaseSandbox({
   npmStub = NPM_RELEASABLE_STUB,
   pnpmStub = "exit 0",
+  preReceiveStub = '[[ "$ref" == refs/heads/* ]] && exit 1',
 } = {}) {
   const { dir, binDir } = makeSandbox(npmStub);
   // pnpm publish must "succeed" without touching a registry.
@@ -179,7 +180,7 @@ function makeReleaseSandbox({
   const preReceive = join(origin, "hooks", "pre-receive");
   writeFileSync(
     preReceive,
-    '#!/usr/bin/env bash\nwhile read -r _old _new ref; do\n  [[ "$ref" == refs/heads/* ]] && exit 1\ndone\nexit 0\n',
+    `#!/usr/bin/env bash\nwhile read -r _old _new ref; do\n  ${preReceiveStub}\ndone\nexit 0\n`,
   );
   chmodSync(preReceive, 0o755);
   execFileSync("git", ["remote", "add", "origin", origin], { cwd: dir });
@@ -214,6 +215,116 @@ test("tag is pushed before the docs push; a docs-push failure exits non-zero wit
         stderr.indexOf("failed to push the release-docs update"),
       "tag must be pushed before the docs push is attempted",
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- A ruleset-blocked docs push lands through a PR whose checks actually run --
+// The release-docs PR is opened with GITHUB_TOKEN, which starts no pull_request
+// run, so its required checks never report and its armed auto-merge never fires
+// unless the script dispatches the workflows that report them on its branch.
+
+const GH013_PRE_RECEIVE = [
+  '[[ "$ref" == refs/heads/release-docs-* ]] && continue',
+  '[[ "$ref" == refs/heads/* ]] && { echo "GH013: Changes must be made through a pull request." >&2; exit 1; }',
+].join("\n  ");
+
+/**
+ * gh stub: logs every call; answers the ruleset read with `contexts`. A stub
+ * because the real gh would open a PR and dispatch workflows on live GitHub.
+ */
+function ghStub(contexts) {
+  return [
+    'echo "$*" >>"$PWD/gh-calls.log"',
+    'case "$1 $2" in',
+    `  "api "*) printf '%s\\n' ${contexts.map((c) => `'${c}'`).join(" ")} ;;`,
+    '  "pr create") echo "https://github.com/o/r/pull/7" ;;',
+    '  "pr view") echo true ;;',
+    "esac",
+  ].join("\n");
+}
+
+function writeWorkflows(dir, files) {
+  const wfDir = join(dir, ".github", "workflows");
+  mkdirSync(wfDir, { recursive: true });
+  for (const [name, body] of Object.entries(files)) {
+    writeFileSync(join(wfDir, name), body);
+  }
+}
+
+function installGh(binDir, contexts) {
+  writeFileSync(
+    join(binDir, "gh"),
+    `#!/usr/bin/env bash\n${ghStub(contexts)}\n`,
+  );
+  chmodSync(join(binDir, "gh"), 0o755);
+}
+
+test("a GH013-blocked docs push opens a PR and dispatches every required-check workflow on it", () => {
+  const { dir, binDir, origin } = makeReleaseSandbox({
+    preReceiveStub: GH013_PRE_RECEIVE,
+  });
+  try {
+    installGh(binDir, ["unit-passed", "Lint gate"]);
+    writeWorkflows(dir, {
+      "unit.yaml":
+        "on: [pull_request, workflow_dispatch]\njobs:\n  test: {}\n  unit-passed: {}\n",
+      "lint.yml":
+        "on: [pull_request, workflow_dispatch]\njobs:\n  gate:\n    name: Lint gate\n",
+      "scan.yaml": "on: [pull_request, workflow_dispatch]\njobs:\n  scan: {}\n",
+    });
+
+    const { status, stderr } = runScript(dir, binDir);
+    assert.equal(status, 0, stderr);
+    assert.match(stderr, /opening a release-docs PR instead/);
+    assert.match(
+      execFileSync("git", ["ls-remote", "--heads", origin], {
+        encoding: "utf8",
+      }),
+      /refs\/heads\/release-docs-v5\.1\.0/,
+    );
+    const dispatches = readFileSync(join(dir, "gh-calls.log"), "utf8")
+      .split("\n")
+      .filter((l) => l.startsWith("workflow run "));
+    assert.deepEqual(dispatches, [
+      "workflow run lint.yml --ref release-docs-v5.1.0",
+      "workflow run unit.yaml --ref release-docs-v5.1.0",
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a required check no workflow reports fails the release-docs fallback loud", () => {
+  const { dir, binDir } = makeReleaseSandbox({
+    preReceiveStub: GH013_PRE_RECEIVE,
+  });
+  try {
+    installGh(binDir, ["unit-passed", "Automated review posted"]);
+    writeWorkflows(dir, {
+      "unit.yaml":
+        "on: [pull_request, workflow_dispatch]\njobs:\n  unit-passed: {}\n",
+    });
+
+    const { status, stderr } = runScript(dir, binDir);
+    assert.notEqual(
+      status,
+      0,
+      "a PR whose required check can never report must fail the run",
+    );
+    assert.match(
+      stderr,
+      /reports required check\(s\): Automated review posted/,
+    );
+    assert.match(stderr, /failed to open\/auto-merge a release-docs PR/);
+    const calls = readFileSync(join(dir, "gh-calls.log"), "utf8");
+    assert.match(
+      calls,
+      /^pr merge --auto/m,
+      "the run must reach the dispatch step",
+    );
+    assert.doesNotMatch(calls, /^workflow run /m);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
