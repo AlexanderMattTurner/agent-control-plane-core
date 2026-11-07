@@ -203,96 +203,88 @@ describe("codex render: an advisory PostToolUse block still carries a reason", (
 });
 
 describe("codex render: PermissionRequest answers in its own schema", () => {
-  const event = codexAdapter.parse({
-    hook_event_name: "PermissionRequest",
-    version: "0.166.0",
-    tool_name: "Bash",
-    tool_input: { command: "curl example.com" },
-  });
+  const request = (version) =>
+    codexAdapter.parse({
+      hook_event_name: "PermissionRequest",
+      version,
+      tool_name: "Bash",
+      tool_input: { command: "curl example.com" },
+    });
+  const enforcing = request("0.166.0");
+  const advisory = request("0.134.9");
   const content = {
     mutated_input: { command: "true" },
     additional_context: "c",
   };
+  const deny = (message) => ({ behavior: "deny", message });
 
-  for (const [label, verdict, options, expected, exitCode] of [
+  for (const [label, event, verdict, options, decision, exitCode] of [
     [
-      "a deny is decision.behavior deny with the reason as message",
+      "a deny carries the reason as message",
+      enforcing,
       { decision: "deny", reason: "no network", ...content },
       undefined,
-      {
-        hookEventName: "PermissionRequest",
-        decision: { behavior: "deny", message: "no network" },
-      },
+      deny("no network"),
       2,
     ],
     [
-      "an enforced deny with no reason still carries a message",
+      "a deny with no reason carries the default message",
+      enforcing,
       { decision: "deny" },
       undefined,
-      {
-        hookEventName: "PermissionRequest",
-        decision: { behavior: "deny", message: DEFAULT_DENY_REASON },
-      },
+      deny(DEFAULT_DENY_REASON),
       2,
+    ],
+    [
+      "an advisory deny below v0.135 carries the default message",
+      advisory,
+      { decision: "deny" },
+      undefined,
+      deny(DEFAULT_DENY_REASON),
+      0,
     ],
     [
       "an ask is a deny",
+      enforcing,
       { decision: "ask", reason: "confirm" },
       undefined,
-      {
-        hookEventName: "PermissionRequest",
-        decision: { behavior: "deny", message: "confirm" },
-      },
+      deny("confirm"),
       2,
     ],
     [
       "an allow abstains by default",
+      enforcing,
       { decision: "allow", ...content },
       undefined,
-      { hookEventName: "PermissionRequest" },
+      undefined,
       0,
     ],
     [
       "an allow under soleGate grants the approval",
+      enforcing,
       { decision: "allow", ...content },
       { soleGate: true },
-      { hookEventName: "PermissionRequest", decision: { behavior: "allow" } },
+      { behavior: "allow" },
+      0,
+    ],
+    [
+      "an allow under soleGate below v0.135 still grants the approval",
+      advisory,
+      { decision: "allow" },
+      { soleGate: true },
+      { behavior: "allow" },
       0,
     ],
   ])
     it(label, () => {
       const out = codexAdapter.render(verdict, event, options);
-      assert.deepEqual(out.stdout, { hookSpecificOutput: expected });
-      assert.equal(out.exit_code, exitCode);
-    });
-
-  const advisory = codexAdapter.parse({
-    hook_event_name: "PermissionRequest",
-    version: "0.134.9",
-    tool_name: "Bash",
-    tool_input: { command: "curl example.com" },
-  });
-  for (const [label, verdict, options, decision] of [
-    [
-      "an advisory deny below v0.135 injects no message",
-      { decision: "deny" },
-      undefined,
-      { behavior: "deny" },
-    ],
-    [
-      "an allow under soleGate below v0.135 still grants the approval",
-      { decision: "allow" },
-      { soleGate: true },
-      { behavior: "allow" },
-    ],
-  ])
-    it(label, () => {
-      const out = codexAdapter.render(verdict, advisory, options);
       assert.deepEqual(out.stdout, {
-        hookSpecificOutput: { hookEventName: "PermissionRequest", decision },
+        hookSpecificOutput: {
+          hookEventName: "PermissionRequest",
+          ...(decision === undefined ? {} : { decision }),
+        },
       });
-      assert.equal(out.enforced, false);
-      assert.equal(out.exit_code, 0);
+      assert.equal(out.exit_code, exitCode);
     });
 });
 

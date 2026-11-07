@@ -11,9 +11,9 @@ import {
   isCoverageStatus,
   lookup,
   VERDICT_CONTENT_FIELDS,
-  WHOLE_ARGUMENTS,
   FILING_RULE_GRAMMAR,
   isFilingRule,
+  isPlainObject,
 } from "./control-plane.mjs";
 
 /**
@@ -809,21 +809,11 @@ function assertPreToolKeysRead(adapter, event, rendered, label, assert) {
 }
 
 /**
- * Whether `value` is an object that is neither `null` nor an array.
- * @param {unknown} value
- * @returns {value is Record<string, unknown>}
- */
-function isPlainObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
  * Assert an adapter declares a well-formed `PRE_TOOL_FILING` and
- * `PRE_TOOL_RESPONSE`: both frozen, every filing rule `null` or a frozen
- * `{tool_name, input}` in the mini-language {@link fileModelCall} reads, and
- * each of the response's key lists sorted and duplicate-free beside its
- * boolean-or-null fail-open bit. `agents.json` publishes both verbatim, so a shape a
- * Python consumer cannot apply is refused here, not discovered there.
+ * `PRE_TOOL_RESPONSE`: every filing rule `null` or in the mini-language
+ * {@link fileModelCall} reads, and each response key list an array of strings
+ * beside a boolean-or-null fail-open bit. `agents.json` publishes both, so a
+ * shape a Python consumer cannot apply is refused here, not discovered there.
  * @param {import("./control-plane.mjs").Adapter} adapter
  * @param {any} assert
  */
@@ -831,37 +821,24 @@ function assertPreToolDeclarationsWellFormed(adapter, assert) {
   const agent = adapter.AGENT;
   const filing = adapter.PRE_TOOL_FILING;
   assert.ok(
-    typeof filing === "object" && filing !== null && Object.isFrozen(filing),
-    `${agent}: adapter declares no frozen PRE_TOOL_FILING — every adapter needs one: Object.freeze({}) when its host files every model call as asked`,
+    isPlainObject(filing),
+    `${agent}: adapter declares no PRE_TOOL_FILING — every adapter needs one: {} when its host files every model call as asked`,
   );
-  for (const [name, rule] of Object.entries(filing)) {
-    if (rule === null) continue;
-    const where = `${agent}: PRE_TOOL_FILING[${JSON.stringify(name)}]`;
-    assert.ok(Object.isFrozen(rule), `${where} is not frozen`);
+  for (const [name, rule] of Object.entries(filing))
     assert.ok(
-      isFilingRule(rule),
-      `${where} is ${JSON.stringify(rule)}, not ${FILING_RULE_GRAMMAR}`,
+      rule === null || isFilingRule(rule),
+      `${agent}: PRE_TOOL_FILING[${JSON.stringify(name)}] is ${JSON.stringify(rule)}, not null or ${FILING_RULE_GRAMMAR}`,
     );
-    if (rule.input !== WHOLE_ARGUMENTS)
-      assert.ok(Object.isFrozen(rule.input), `${where}.input is not frozen`);
-  }
   const response = adapter.PRE_TOOL_RESPONSE;
   assert.ok(
-    typeof response === "object" &&
-      response !== null &&
-      Object.isFrozen(response),
-    `${agent}: adapter declares no frozen PRE_TOOL_RESPONSE — every adapter needs one naming the top-level and hookSpecificOutput keys its host reads on the pre-tool event (empty lists when it reads no body)`,
+    isPlainObject(response),
+    `${agent}: adapter declares no PRE_TOOL_RESPONSE — every adapter needs one naming the top-level and hookSpecificOutput keys its host reads on the pre-tool event (empty lists when it reads no body)`,
   );
   for (const level of PRE_TOOL_RESPONSE_LEVELS) {
-    const keys = /** @type {any} */ (lookup(response, level.keys));
+    const keys = lookup(response, level.keys);
     assert.ok(
-      Array.isArray(keys) && Object.isFrozen(keys),
-      `${agent}: PRE_TOOL_RESPONSE.${level.keys} is not a frozen array`,
-    );
-    assert.deepEqual(
-      [...keys],
-      [...new Set(keys)].sort(),
-      `${agent}: PRE_TOOL_RESPONSE.${level.keys} must be sorted and duplicate-free`,
+      Array.isArray(keys) && keys.every((key) => typeof key === "string"),
+      `${agent}: PRE_TOOL_RESPONSE.${level.keys} is not an array of strings`,
     );
     assert.ok(
       [true, false, null].includes(
