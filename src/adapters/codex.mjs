@@ -114,8 +114,9 @@ assertGatedKinds(GATED_EVENTS, AGENT);
  * `additionalContext`; PostToolUse takes `additionalContext` alone ([X8], read
  * at `rust-v0.166.0` and identical at `rust-v0.135.0`). `PermissionRequest`,
  * which also parses as `pre_tool`, takes neither: its schema is
- * `{hookEventName, decision: {behavior, message}}`, and it fails closed on
- * `updatedInput`, so {@link render} drops both there.
+ * `{hookEventName, decision: {behavior, message}}`, and a body carrying
+ * `updatedInput` is ignored (Codex's own approval flow decides), so
+ * {@link render} drops both there.
  *
  * NEITHER kind can rewrite tool output: PostToolUse "can't undo side effects
  * from a tool that already ran", and Codex rejects `updatedMCPToolOutput`, so
@@ -180,9 +181,11 @@ export const PRE_TOOL_FILING = Object.freeze({
  * body into `deny_unknown_fields` structs at both levels: these seven top-level
  * keys (`PreToolUseCommandOutputWire` with its flattened universal fields), and
  * these five in `hookSpecificOutput`. Any other key fails the whole body: the
- * run is marked failed, no block is set, and the call RUNS. A known key can still void the body by its
- * combination (`updatedInput` without `permissionDecision: "allow"`), which
- * this declaration does not describe.
+ * run is marked failed, no block is set, and the call RUNS. A known key can
+ * still void the body by its value or combination (`continue: false`, any
+ * `stopReason`, `suppressOutput: true`, `decision: "approve"`, `updatedInput`
+ * without `permissionDecision: "allow"`), which this declaration does not
+ * describe.
  * @type {import("../control-plane.mjs").PreToolResponse}
  */
 export const PRE_TOOL_RESPONSE = Object.freeze({
@@ -382,7 +385,8 @@ export function parse(native, { version } = {}) {
  *
  * `soleGate` (default `false`) is the same dangerous, explicit opt-in as the
  * Claude adapter, and acts only on PermissionRequest: there an `allow` renders
- * `behavior: "allow"`, which grants the approval. PreToolUse has no allow that
+ * `behavior: "allow"`, which grants the approval (from 0.166, not when the hook
+ * is environment-sourced). PreToolUse has no allow that
  * approves anything (Codex accepts `"allow"` only beside `updatedInput`, as a
  * rewrite), and post-tool there is no approval left to grant.
  * @param {Verdict} verdict
@@ -471,7 +475,7 @@ function preToolBody(hookEventName, vd, event, enforced) {
  * `PermissionRequestHookSpecificOutputWire` ([X8]), `{hookEventName, decision:
  * {behavior, message}}`. `behavior: "allow"` GRANTS the approval, so an allow
  * abstains unless `soleGate` opts in. Content fields have no channel here:
- * `updatedInput` fails the request closed and there is no context key.
+ * `updatedInput` voids the body and there is no context key.
  * @param {string} hookEventName
  * @param {Verdict} vd a normalized verdict
  * @param {boolean} enforced

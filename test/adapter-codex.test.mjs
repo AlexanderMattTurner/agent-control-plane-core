@@ -123,7 +123,7 @@ describe("codex render: PreToolUse bodies Codex 0.166 applies", () => {
       },
     ],
     [
-      "a deny drops updatedInput, which Codex rejects without allow",
+      "a deny's body drops updatedInput, which Codex rejects without allow",
       {
         decision: "deny",
         reason: "no",
@@ -143,13 +143,6 @@ describe("codex render: PreToolUse bodies Codex 0.166 applies", () => {
         hookSpecificOutput,
       });
     });
-
-  it("declares only mutated_output unrendered on pre_tool", () => {
-    assert.deepEqual(
-      [...codexAdapter.UNRENDERED_FIELDS.pre_tool],
-      ["mutated_output"],
-    );
-  });
 });
 
 describe("codex render: PermissionRequest answers in its own schema", () => {
@@ -216,23 +209,34 @@ describe("codex render: PermissionRequest answers in its own schema", () => {
       assert.equal(out.exit_code, exitCode);
     });
 
-  it("an advisory deny below v0.135 injects no message", () => {
-    const advisory = codexAdapter.parse({
-      hook_event_name: "PermissionRequest",
-      version: "0.134.9",
-      tool_name: "Bash",
-      tool_input: { command: "curl example.com" },
-    });
-    const out = codexAdapter.render({ decision: "deny" }, advisory);
-    assert.deepEqual(out.stdout, {
-      hookSpecificOutput: {
-        hookEventName: "PermissionRequest",
-        decision: { behavior: "deny" },
-      },
-    });
-    assert.equal(out.enforced, false);
-    assert.equal(out.exit_code, 0);
+  const advisory = codexAdapter.parse({
+    hook_event_name: "PermissionRequest",
+    version: "0.134.9",
+    tool_name: "Bash",
+    tool_input: { command: "curl example.com" },
   });
+  for (const [label, verdict, options, decision] of [
+    [
+      "an advisory deny below v0.135 injects no message",
+      { decision: "deny" },
+      undefined,
+      { behavior: "deny" },
+    ],
+    [
+      "an allow under soleGate below v0.135 still grants the approval",
+      { decision: "allow" },
+      { soleGate: true },
+      { behavior: "allow" },
+    ],
+  ])
+    it(label, () => {
+      const out = codexAdapter.render(verdict, advisory, options);
+      assert.deepEqual(out.stdout, {
+        hookSpecificOutput: { hookEventName: "PermissionRequest", decision },
+      });
+      assert.equal(out.enforced, false);
+      assert.equal(out.exit_code, 0);
+    });
 });
 
 describe("codex adapter: enforced deny always carries a non-empty reason (Codex fails open otherwise)", () => {

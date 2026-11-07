@@ -783,7 +783,7 @@ function assertPreToolKeysRead(adapter, event, rendered, label, assert) {
     return false;
   // `?.`: a broken render under rule ⑩'s probes may not be an object at all,
   // and that rule, not this one, is what names it. No body reads as an empty one.
-  const body = rendered?.stdout === undefined ? {} : rendered.stdout;
+  const body = rendered?.stdout;
   for (const level of PRE_TOOL_RESPONSE_LEVELS) {
     const found = isPlainObject(body) ? level.pick(body) : body;
     const part = found === undefined ? {} : found;
