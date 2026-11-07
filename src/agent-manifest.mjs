@@ -62,7 +62,13 @@ function manifestRow(id) {
       ]),
     ),
     pre_tool_filing: adapter.PRE_TOOL_FILING,
-    pre_tool_response: adapter.PRE_TOOL_RESPONSE,
+    pre_tool_response: {
+      ...adapter.PRE_TOOL_RESPONSE,
+      hook_specific_output_keys: [
+        ...adapter.PRE_TOOL_RESPONSE.hook_specific_output_keys,
+      ].sort(),
+      top_level_keys: [...adapter.PRE_TOOL_RESPONSE.top_level_keys].sort(),
+    },
   };
 }
 

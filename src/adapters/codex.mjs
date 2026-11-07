@@ -414,7 +414,7 @@ export function render(verdict, event, { soleGate = false } = {}) {
     unblocked_exit_code: 0,
     enforced,
     reason: vd.reason,
-    stdout: nativeBody(hookEventName, vd, event, enforced, soleGate),
+    stdout: nativeBody(hookEventName, vd, event, soleGate),
   });
 }
 
@@ -423,15 +423,14 @@ export function render(verdict, event, { soleGate = false } = {}) {
  * @param {string} hookEventName
  * @param {Verdict} vd a normalized verdict
  * @param {ToolCallEvent} event
- * @param {boolean} enforced
  * @param {boolean} soleGate
  * @returns {Record<string, unknown>}
  */
-function nativeBody(hookEventName, vd, event, enforced, soleGate) {
+function nativeBody(hookEventName, vd, event, soleGate) {
   if (event.event === EventKind.POST_TOOL)
     return postToolBody(hookEventName, vd);
   if (hookEventName === HookEvent.PERMISSION_REQUEST)
-    return permissionRequestBody(hookEventName, vd, enforced, soleGate);
+    return permissionRequestBody(hookEventName, vd, soleGate);
   return preToolBody(hookEventName, vd, event);
 }
 
@@ -475,18 +474,18 @@ function preToolBody(hookEventName, vd, event) {
  * `updatedInput` voids the body and there is no context key.
  * @param {string} hookEventName
  * @param {Verdict} vd a normalized verdict
- * @param {boolean} enforced
  * @param {boolean} soleGate
  * @returns {Record<string, unknown>}
  */
-function permissionRequestBody(hookEventName, vd, enforced, soleGate) {
+function permissionRequestBody(hookEventName, vd, soleGate) {
   /** @type {Record<string, unknown>} */
   const hookSpecificOutput = { hookEventName };
+  // Codex substitutes its own text for an empty message
+  // (`permission_request_decision`, [X8]); ours says who denied it.
   if (vd.decision !== Decision.ALLOW) {
-    const message = enforced ? blockReason(vd.reason) : vd.reason;
     hookSpecificOutput.decision = {
       behavior: Decision.DENY,
-      ...(message === undefined ? {} : { message }),
+      message: blockReason(vd.reason),
     };
   } else if (soleGate) {
     hookSpecificOutput.decision = { behavior: Decision.ALLOW };
