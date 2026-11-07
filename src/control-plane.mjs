@@ -526,7 +526,7 @@ export const ARGUMENT_KEY_PREFIX = "$.";
  * @typedef {Readonly<Record<string, null | Readonly<{ tool_name: string, input: string | Readonly<Record<string, string>> }>>>} PreToolFiling
  */
 
-/** Codex's default namespace, which it stamps on un-namespaced function calls. */
+/** Codex's default namespace, which it stamps on every un-namespaced call. */
 const DEFAULT_FUNCTION_NAMESPACE = "functions";
 
 /**

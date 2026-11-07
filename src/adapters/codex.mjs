@@ -138,7 +138,8 @@ export const UNRENDERED_FIELDS = Object.freeze({
  * handlers supply their own payload or none:
  * - `exec_command` → `Bash` with `{command: <cmd>}`; arguments Codex cannot
  *   parse as `ExecCommandArgs` file nothing, which this table models only for
- *   a missing or null `cmd` or non-object arguments, not other type errors.
+ *   a missing or null `cmd` or scalar arguments. Not modelled: other type
+ *   errors, and a positional array, which serde reads (`["ls"]` is `cmd: "ls"`).
  * - `apply_patch` (a freeform tool) → `apply_patch` with its raw patch text as
  *   `command`.
  * - `spawn_agent` in the `multi_agent_v1` namespace → `spawn_agent`.

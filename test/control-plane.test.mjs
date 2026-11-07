@@ -801,7 +801,6 @@ describe("fileModelCall reads the PreToolFiling mini-language", () => {
     ["function", "exec_command", { tty: true }, null],
     ["function", "exec_command", { cmd: null }, null],
     ["function", "exec_command", "ls", null],
-    ["function", "exec_command", ["ls"], null],
     ["function", "exec_command", null, null],
     [
       "freeform",
@@ -852,6 +851,13 @@ describe("fileModelCall reads the PreToolFiling mini-language", () => {
       fileModelCall(filing, "function", "t", { a: 0, "a.b": 1 }),
       { tool_name: "T", tool_input: { v: 0 } },
     );
+  });
+
+  it("resolves no $.<key> against array arguments", () => {
+    // The mini-language's own reading; Codex's serde reads a positional array
+    // into ExecCommandArgs, which the codex table does not model.
+    const filing = { t: { tool_name: "T", input: { v: "$.0" } } };
+    assert.equal(fileModelCall(filing, "function", "t", ["ls"]), null);
   });
 
   it("does not resolve a $.<key> through the prototype", () => {
