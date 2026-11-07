@@ -24,6 +24,34 @@ source "$SCRIPT_DIR/lib/git-auth.bash"
 
 log() { echo "$@" >&2; }
 
+# fetch_required_contexts — write the required-check contexts of the default
+# branch's ruleset that GitHub Actions can report (integration_id 15368, or null
+# for any source) to CONTEXTS_FILE. `>` rewrites the file on every attempt: a
+# failed gh api still prints its error body to stdout, which a retried command
+# substitution would keep beside the real answer.
+fetch_required_contexts() {
+  gh api "repos/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY required}/rules/branches/$DEFAULT_BRANCH" \
+    --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]
+      | select((.integration_id // 15368) == 15368) | .context' >"$CONTEXTS_FILE"
+}
+
+# dispatch_required_checks BRANCH — start, on BRANCH, every workflow that reports
+# a required check. A GITHUB_TOKEN-opened PR starts no pull_request run (the loop
+# guard exempts only workflow_dispatch and repository_dispatch), so its checks
+# never report and its auto-merge never fires; a dispatched run's check runs land
+# on BRANCH's head, which is the commit the ruleset evaluates.
+dispatch_required_checks() {
+  local branch="$1" workflows workflow
+  CONTEXTS_FILE="$(mktemp)"
+  retry_cmd 4 2 fetch_required_contexts || return 1
+  workflows=$(bash "$SCRIPT_DIR/run-with-pyyaml.sh" "$SCRIPT_DIR/required-check-workflows.py" .github/workflows <"$CONTEXTS_FILE") || return 1
+  while IFS= read -r workflow; do
+    [[ -n "$workflow" ]] || continue
+    retry_cmd 4 2 gh workflow run "$workflow" --ref "$branch" || return 1
+    log "Dispatched $workflow on $branch"
+  done <<<"$workflows"
+}
+
 # Self-publish guard. `private: true` marks a package that must never reach the
 # registry (npm itself refuses to publish it); for this flow it also means "this
 # repo is not a versioned npm app", so skip the whole release. This is the sole
@@ -91,7 +119,7 @@ determine_bump() {
 # success path can never contaminate CURRENT_VERSION.
 PACKAGE_NAME=$(node -p "require('./package.json').name")
 NPM_VIEW_ERR="$(mktemp)"
-trap 'rm -f "$NPM_VIEW_ERR" "${PUSH_LOG:-}"' EXIT
+trap 'rm -f "$NPM_VIEW_ERR" "${PUSH_LOG:-}" "${CONTEXTS_FILE:-}"' EXIT
 if CURRENT_VERSION=$(npm view "$PACKAGE_NAME" version 2>"$NPM_VIEW_ERR"); then
   :
 elif grep -q "E404" "$NPM_VIEW_ERR"; then
@@ -452,6 +480,10 @@ else
     git commit --amend -m "docs: release $NEW_VERSION"
     PR_FAILED=0
     if ! retry_cmd 4 2 timeout --kill-after=10 60 git push origin "$RELEASE_BRANCH"; then
+      PR_FAILED=1
+    elif [[ "${RELEASE_PR_OPENED_BY_GITHUB_TOKEN:-}" == "true" ]] &&
+      ! dispatch_required_checks "$RELEASE_BRANCH"; then
+      log "could not start the required checks on $RELEASE_BRANCH, so a release-docs PR could never merge."
       PR_FAILED=1
     elif ! PR_URL=$(gh pr create --title "docs: release $NEW_VERSION" \
       --body "Automated CHANGELOG entry for v$NEW_VERSION (already published to npm and tagged). Opened because a branch ruleset blocks pushing this commit to $DEFAULT_BRANCH directly." \
