@@ -12,6 +12,8 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.12.0] - 2026-11-07
+
 ### Added
 
 - `schema/control-plane/v1/agents.json`: one generated row per agent with its block exit code and reason stream, whether a block needs a reason, whether it has an ask tier, the hook entry's default response when the hook breaks, its hook coverage, and the verdict fields an allow cannot carry. A hook wrapper or monitor in another language reads these facts here, without keeping its own per-agent copy.
