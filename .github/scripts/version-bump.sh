@@ -25,19 +25,22 @@ source "$SCRIPT_DIR/lib/git-auth.bash"
 log() { echo "$@" >&2; }
 
 # dispatch_required_checks BRANCH — start, on BRANCH, every workflow that reports
-# a check the default branch's ruleset requires. A release-docs PR opened with
-# GITHUB_TOKEN starts no pull_request run (GitHub's loop guard exempts only
-# workflow_dispatch and repository_dispatch), so without this its required
-# checks never report and its auto-merge never fires. A dispatched run's check
-# runs land on BRANCH's head, which is the commit the ruleset evaluates.
+# a GitHub Actions check the default branch's ruleset requires. A release-docs PR
+# opened with GITHUB_TOKEN starts no pull_request run (GitHub's loop guard
+# exempts only workflow_dispatch and repository_dispatch), so without this its
+# required checks never report and its auto-merge never fires. A dispatched
+# run's check runs land on BRANCH's head, which is the commit the ruleset
+# evaluates. A PAT-opened PR starts its own runs, so the caller skips this then.
 dispatch_required_checks() {
   local branch="$1" contexts workflows workflow
-  contexts=$(gh api "repos/{owner}/{repo}/rules/branches/$DEFAULT_BRANCH" \
-    --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context') || return 1
+  # integration_id 15368 is GitHub Actions; null means any source may report it.
+  contexts=$(retry_cmd 4 2 gh api "repos/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY required}/rules/branches/$DEFAULT_BRANCH" \
+    --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]
+      | select((.integration_id // 15368) == 15368) | .context') || return 1
   workflows=$(bash "$SCRIPT_DIR/run-with-pyyaml.sh" "$SCRIPT_DIR/required-check-workflows.py" .github/workflows <<<"$contexts") || return 1
   while IFS= read -r workflow; do
     [[ -n "$workflow" ]] || continue
-    gh workflow run "$workflow" --ref "$branch" || return 1
+    retry_cmd 4 2 gh workflow run "$workflow" --ref "$branch" || return 1
     log "Dispatched $workflow on $branch"
   done <<<"$workflows"
 }
@@ -471,6 +474,10 @@ else
     PR_FAILED=0
     if ! retry_cmd 4 2 timeout --kill-after=10 60 git push origin "$RELEASE_BRANCH"; then
       PR_FAILED=1
+    elif [[ "${RELEASE_PR_OPENED_BY_GITHUB_TOKEN:-}" == "true" ]] &&
+      ! dispatch_required_checks "$RELEASE_BRANCH"; then
+      log "could not start the required checks on $RELEASE_BRANCH, so a release-docs PR could never merge."
+      PR_FAILED=1
     elif ! PR_URL=$(gh pr create --title "docs: release $NEW_VERSION" \
       --body "Automated CHANGELOG entry for v$NEW_VERSION (already published to npm and tagged). Opened because a branch ruleset blocks pushing this commit to $DEFAULT_BRANCH directly." \
       --base "$DEFAULT_BRANCH" --head "$RELEASE_BRANCH" 2>&1); then
@@ -486,9 +493,6 @@ else
     # waiting to merge it (mirrors template-sync-automerge.sh's same check).
     elif [[ "$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')" != "true" ]]; then
       log "auto-merge did not stick on $PR_URL. Enable 'Allow auto-merge' in the repository settings."
-      PR_FAILED=1
-    elif ! dispatch_required_checks "$RELEASE_BRANCH"; then
-      log "could not start the required checks on $RELEASE_BRANCH, so auto-merge on $PR_URL has nothing to wait for."
       PR_FAILED=1
     fi
     if [[ "$PR_FAILED" -eq 1 ]]; then

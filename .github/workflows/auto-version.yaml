@@ -101,4 +101,7 @@ jobs:
           # token-fallback-ok: deliberate — the fallback only opens a PR from a
           # new branch, never pushes to main (see the comment above).
           GH_TOKEN: ${{ secrets.RELEASE_BYPASS_TOKEN || secrets.GITHUB_TOKEN }}
+          # A PAT-opened PR starts its own pull_request runs; only a
+          # GITHUB_TOKEN-opened one needs version-bump.sh to dispatch them.
+          RELEASE_PR_OPENED_BY_GITHUB_TOKEN: ${{ secrets.RELEASE_BYPASS_TOKEN == '' }}
         run: bash .github/scripts/version-bump.sh

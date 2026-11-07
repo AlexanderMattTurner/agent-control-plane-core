@@ -6,8 +6,7 @@ on:
   push:
     branches: ["main"]
   pull_request:
-  # Reports a required check, so version-bump.sh dispatches it on a release-docs
-  # PR: that PR is opened with GITHUB_TOKEN, which starts no pull_request run.
+  # Required check: version-bump.sh dispatches it on GITHUB_TOKEN-opened release-docs PRs.
   workflow_dispatch:
 
 concurrency:
