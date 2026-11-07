@@ -505,13 +505,16 @@ export const ARGUMENT_KEY_PREFIX = "$.";
  * (no separator). Each value is one of:
  * - `null`: no pre-tool hook fires for this call.
  * - `{ tool_name, input }`: the hook fires with `tool_name`, and `tool_input`
- *   built from `input` — either {@link WHOLE_ARGUMENTS} (the call's whole
- *   arguments value), or an object whose every value is {@link WHOLE_ARGUMENTS}
- *   or `"$.<key>"` (the arguments' top-level `<key>`). When a `"$.<key>"` does
- *   not resolve (arguments not an object, or no such key) the hook files nothing.
- * A name absent from the map is filed as the model asked: same name, whole
- * arguments. The ARGUMENTS VALUE is a function call's `arguments` parsed as
- * JSON, or a freeform (custom) tool call's raw `input` string.
+ *   built from `input` — either `"$"` (the call's whole arguments value), or
+ *   an object whose every value is `"$"` or `"$.<key>"`. `<key>` is one
+ *   literal, non-empty top-level key with no `.` in it. The hook files NOTHING
+ *   when a `"$.<key>"` does not resolve: the arguments are not an object, lack
+ *   the key, or hold `null` there.
+ * A FUNCTION call whose name the map does not list is filed as the model asked:
+ * same name, whole arguments. A freeform call it does not list is undescribed.
+ * The ARGUMENTS VALUE is a function call's `arguments` as the host parses them
+ * (JSON, with an empty string read as `{}` and unparseable text kept as the
+ * raw string), or a freeform (custom) call's raw `input` string.
  * Plain JSON by design: `agents.json` publishes it so a consumer with no JS
  * runtime applies it the way {@link fileModelCall} does.
  * @typedef {Readonly<Record<string, null | Readonly<{ tool_name: string, input: string | Readonly<Record<string, string>> }>>>} PreToolFiling
@@ -528,33 +531,59 @@ export const ARGUMENT_KEY_PREFIX = "$.";
  */
 
 /**
- * Resolve one {@link PreToolFiling} input reference against `args`; `undefined`
- * when it names a key the arguments do not carry.
+ * Whether `ref` is a {@link PreToolFiling} input reference: `"$"`, or `"$."`
+ * followed by one non-empty key with no `.`.
+ * @param {unknown} ref
+ * @returns {boolean}
+ */
+function isFilingRef(ref) {
+  if (ref === WHOLE_ARGUMENTS) return true;
+  if (typeof ref !== "string" || !ref.startsWith(ARGUMENT_KEY_PREFIX))
+    return false;
+  const key = ref.slice(ARGUMENT_KEY_PREFIX.length);
+  return key !== "" && !key.includes(".");
+}
+
+/**
+ * Whether `input` is a {@link PreToolFiling} rule's input: `"$"`, or a plain
+ * object (not an array) whose every value {@link isFilingRef} accepts. The one
+ * grammar both {@link fileModelCall} and the conformance harness hold a rule to.
+ * @param {unknown} input
+ * @returns {boolean}
+ */
+export function isFilingInput(input) {
+  if (input === WHOLE_ARGUMENTS) return true;
+  return (
+    typeof input === "object" &&
+    input !== null &&
+    !Array.isArray(input) &&
+    Object.values(input).every(isFilingRef)
+  );
+}
+
+/**
+ * Resolve one valid {@link PreToolFiling} input reference against `args`;
+ * `undefined` when it does not resolve (see {@link PreToolFiling}).
  * @param {string} ref
  * @param {unknown} args
  * @returns {unknown}
  */
 function resolveArgument(ref, args) {
   if (ref === WHOLE_ARGUMENTS) return args;
-  if (!ref.startsWith(ARGUMENT_KEY_PREFIX))
-    throw new Error(
-      `control-plane: filing input reference ${JSON.stringify(ref)} is neither "${WHOLE_ARGUMENTS}" nor "${ARGUMENT_KEY_PREFIX}<key>"`,
-    );
-  const isRecord =
-    typeof args === "object" && args !== null && !Array.isArray(args);
-  return isRecord
-    ? lookup(
-        /** @type {Record<string, unknown>} */ (args),
-        ref.slice(ARGUMENT_KEY_PREFIX.length),
-      )
-    : undefined;
+  if (typeof args !== "object" || args === null || Array.isArray(args))
+    return undefined;
+  const value = lookup(
+    /** @type {Record<string, unknown>} */ (args),
+    ref.slice(ARGUMENT_KEY_PREFIX.length),
+  );
+  return value === null ? undefined : value;
 }
 
 /**
  * The call a host's pre-tool hook files for a model call to `name` with
  * arguments value `args`, per that host's {@link PreToolFiling}; `null` when the
  * hook files none. The reference reading of the mini-language `agents.json`
- * publishes as `pre_tool_filing`.
+ * publishes as `pre_tool_filing`. Throws on a rule outside that grammar.
  * @param {PreToolFiling} filing
  * @param {string} name the model tool name (namespace + name)
  * @param {unknown} args the call's arguments value
@@ -565,12 +594,12 @@ export function fileModelCall(filing, name, args) {
     return { tool_name: name, tool_input: args };
   const rule = filing[name];
   if (rule === null) return null;
+  if (!isFilingInput(rule.input))
+    throw new Error(
+      `control-plane: filing input for ${JSON.stringify(name)} is ${JSON.stringify(rule.input)}, neither "${WHOLE_ARGUMENTS}" nor an object of "${WHOLE_ARGUMENTS}"/"${ARGUMENT_KEY_PREFIX}<key>" references`,
+    );
   if (rule.input === WHOLE_ARGUMENTS)
     return { tool_name: rule.tool_name, tool_input: args };
-  if (typeof rule.input !== "object")
-    throw new Error(
-      `control-plane: filing input for ${JSON.stringify(name)} is ${JSON.stringify(rule.input)}, neither "${WHOLE_ARGUMENTS}" nor an object of references`,
-    );
   /** @type {Record<string, unknown>} */
   const tool_input = {};
   for (const [key, ref] of Object.entries(rule.input)) {

@@ -209,12 +209,15 @@ fields an allow cannot carry, and two pre-tool facts:
   - `{"tool_name": T, "input": I}`: the hook files `tool_name` T, and builds
     `tool_input` from I. I is either `"$"`, meaning the call's whole arguments
     value, or an object whose values are each `"$"` or `"$.<key>"`, meaning
-    that top-level argument. If a `"$.<key>"` does not resolve (the arguments
-    are not an object, or lack the key), the hook files nothing.
+    that top-level argument. `<key>` is one literal key, non-empty and with no
+    `.`. If a `"$.<key>"` does not resolve (the arguments are not an object,
+    lack the key, or hold `null` there), the hook files nothing.
 
-  A name the map does not list is filed with the model's own name and
-  arguments. The arguments value is a function call's `arguments` parsed as
-  JSON, or a freeform tool call's raw `input` string. `fileModelCall` in
+  A function call the map does not list is filed with the model's own name and
+  arguments. A freeform call the map does not list is undescribed; on Codex it
+  files nothing. The arguments value is a function call's `arguments` parsed
+  as JSON (an empty string reads as `{}`, unparseable text stays the raw
+  string), or a freeform call's raw `input` string. `fileModelCall` in
   `/contract` is the reference implementation. The map does not model one
   Codex rename: Codex files an MCP call as `mcp__<namespace>__<tool>`, which
   differs from the flat name when the namespace does not end in `__`.

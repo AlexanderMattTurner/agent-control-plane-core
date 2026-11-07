@@ -40,7 +40,6 @@ import {
   asString,
   asStringOrNull,
   WHOLE_ARGUMENTS,
-  ARGUMENT_KEY_PREFIX,
 } from "../control-plane.mjs";
 
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
@@ -135,8 +134,7 @@ export const UNRENDERED_FIELDS = Object.freeze({
 /**
  * How Codex's `PreToolUse` hook files a model tool call ([X7], read from
  * Codex's source at `rust-v0.166.0`). A function tool is filed under its flat
- * name (namespace + name) with its parsed arguments by default (empty
- * arguments parse as `{}`, unparseable ones stay the raw string); these
+ * name (namespace + name) with its parsed arguments by default; these
  * handlers supply their own payload or none:
  * - `exec_command` → `Bash` with `{command: <cmd>}`; arguments Codex cannot
  *   parse as `ExecCommandArgs` file nothing, which this table models only for
@@ -145,6 +143,8 @@ export const UNRENDERED_FIELDS = Object.freeze({
  *   `command`.
  * - `spawn_agent` in the `multi_agent_v1` namespace → `spawn_agent`.
  * - `write_stdin`, code mode's `wait`, and code mode's freeform `exec` → no hook.
+ *   The default payload is function-only, so any freeform tool not listed here
+ *   files nothing either.
  * NOT MODELLED: Codex files an MCP call as `mcp__<namespace>__<tool>`
  * (`mcp.rs` `hook_tool_name`), which differs from the flat name when the
  * namespace does not end in `__` — a rule keyed by name cannot express it.
@@ -153,7 +153,7 @@ export const UNRENDERED_FIELDS = Object.freeze({
 export const PRE_TOOL_FILING = Object.freeze({
   exec_command: Object.freeze({
     tool_name: "Bash",
-    input: Object.freeze({ command: `${ARGUMENT_KEY_PREFIX}cmd` }),
+    input: Object.freeze({ command: "$.cmd" }),
   }),
   apply_patch: Object.freeze({
     tool_name: "apply_patch",

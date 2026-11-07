@@ -782,6 +782,7 @@ describe("fileModelCall reads the PreToolFiling mini-language", () => {
       { tool_name: "Bash", tool_input: { command: "ls -la" } },
     ],
     ["exec_command", { tty: true }, null],
+    ["exec_command", { cmd: null }, null],
     ["exec_command", "ls", null],
     ["exec_command", ["ls"], null],
     ["exec_command", null, null],
@@ -824,12 +825,20 @@ describe("fileModelCall reads the PreToolFiling mini-language", () => {
       );
   });
 
+  it("reads a $.<key> as one literal key and keeps a falsy non-null value", () => {
+    const filing = { t: { tool_name: "T", input: { v: "$.a" } } };
+    assert.deepEqual(fileModelCall(filing, "t", { a: 0, "a.b": 1 }), {
+      tool_name: "T",
+      tool_input: { v: 0 },
+    });
+  });
+
   it("does not resolve a $.<key> through the prototype", () => {
     const filing = { t: { tool_name: "T", input: { v: "$.toString" } } };
     assert.equal(fileModelCall(filing, "t", {}), null);
   });
 
-  it("maps a nested reference object to the whole arguments value", () => {
+  it("mixes $ and $.<key> references in one input", () => {
     const filing = { t: { tool_name: "T", input: { all: "$", one: "$.a" } } };
     assert.deepEqual(fileModelCall(filing, "t", { a: 1, b: 2 }), {
       tool_name: "T",
@@ -837,23 +846,20 @@ describe("fileModelCall reads the PreToolFiling mini-language", () => {
     });
   });
 
-  for (const [label, input, pattern] of [
-    [
-      "a string input other than $",
-      "$.cmd",
-      /neither "\$" nor an object of references/,
-    ],
-    [
-      "a reference outside the language",
-      { v: "cmd" },
-      /neither "\$" nor "\$\.<key>"/,
-    ],
+  for (const [label, input] of [
+    ["a string input other than $", "$.cmd"],
+    ["a reference outside the language", { v: "cmd" }],
+    ["an empty key reference", { v: "$." }],
+    ["a dotted key reference", { v: "$.a.b" }],
+    ["a non-string reference", { v: 1 }],
+    ["an array input", ["$"]],
+    ["a null input", null],
   ])
     it(`throws on ${label}`, () => {
       assert.throws(
         () =>
           fileModelCall({ t: { tool_name: "T", input } }, "t", { cmd: "x" }),
-        pattern,
+        /, neither "\$" nor an object of "\$"\/"\$\.<key>" references$/,
       );
     });
 });

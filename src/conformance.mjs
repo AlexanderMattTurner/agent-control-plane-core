@@ -13,6 +13,7 @@ import {
   VERDICT_CONTENT_FIELDS,
   WHOLE_ARGUMENTS,
   ARGUMENT_KEY_PREFIX,
+  isFilingInput,
 } from "./control-plane.mjs";
 
 /**
@@ -623,10 +624,10 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
         event,
       ),
     );
+    const paths = divergences(renders);
     const where = `'${caseName}' (${adapter.AGENT}), ${field} ${shape}`;
     for (const rendered of renders)
       assertPreToolKeysRead(adapter, event, rendered, where, assert);
-    const paths = divergences(renders);
     if (declared?.has(field)) {
       assert.deepEqual(
         paths,
@@ -746,14 +747,18 @@ function assertPreToolKeysRead(adapter, event, rendered, label, assert) {
   const body = /** @type {{ hookSpecificOutput?: unknown } | undefined} */ (
     rendered?.stdout
   );
-  const specific = body?.hookSpecificOutput;
+  const specific =
+    body?.hookSpecificOutput === undefined ? {} : body.hookSpecificOutput;
+  assert.ok(
+    typeof specific === "object" &&
+      specific !== null &&
+      !Array.isArray(specific),
+    `${adapter.AGENT}: a pre-tool render's hookSpecificOutput is ${JSON.stringify(specific)}, not an object: ${label}`,
+  );
   const read = new Set(adapter.PRE_TOOL_RESPONSE.hook_specific_output_keys);
-  const unread =
-    specific === undefined
-      ? []
-      : Object.keys(/** @type {object} */ (specific)).filter(
-          (key) => !read.has(key),
-        );
+  const unread = Object.keys(/** @type {object} */ (specific)).filter(
+    (key) => !read.has(key),
+  );
   assert.deepEqual(
     unread,
     [],
@@ -792,22 +797,12 @@ function assertPreToolDeclarationsWellFormed(adapter, assert) {
       typeof rule.tool_name === "string" && rule.tool_name !== "",
       `${where}.tool_name is not a non-empty string`,
     );
-    if (rule.input === WHOLE_ARGUMENTS) continue;
     assert.ok(
-      typeof rule.input === "object" &&
-        rule.input !== null &&
-        !Array.isArray(rule.input) &&
-        Object.isFrozen(rule.input),
-      `${where}.input is neither "${WHOLE_ARGUMENTS}" nor a frozen object of references`,
+      isFilingInput(rule.input),
+      `${where}.input is ${JSON.stringify(rule.input)}, neither "${WHOLE_ARGUMENTS}" nor an object of "${WHOLE_ARGUMENTS}"/"${ARGUMENT_KEY_PREFIX}<key>" references (<key>: non-empty, no ".")`,
     );
-    for (const ref of Object.values(rule.input))
-      assert.ok(
-        ref === WHOLE_ARGUMENTS ||
-          (typeof ref === "string" &&
-            ref.startsWith(ARGUMENT_KEY_PREFIX) &&
-            ref.length > ARGUMENT_KEY_PREFIX.length),
-        `${where}.input holds ${JSON.stringify(ref)}, neither "${WHOLE_ARGUMENTS}" nor "${ARGUMENT_KEY_PREFIX}<key>"`,
-      );
+    if (rule.input !== WHOLE_ARGUMENTS)
+      assert.ok(Object.isFrozen(rule.input), `${where}.input is not frozen`);
   }
   const response = adapter.PRE_TOOL_RESPONSE;
   assert.ok(

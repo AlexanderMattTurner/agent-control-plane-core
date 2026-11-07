@@ -122,8 +122,7 @@ export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
 /**
  * How Codex's `PreToolUse` hook files a model tool call ([X7], read from
  * Codex's source at `rust-v0.166.0`). A function tool is filed under its flat
- * name (namespace + name) with its parsed arguments by default (empty
- * arguments parse as `{}`, unparseable ones stay the raw string); these
+ * name (namespace + name) with its parsed arguments by default; these
  * handlers supply their own payload or none:
  * - `exec_command` → `Bash` with `{command: <cmd>}`; arguments Codex cannot
  *   parse as `ExecCommandArgs` file nothing, which this table models only for
@@ -132,6 +131,8 @@ export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
  *   `command`.
  * - `spawn_agent` in the `multi_agent_v1` namespace → `spawn_agent`.
  * - `write_stdin`, code mode's `wait`, and code mode's freeform `exec` → no hook.
+ *   The default payload is function-only, so any freeform tool not listed here
+ *   files nothing either.
  * NOT MODELLED: Codex files an MCP call as `mcp__<namespace>__<tool>`
  * (`mcp.rs` `hook_tool_name`), which differs from the flat name when the
  * namespace does not end in `__` — a rule keyed by name cannot express it.

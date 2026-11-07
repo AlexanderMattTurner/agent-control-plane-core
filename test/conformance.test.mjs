@@ -1856,6 +1856,21 @@ describe("conformance harness self-tests (pre-tool key honesty, rule ⑫)", () =
     );
   });
 
+  it("refuses a hookSpecificOutput that is not an object", () => {
+    const adapter = bodyAdapter(["hookEventName"], true);
+    const nulled = {
+      ...adapter,
+      render: (verdict, event) => ({
+        ...adapter.render(verdict, event),
+        stdout: { hookSpecificOutput: null },
+      }),
+    };
+    assert.throws(
+      () => run(nulled, selfGolden(nulled, ["PreToolUse"])),
+      /a pre-tool render's hookSpecificOutput is null, not an object: PreToolUse \/ allow/,
+    );
+  });
+
   it("catches a key only a rule ⑩ content probe renders", () => {
     // No fixture carries additional_context, so only the probe reaches it.
     const adapter = {
@@ -1993,7 +2008,7 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
           Object.freeze({ tool_name: "T", input: "$.x" }),
         ),
       },
-      /input is neither "\$" nor a frozen object of references/,
+      /input is .*, neither "\$" nor an object of/,
     ],
     [
       "an array input",
@@ -2002,7 +2017,7 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
           Object.freeze({ tool_name: "T", input: Object.freeze(["$"]) }),
         ),
       },
-      /input is neither "\$" nor a frozen object of references/,
+      /input is .*, neither "\$" nor an object of/,
     ],
     [
       "an unfrozen input object",
@@ -2011,7 +2026,7 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
           Object.freeze({ tool_name: "T", input: { a: "$" } }),
         ),
       },
-      /input is neither "\$" nor a frozen object of references/,
+      /PRE_TOOL_FILING\["t"\]\.input is not frozen/,
     ],
     [
       "an empty key reference",
@@ -2020,7 +2035,7 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
           Object.freeze({ tool_name: "T", input: Object.freeze({ a: "$." }) }),
         ),
       },
-      /input holds "\$\.", neither "\$" nor "\$\.<key>"/,
+      /input is \{"a":"\$\."\}, neither/,
     ],
     [
       "a reference outside the language",
@@ -2029,7 +2044,26 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
           Object.freeze({ tool_name: "T", input: Object.freeze({ a: "cmd" }) }),
         ),
       },
-      /input holds "cmd"/,
+      /input is \{"a":"cmd"\}, neither/,
+    ],
+    [
+      "a dotted key reference",
+      {
+        PRE_TOOL_FILING: filing(
+          Object.freeze({
+            tool_name: "T",
+            input: Object.freeze({ a: "$.a.b" }),
+          }),
+        ),
+      },
+      /input is \{"a":"\$\.a\.b"\}, neither/,
+    ],
+    [
+      "a null input",
+      {
+        PRE_TOOL_FILING: filing(Object.freeze({ tool_name: "T", input: null })),
+      },
+      /input is null, neither/,
     ],
     [
       "no PRE_TOOL_RESPONSE",
