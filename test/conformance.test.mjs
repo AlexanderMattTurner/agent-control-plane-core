@@ -1994,12 +1994,12 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
           Object.freeze({ tool_name: "T", input: "$", x: 1 }),
         ),
       },
-      /must carry exactly tool_name and input/,
+      /PRE_TOOL_FILING\["t"\] is \{"tool_name":"T","input":"\$","x":1\}, not \{tool_name: <non-empty string>, /,
     ],
     [
       "an empty tool_name",
       { PRE_TOOL_FILING: filing(Object.freeze({ tool_name: "", input: "$" })) },
-      /tool_name is not a non-empty string/,
+      /PRE_TOOL_FILING\["t"\] is \{"tool_name":"","input":"\$"\}, not /,
     ],
     [
       "a string input other than $",
@@ -2008,7 +2008,7 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
           Object.freeze({ tool_name: "T", input: "$.x" }),
         ),
       },
-      /input is .*, neither "\$" nor an object of/,
+      /PRE_TOOL_FILING\["t"\] is \{"tool_name":"T","input":"\$\.x"\}, not /,
     ],
     [
       "an array input",
@@ -2017,7 +2017,7 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
           Object.freeze({ tool_name: "T", input: Object.freeze(["$"]) }),
         ),
       },
-      /input is .*, neither "\$" nor an object of/,
+      /PRE_TOOL_FILING\["t"\] is \{"tool_name":"T","input":\["\$"\]\}, not /,
     ],
     [
       "an unfrozen input object",
@@ -2035,7 +2035,7 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
           Object.freeze({ tool_name: "T", input: Object.freeze({ a: "$." }) }),
         ),
       },
-      /input is \{"a":"\$\."\}, neither/,
+      /"input":\{"a":"\$\."\}\}, not /,
     ],
     [
       "a reference outside the language",
@@ -2044,7 +2044,7 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
           Object.freeze({ tool_name: "T", input: Object.freeze({ a: "cmd" }) }),
         ),
       },
-      /input is \{"a":"cmd"\}, neither/,
+      /"input":\{"a":"cmd"\}\}, not /,
     ],
     [
       "a dotted key reference",
@@ -2056,14 +2056,14 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
           }),
         ),
       },
-      /input is \{"a":"\$\.a\.b"\}, neither/,
+      /"input":\{"a":"\$\.a\.b"\}\}, not /,
     ],
     [
       "a null input",
       {
         PRE_TOOL_FILING: filing(Object.freeze({ tool_name: "T", input: null })),
       },
-      /input is null, neither/,
+      /"input":null\}, not /,
     ],
     [
       "no PRE_TOOL_RESPONSE",

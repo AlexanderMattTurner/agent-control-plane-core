@@ -510,11 +510,13 @@ export const ARGUMENT_KEY_PREFIX = "$.";
  *   literal, non-empty top-level key with no `.` in it. The hook files NOTHING
  *   when a `"$.<key>"` does not resolve: the arguments are not an object, lack
  *   the key, or hold `null` there.
- * A FUNCTION call whose name the map does not list is filed as the model asked:
- * same name, whole arguments. A freeform call it does not list is undescribed.
- * The ARGUMENTS VALUE is a function call's `arguments` as the host parses them
- * (JSON, with an empty string read as `{}` and unparseable text kept as the
- * raw string), or a freeform (custom) call's raw `input` string.
+ * A FUNCTION call the map does not list is filed as the model asked: same
+ * name, whole arguments. A FREEFORM (custom) call the map does not list files
+ * nothing. Of the shipped hosts only Codex makes freeform calls ([X7] in
+ * `docs/hook-coverage-matrix.md`).
+ * On Codex the ARGUMENTS VALUE is a function call's `arguments` parsed as JSON
+ * (an empty string reads as `{}`, unparseable text stays the raw string), or a
+ * freeform call's raw `input` string.
  * Plain JSON by design: `agents.json` publishes it so a consumer with no JS
  * runtime applies it the way {@link fileModelCall} does.
  * @typedef {Readonly<Record<string, null | Readonly<{ tool_name: string, input: string | Readonly<Record<string, string>> }>>>} PreToolFiling
@@ -546,12 +548,11 @@ function isFilingRef(ref) {
 
 /**
  * Whether `input` is a {@link PreToolFiling} rule's input: `"$"`, or a plain
- * object (not an array) whose every value {@link isFilingRef} accepts. The one
- * grammar both {@link fileModelCall} and the conformance harness hold a rule to.
+ * object (not an array) whose every value is `"$"` or `"$.<key>"`.
  * @param {unknown} input
  * @returns {boolean}
  */
-export function isFilingInput(input) {
+function isFilingInput(input) {
   if (input === WHOLE_ARGUMENTS) return true;
   return (
     typeof input === "object" &&
@@ -560,6 +561,34 @@ export function isFilingInput(input) {
     Object.values(input).every(isFilingRef)
   );
 }
+
+/** What a {@link PreToolFiling} rule must be, for error messages. */
+export const FILING_RULE_GRAMMAR = `{tool_name: <non-empty string>, input: "${WHOLE_ARGUMENTS}" or an object of "${WHOLE_ARGUMENTS}"/"${ARGUMENT_KEY_PREFIX}<key>" references (<key>: non-empty, no ".")}`;
+
+/**
+ * Whether `rule` is a non-null {@link PreToolFiling} rule: a plain object with
+ * exactly a non-empty string `tool_name` and a well-formed `input`. The one
+ * grammar both {@link fileModelCall} and the conformance harness hold a rule to.
+ * @param {unknown} rule
+ * @returns {boolean}
+ */
+export function isFilingRule(rule) {
+  if (typeof rule !== "object" || rule === null || Array.isArray(rule))
+    return false;
+  const keys = Object.keys(rule).sort();
+  const { tool_name, input } = /** @type {Record<string, unknown>} */ (rule);
+  return (
+    keys.length === 2 &&
+    keys[0] === "input" &&
+    keys[1] === "tool_name" &&
+    typeof tool_name === "string" &&
+    tool_name !== "" &&
+    isFilingInput(input)
+  );
+}
+
+/** The kinds of model tool call a {@link PreToolFiling} distinguishes. */
+export const MODEL_CALL_KINDS = readonlySet(["function", "freeform"]);
 
 /**
  * Resolve one valid {@link PreToolFiling} input reference against `args`;
@@ -580,23 +609,29 @@ function resolveArgument(ref, args) {
 }
 
 /**
- * The call a host's pre-tool hook files for a model call to `name` with
- * arguments value `args`, per that host's {@link PreToolFiling}; `null` when the
- * hook files none. The reference reading of the mini-language `agents.json`
- * publishes as `pre_tool_filing`. Throws on a rule outside that grammar.
+ * The call a host's pre-tool hook files for a model call of `kind` to `name`
+ * with arguments value `args`, per that host's {@link PreToolFiling}; `null`
+ * when the hook files none. The reference reading of the mini-language
+ * `agents.json` publishes as `pre_tool_filing`. Throws on a rule outside that
+ * grammar or a kind outside {@link MODEL_CALL_KINDS}.
  * @param {PreToolFiling} filing
+ * @param {"function" | "freeform"} kind whether the model made a function call or a freeform (custom) call
  * @param {string} name the model tool name (namespace + name)
  * @param {unknown} args the call's arguments value
  * @returns {{ tool_name: string, tool_input: unknown } | null}
  */
-export function fileModelCall(filing, name, args) {
+export function fileModelCall(filing, kind, name, args) {
+  if (!MODEL_CALL_KINDS.has(kind))
+    throw new Error(
+      `control-plane: model call kind ${JSON.stringify(kind)} is neither "function" nor "freeform"`,
+    );
   if (!Object.hasOwn(filing, name))
-    return { tool_name: name, tool_input: args };
+    return kind === "function" ? { tool_name: name, tool_input: args } : null;
   const rule = filing[name];
   if (rule === null) return null;
-  if (!isFilingInput(rule.input))
+  if (!isFilingRule(rule))
     throw new Error(
-      `control-plane: filing input for ${JSON.stringify(name)} is ${JSON.stringify(rule.input)}, neither "${WHOLE_ARGUMENTS}" nor an object of "${WHOLE_ARGUMENTS}"/"${ARGUMENT_KEY_PREFIX}<key>" references`,
+      `control-plane: filing rule for ${JSON.stringify(name)} is ${JSON.stringify(rule)}, not ${FILING_RULE_GRAMMAR}`,
     );
   if (rule.input === WHOLE_ARGUMENTS)
     return { tool_name: rule.tool_name, tool_input: args };

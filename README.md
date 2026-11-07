@@ -214,11 +214,12 @@ fields an allow cannot carry, and two pre-tool facts:
     lack the key, or hold `null` there), the hook files nothing.
 
   A function call the map does not list is filed with the model's own name and
-  arguments. A freeform call the map does not list is undescribed; on Codex it
-  files nothing. The arguments value is a function call's `arguments` parsed
-  as JSON (an empty string reads as `{}`, unparseable text stays the raw
-  string), or a freeform call's raw `input` string. `fileModelCall` in
-  `/contract` is the reference implementation. The map does not model one
+  arguments. A freeform (custom) call the map does not list files nothing; of the
+  shipped hosts only Codex makes them. On Codex the arguments value is a function call's
+  `arguments` parsed as JSON (an empty string reads as `{}`, unparseable text
+  stays the raw string), or a freeform call's raw `input` string. `fileModelCall` in
+  `/contract` is the reference implementation; it takes the call's kind,
+  `"function"` or `"freeform"`. The map does not model one
   Codex rename: Codex files an MCP call as `mcp__<namespace>__<tool>`, which
   differs from the flat name when the namespace does not end in `__`.
 

@@ -143,8 +143,8 @@ export const UNRENDERED_FIELDS = Object.freeze({
  *   `command`.
  * - `spawn_agent` in the `multi_agent_v1` namespace → `spawn_agent`.
  * - `write_stdin`, code mode's `wait`, and code mode's freeform `exec` → no hook.
- *   The default payload is function-only, so any freeform tool not listed here
- *   files nothing either.
+ *   The default payload is function-only, so a freeform extension tool files
+ *   nothing too — the mini-language's rule for an unlisted freeform call.
  * NOT MODELLED: Codex files an MCP call as `mcp__<namespace>__<tool>`
  * (`mcp.rs` `hook_tool_name`), which differs from the flat name when the
  * namespace does not end in `__` — a rule keyed by name cannot express it.

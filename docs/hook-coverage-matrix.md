@@ -174,6 +174,9 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   and code mode's `exec` is a freeform tool that the default, function-only
   payload skips
   ([`execute_handler.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/code_mode/execute_handler.rs)).
+  Extension tools can be freeform too (`matches_kind` in
+  [`extension_tools.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/extension_tools.rs)),
+  and take the same default payload, so an unlisted freeform call files nothing.
   An MCP call is filed as `mcp__<namespace>__<tool>` (`hook_tool_name` in
   [`mcp.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/mcp.rs)).
   `PRE_TOOL_FILING` in `src/adapters/codex.mjs` carries all of these except the

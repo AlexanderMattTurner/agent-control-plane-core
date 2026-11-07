@@ -125,24 +125,26 @@ export function classifyCallClass(tool: string | null, native?: Record<string, u
  */
 export function readonlySet(values: Iterable<string>): ReadonlySet<string>;
 /**
- * Whether `input` is a {@link PreToolFiling} rule's input: `"$"`, or a plain
- * object (not an array) whose every value {@link isFilingRef} accepts. The one
+ * Whether `rule` is a non-null {@link PreToolFiling} rule: a plain object with
+ * exactly a non-empty string `tool_name` and a well-formed `input`. The one
  * grammar both {@link fileModelCall} and the conformance harness hold a rule to.
- * @param {unknown} input
+ * @param {unknown} rule
  * @returns {boolean}
  */
-export function isFilingInput(input: unknown): boolean;
+export function isFilingRule(rule: unknown): boolean;
 /**
- * The call a host's pre-tool hook files for a model call to `name` with
- * arguments value `args`, per that host's {@link PreToolFiling}; `null` when the
- * hook files none. The reference reading of the mini-language `agents.json`
- * publishes as `pre_tool_filing`. Throws on a rule outside that grammar.
+ * The call a host's pre-tool hook files for a model call of `kind` to `name`
+ * with arguments value `args`, per that host's {@link PreToolFiling}; `null`
+ * when the hook files none. The reference reading of the mini-language
+ * `agents.json` publishes as `pre_tool_filing`. Throws on a rule outside that
+ * grammar or a kind outside {@link MODEL_CALL_KINDS}.
  * @param {PreToolFiling} filing
+ * @param {"function" | "freeform"} kind whether the model made a function call or a freeform (custom) call
  * @param {string} name the model tool name (namespace + name)
  * @param {unknown} args the call's arguments value
  * @returns {{ tool_name: string, tool_input: unknown } | null}
  */
-export function fileModelCall(filing: PreToolFiling, name: string, args: unknown): {
+export function fileModelCall(filing: PreToolFiling, kind: "function" | "freeform", name: string, args: unknown): {
     tool_name: string;
     tool_input: unknown;
 } | null;
@@ -572,6 +574,10 @@ export const UNRENDERED_ON_UNKNOWN: ReadonlySet<string>;
 export const WHOLE_ARGUMENTS: "$";
 /** The prefix of a {@link PreToolFiling} input reference to one top-level argument. */
 export const ARGUMENT_KEY_PREFIX: "$.";
+/** What a {@link PreToolFiling} rule must be, for error messages. */
+export const FILING_RULE_GRAMMAR: "{tool_name: <non-empty string>, input: \"$\" or an object of \"$\"/\"$.<key>\" references (<key>: non-empty, no \".\")}";
+/** The kinds of model tool call a {@link PreToolFiling} distinguishes. */
+export const MODEL_CALL_KINDS: ReadonlySet<string>;
 /**
  * PROBLEM CLASS — an event marked vetoable on a path where the host can never
  * veto it, so a deny reads downstream as a block that never happened.
@@ -639,11 +645,13 @@ export const BLOCK_TRANSPORT: Readonly<Record<string, Readonly<{
  *   literal, non-empty top-level key with no `.` in it. The hook files NOTHING
  *   when a `"$.<key>"` does not resolve: the arguments are not an object, lack
  *   the key, or hold `null` there.
- * A FUNCTION call whose name the map does not list is filed as the model asked:
- * same name, whole arguments. A freeform call it does not list is undescribed.
- * The ARGUMENTS VALUE is a function call's `arguments` as the host parses them
- * (JSON, with an empty string read as `{}` and unparseable text kept as the
- * raw string), or a freeform (custom) call's raw `input` string.
+ * A FUNCTION call the map does not list is filed as the model asked: same
+ * name, whole arguments. A FREEFORM (custom) call the map does not list files
+ * nothing. Of the shipped hosts only Codex makes freeform calls ([X7] in
+ * `docs/hook-coverage-matrix.md`).
+ * On Codex the ARGUMENTS VALUE is a function call's `arguments` parsed as JSON
+ * (an empty string reads as `{}`, unparseable text stays the raw string), or a
+ * freeform call's raw `input` string.
  * Plain JSON by design: `agents.json` publishes it so a consumer with no JS
  * runtime applies it the way {@link fileModelCall} does.
  */

@@ -12,8 +12,8 @@ import {
   lookup,
   VERDICT_CONTENT_FIELDS,
   WHOLE_ARGUMENTS,
-  ARGUMENT_KEY_PREFIX,
-  isFilingInput,
+  FILING_RULE_GRAMMAR,
+  isFilingRule,
 } from "./control-plane.mjs";
 
 /**
@@ -788,18 +788,9 @@ function assertPreToolDeclarationsWellFormed(adapter, assert) {
     if (rule === null) continue;
     const where = `${agent}: PRE_TOOL_FILING[${JSON.stringify(name)}]`;
     assert.ok(Object.isFrozen(rule), `${where} is not frozen`);
-    assert.deepEqual(
-      Object.keys(rule).sort(),
-      ["input", "tool_name"],
-      `${where} must carry exactly tool_name and input`,
-    );
     assert.ok(
-      typeof rule.tool_name === "string" && rule.tool_name !== "",
-      `${where}.tool_name is not a non-empty string`,
-    );
-    assert.ok(
-      isFilingInput(rule.input),
-      `${where}.input is ${JSON.stringify(rule.input)}, neither "${WHOLE_ARGUMENTS}" nor an object of "${WHOLE_ARGUMENTS}"/"${ARGUMENT_KEY_PREFIX}<key>" references (<key>: non-empty, no ".")`,
+      isFilingRule(rule),
+      `${where} is ${JSON.stringify(rule)}, not ${FILING_RULE_GRAMMAR}`,
     );
     if (rule.input !== WHOLE_ARGUMENTS)
       assert.ok(Object.isFrozen(rule.input), `${where}.input is not frozen`);

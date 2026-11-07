@@ -32,6 +32,7 @@ import {
   asString,
   asStringOrNull,
   fileModelCall,
+  FILING_RULE_GRAMMAR,
 } from "../src/control-plane.mjs";
 import { toolCallEventSchema } from "../src/json-schema.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
@@ -775,91 +776,150 @@ describe("fileModelCall reads the PreToolFiling mini-language", () => {
   const codexFiling = published.codex.pre_tool_filing;
   const patch = "*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch\n";
 
-  for (const [name, args, expected] of [
+  for (const [kind, name, args, expected] of [
     [
+      "function",
       "exec_command",
       { cmd: "ls -la", tty: true, yield_time_ms: 500 },
       { tool_name: "Bash", tool_input: { command: "ls -la" } },
     ],
-    ["exec_command", { tty: true }, null],
-    ["exec_command", { cmd: null }, null],
-    ["exec_command", "ls", null],
-    ["exec_command", ["ls"], null],
-    ["exec_command", null, null],
+    ["function", "exec_command", { tty: true }, null],
+    ["function", "exec_command", { cmd: null }, null],
+    ["function", "exec_command", "ls", null],
+    ["function", "exec_command", ["ls"], null],
+    ["function", "exec_command", null, null],
     [
+      "freeform",
       "apply_patch",
       patch,
       { tool_name: "apply_patch", tool_input: { command: patch } },
     ],
     [
+      "function",
       "multi_agent_v1spawn_agent",
       { message: "go" },
       { tool_name: "spawn_agent", tool_input: { message: "go" } },
     ],
-    ["write_stdin", { session_id: 1, chars: "y\n" }, null],
-    ["wait", { cell_id: "c1" }, null],
-    ["exec", "console.log(1)", null],
+    ["function", "write_stdin", { session_id: 1, chars: "y\n" }, null],
+    ["function", "wait", { cell_id: "c1" }, null],
+    ["freeform", "exec", "console.log(1)", null],
     [
+      "function",
       "view_image",
       { path: "/a.png" },
       { tool_name: "view_image", tool_input: { path: "/a.png" } },
     ],
+    ["freeform", "ext_freeform_tool", "raw text", null],
     [
+      "function",
       "constructor",
       { a: 1 },
       { tool_name: "constructor", tool_input: { a: 1 } },
     ],
   ])
-    it(`codex files ${name}(${JSON.stringify(args)}) as ${JSON.stringify(expected)}`, () => {
-      assert.deepEqual(fileModelCall(codexFiling, name, args), expected);
+    it(`codex files ${kind} ${name}(${JSON.stringify(args)}) as ${JSON.stringify(expected)}`, () => {
+      assert.deepEqual(fileModelCall(codexFiling, kind, name, args), expected);
     });
 
-  it("files every call as asked on an agent with no renames", () => {
+  it("files every function call as asked on an agent with no renames", () => {
     for (const id of ["claude", "amp", "gemini"])
       assert.deepEqual(
-        fileModelCall(published[id].pre_tool_filing, "Bash", { command: "ls" }),
-        {
-          tool_name: "Bash",
-          tool_input: { command: "ls" },
-        },
+        fileModelCall(published[id].pre_tool_filing, "function", "Bash", {
+          command: "ls",
+        }),
+        { tool_name: "Bash", tool_input: { command: "ls" } },
       );
   });
 
   it("reads a $.<key> as one literal key and keeps a falsy non-null value", () => {
     const filing = { t: { tool_name: "T", input: { v: "$.a" } } };
-    assert.deepEqual(fileModelCall(filing, "t", { a: 0, "a.b": 1 }), {
-      tool_name: "T",
-      tool_input: { v: 0 },
-    });
+    assert.deepEqual(
+      fileModelCall(filing, "function", "t", { a: 0, "a.b": 1 }),
+      { tool_name: "T", tool_input: { v: 0 } },
+    );
   });
 
   it("does not resolve a $.<key> through the prototype", () => {
     const filing = { t: { tool_name: "T", input: { v: "$.toString" } } };
-    assert.equal(fileModelCall(filing, "t", {}), null);
+    assert.equal(fileModelCall(filing, "function", "t", {}), null);
   });
 
   it("mixes $ and $.<key> references in one input", () => {
     const filing = { t: { tool_name: "T", input: { all: "$", one: "$.a" } } };
-    assert.deepEqual(fileModelCall(filing, "t", { a: 1, b: 2 }), {
+    assert.deepEqual(fileModelCall(filing, "function", "t", { a: 1, b: 2 }), {
       tool_name: "T",
       tool_input: { all: { a: 1, b: 2 }, one: 1 },
     });
   });
 
-  for (const [label, input] of [
-    ["a string input other than $", "$.cmd"],
-    ["a reference outside the language", { v: "cmd" }],
-    ["an empty key reference", { v: "$." }],
-    ["a dotted key reference", { v: "$.a.b" }],
-    ["a non-string reference", { v: 1 }],
-    ["an array input", ["$"]],
-    ["a null input", null],
+  it("throws on a call kind other than function or freeform", () => {
+    assert.throws(
+      () => fileModelCall({}, "custom", "t", {}),
+      /^Error: control-plane: model call kind "custom" is neither "function" nor "freeform"$/,
+    );
+  });
+
+  for (const [label, rule, shown] of [
+    [
+      "a string input other than $",
+      { tool_name: "T", input: "$.cmd" },
+      '{"tool_name":"T","input":"$.cmd"}',
+    ],
+    [
+      "a reference outside the language",
+      { tool_name: "T", input: { v: "cmd" } },
+      '{"tool_name":"T","input":{"v":"cmd"}}',
+    ],
+    [
+      "an empty key reference",
+      { tool_name: "T", input: { v: "$." } },
+      '{"tool_name":"T","input":{"v":"$."}}',
+    ],
+    [
+      "a dotted key reference",
+      { tool_name: "T", input: { v: "$.a.b" } },
+      '{"tool_name":"T","input":{"v":"$.a.b"}}',
+    ],
+    [
+      "a non-string reference",
+      { tool_name: "T", input: { v: 1 } },
+      '{"tool_name":"T","input":{"v":1}}',
+    ],
+    [
+      "an array input",
+      { tool_name: "T", input: ["$"] },
+      '{"tool_name":"T","input":["$"]}',
+    ],
+    [
+      "a null input",
+      { tool_name: "T", input: null },
+      '{"tool_name":"T","input":null}',
+    ],
+    ["a missing tool_name", { input: "$" }, '{"input":"$"}'],
+    [
+      "an empty tool_name",
+      { tool_name: "", input: "$" },
+      '{"tool_name":"","input":"$"}',
+    ],
+    [
+      "a non-string tool_name",
+      { tool_name: 1, input: "$" },
+      '{"tool_name":1,"input":"$"}',
+    ],
+    [
+      "an extra member",
+      { tool_name: "T", input: "$", x: 1 },
+      '{"tool_name":"T","input":"$","x":1}',
+    ],
+    ["a non-object rule", "T", '"T"'],
+    ["an array rule", ["T", "$"], '["T","$"]'],
   ])
     it(`throws on ${label}`, () => {
       assert.throws(
-        () =>
-          fileModelCall({ t: { tool_name: "T", input } }, "t", { cmd: "x" }),
-        /, neither "\$" nor an object of "\$"\/"\$\.<key>" references$/,
+        () => fileModelCall({ t: rule }, "function", "t", { cmd: "x" }),
+        (error) =>
+          error.message ===
+          `control-plane: filing rule for "t" is ${shown}, not ${FILING_RULE_GRAMMAR}`,
       );
     });
 });
