@@ -31,7 +31,6 @@ import {
   makeEvent,
   normalizeVerdict,
   gatedResponse,
-  blockTransportFor,
   blockReason,
   UNRENDERED_ON_UNKNOWN,
   readonlySet,
@@ -430,7 +429,7 @@ export function render(verdict, event, { soleGate = false } = {}) {
  */
 function nativeBody(hookEventName, vd, event, enforced, soleGate) {
   if (event.event === EventKind.POST_TOOL)
-    return postToolBody(hookEventName, vd, enforced);
+    return postToolBody(hookEventName, vd);
   if (hookEventName === HookEvent.PERMISSION_REQUEST)
     return permissionRequestBody(hookEventName, vd, enforced, soleGate);
   return preToolBody(hookEventName, vd, event);
@@ -455,8 +454,8 @@ function preToolBody(hookEventName, vd, event) {
   if (event.event !== EventKind.PRE_TOOL) return { hookSpecificOutput: body };
   if (vd.decision !== Decision.ALLOW) {
     // Codex voids a deny body whose reason is missing or empty: no block, no
-    // context, and the call runs (BLOCK_TRANSPORT.codex.reason_required). That
-    // holds on an advisory render too, so every deny carries a reason.
+    // context, and the call runs (`parse_pre_tool_use`, [X8]). That holds on an
+    // advisory render too, so every deny carries a reason.
     body.permissionDecision = vd.decision;
     body.permissionDecisionReason = blockReason(vd.reason);
   } else if (vd.mutated_input !== undefined) {
@@ -503,27 +502,21 @@ function permissionRequestBody(hookEventName, vd, enforced, soleGate) {
  * objection the host understands there, `block`.
  * @param {string} hookEventName
  * @param {Verdict} vd a normalized verdict
- * @param {boolean} enforced
  * @returns {Record<string, unknown>}
  */
-function postToolBody(hookEventName, vd, enforced) {
+function postToolBody(hookEventName, vd) {
   /** @type {Record<string, unknown>} */
   const hookSpecificOutput = { hookEventName };
   if (vd.additional_context !== undefined)
     hookSpecificOutput.additionalContext = vd.additional_context;
   /** @type {Record<string, unknown>} */
   const body = { hookSpecificOutput };
+  // `parse_post_tool_use` ([X8]) voids `decision: "block"` with an empty
+  // reason, and a sync handler's context with it, advisory render or not.
   if (vd.decision !== Decision.ALLOW) {
     body.decision = "block";
-    if (vd.reason !== undefined) body.reason = vd.reason;
-  }
-  // The same guarantee the pre-tool body makes, for the same reason: the
-  // documented post-tool schema pairs `decision` with a `reason`, and a block
-  // whose reason Codex may drop is a block that may not bite. Unverified for
-  // PostToolUse specifically — a non-empty reason is the safe side of that, and
-  // the model needs the text either way.
-  if (enforced && blockTransportFor(AGENT).reason_required)
     body.reason = blockReason(vd.reason);
+  }
   return body;
 }
 

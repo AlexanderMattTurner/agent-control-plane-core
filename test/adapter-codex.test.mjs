@@ -176,6 +176,32 @@ describe("codex render: an advisory PreToolUse deny still carries a reason", () 
     });
 });
 
+describe("codex render: an advisory PostToolUse block still carries a reason", () => {
+  // `parse_post_tool_use` voids `decision: "block"` with an empty reason, and
+  // a sync handler's additionalContext with it.
+  it("fills the default reason so additionalContext survives", () => {
+    const advisory = codexAdapter.parse({
+      hook_event_name: "PostToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+      tool_response: "ok",
+    });
+    const out = codexAdapter.render(
+      { decision: "deny", additional_context: "c" },
+      advisory,
+    );
+    assert.equal(out.enforced, false);
+    assert.deepEqual(out.stdout, {
+      decision: "block",
+      reason: DEFAULT_DENY_REASON,
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse",
+        additionalContext: "c",
+      },
+    });
+  });
+});
+
 describe("codex render: PermissionRequest answers in its own schema", () => {
   const event = codexAdapter.parse({
     hook_event_name: "PermissionRequest",
@@ -270,7 +296,7 @@ describe("codex render: PermissionRequest answers in its own schema", () => {
     });
 });
 
-describe("codex adapter: enforced deny always carries a non-empty reason (Codex fails open otherwise)", () => {
+describe("codex adapter: a deny always carries a non-empty reason (Codex fails open otherwise)", () => {
   const event = codexAdapter.parse({
     hook_event_name: "PreToolUse",
     version: "0.135.0",
