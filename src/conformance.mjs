@@ -11,6 +11,8 @@ import {
   isCoverageStatus,
   lookup,
   VERDICT_CONTENT_FIELDS,
+  WHOLE_ARGUMENTS,
+  ARGUMENT_KEY_PREFIX,
 } from "./control-plane.mjs";
 
 /**
@@ -621,8 +623,10 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
         event,
       ),
     );
-    const paths = divergences(renders);
     const where = `'${caseName}' (${adapter.AGENT}), ${field} ${shape}`;
+    for (const rendered of renders)
+      assertPreToolKeysRead(adapter, event, rendered, where, assert);
+    const paths = divergences(renders);
     if (declared?.has(field)) {
       assert.deepEqual(
         paths,
@@ -710,6 +714,122 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
         `with the other fields, combination ${index + 1}`,
       );
   }
+}
+
+/**
+ * Rule ⑫, for one render: on the host's native pre-tool event, every key the
+ * render puts in `hookSpecificOutput` is one the adapter's `PRE_TOOL_RESPONSE`
+ * says the host reads. On Codex any other key voids the whole body and the call
+ * RUNS, so an unread key is a silent fail-open, not a harmless extra. Scoped to
+ * the native name `NATIVE_EVENT_FOR` gives the pre-tool kind (the event kind
+ * when it gives none): Codex's `PermissionRequest` also parses as pre-tool but
+ * answers in a different schema this declaration does not describe.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {import("./control-plane.mjs").ToolCallEvent} event
+ * @param {import("./control-plane.mjs").NativeResponse} rendered
+ * @param {string} label
+ * @param {any} assert
+ * @returns {boolean} whether the render was on the pre-tool event and checked
+ */
+function assertPreToolKeysRead(adapter, event, rendered, label, assert) {
+  const preToolName = lookup(
+    adapter.NATIVE_EVENT_FOR ?? {},
+    EventKind.PRE_TOOL,
+  );
+  const onPreTool =
+    preToolName === undefined
+      ? event.event === EventKind.PRE_TOOL
+      : event.meta.native_event === preToolName;
+  if (!onPreTool) return false;
+  // `?.`: a broken render under rule ⑩'s probes may not be an object at all,
+  // and that rule, not this one, is what names it.
+  const body = /** @type {{ hookSpecificOutput?: unknown } | undefined} */ (
+    rendered?.stdout
+  );
+  const specific = body?.hookSpecificOutput;
+  const read = new Set(adapter.PRE_TOOL_RESPONSE.hook_specific_output_keys);
+  const unread =
+    specific === undefined
+      ? []
+      : Object.keys(/** @type {object} */ (specific)).filter(
+          (key) => !read.has(key),
+        );
+  assert.deepEqual(
+    unread,
+    [],
+    `${adapter.AGENT}: a pre-tool render puts ${JSON.stringify(unread)} in hookSpecificOutput, which PRE_TOOL_RESPONSE says this host does not read${adapter.PRE_TOOL_RESPONSE.unread_key_fails_open ? " — the host then voids the body and runs the call" : ""}: ${label}`,
+  );
+  return true;
+}
+
+/**
+ * Assert an adapter declares a well-formed `PRE_TOOL_FILING` and
+ * `PRE_TOOL_RESPONSE`: both frozen, every filing rule `null` or a frozen
+ * `{tool_name, input}` in the mini-language {@link fileModelCall} reads, and the
+ * response's key list sorted and duplicate-free beside a boolean-or-null
+ * `unread_key_fails_open`. `agents.json` publishes both verbatim, so a shape a
+ * Python consumer cannot apply is refused here, not discovered there.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {any} assert
+ */
+function assertPreToolDeclarationsWellFormed(adapter, assert) {
+  const agent = adapter.AGENT;
+  const filing = adapter.PRE_TOOL_FILING;
+  assert.ok(
+    typeof filing === "object" && filing !== null && Object.isFrozen(filing),
+    `${agent}: adapter declares no frozen PRE_TOOL_FILING — every adapter needs one: Object.freeze({}) when its host files every model call as asked`,
+  );
+  for (const [name, rule] of Object.entries(filing)) {
+    if (rule === null) continue;
+    const where = `${agent}: PRE_TOOL_FILING[${JSON.stringify(name)}]`;
+    assert.ok(Object.isFrozen(rule), `${where} is not frozen`);
+    assert.deepEqual(
+      Object.keys(rule).sort(),
+      ["input", "tool_name"],
+      `${where} must carry exactly tool_name and input`,
+    );
+    assert.ok(
+      typeof rule.tool_name === "string" && rule.tool_name !== "",
+      `${where}.tool_name is not a non-empty string`,
+    );
+    if (rule.input === WHOLE_ARGUMENTS) continue;
+    assert.ok(
+      typeof rule.input === "object" &&
+        rule.input !== null &&
+        !Array.isArray(rule.input) &&
+        Object.isFrozen(rule.input),
+      `${where}.input is neither "${WHOLE_ARGUMENTS}" nor a frozen object of references`,
+    );
+    for (const ref of Object.values(rule.input))
+      assert.ok(
+        ref === WHOLE_ARGUMENTS ||
+          (typeof ref === "string" &&
+            ref.startsWith(ARGUMENT_KEY_PREFIX) &&
+            ref.length > ARGUMENT_KEY_PREFIX.length),
+        `${where}.input holds ${JSON.stringify(ref)}, neither "${WHOLE_ARGUMENTS}" nor "${ARGUMENT_KEY_PREFIX}<key>"`,
+      );
+  }
+  const response = adapter.PRE_TOOL_RESPONSE;
+  assert.ok(
+    typeof response === "object" &&
+      response !== null &&
+      Object.isFrozen(response),
+    `${agent}: adapter declares no frozen PRE_TOOL_RESPONSE — every adapter needs one naming the hookSpecificOutput keys its host reads on the pre-tool event (an empty list when it reads no body)`,
+  );
+  const keys = response.hook_specific_output_keys;
+  assert.ok(
+    Array.isArray(keys) && Object.isFrozen(keys),
+    `${agent}: PRE_TOOL_RESPONSE.hook_specific_output_keys is not a frozen array`,
+  );
+  assert.deepEqual(
+    [...keys],
+    [...new Set(keys)].sort(),
+    `${agent}: PRE_TOOL_RESPONSE.hook_specific_output_keys must be sorted and duplicate-free`,
+  );
+  assert.ok(
+    [true, false, null].includes(response.unread_key_fails_open),
+    `${agent}: PRE_TOOL_RESPONSE.unread_key_fails_open must be true, false or null`,
+  );
 }
 
 /**
@@ -962,13 +1082,18 @@ function assertBlockTransport(agent, rendered, label, assert) {
  *      decide where an `ask` must be escalated to a `deny`, so a wrong one
  *      either lets a call through or denies every asked call on the hosts that
  *      do ask. OBSERVE_ONLY renders are exempt, as in rule ⑧.
+ *  12. pre-tool key honesty: the adapter declares a well-formed
+ *      `PRE_TOOL_FILING` and `PRE_TOOL_RESPONSE`, and every render on the host's
+ *      native pre-tool event — fixture, rule ⑧ and rule ⑩ probes alike — puts
+ *      in `hookSpecificOutput` only keys `PRE_TOOL_RESPONSE` says the host
+ *      reads. At least one such render must be checked.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number, askTierChecks: number }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number, askTierChecks: number, preToolKeyChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }) {
   assert.equal(
@@ -987,6 +1112,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     "boolean",
     `${adapter.AGENT}: adapter declares no NATIVE_ASK_TIER — every adapter needs a boolean saying whether this host honours a distinct "ask the human" tier (false when render collapses ask onto another signal)`,
   );
+  assertPreToolDeclarationsWellFormed(adapter, assert);
 
   /** @type {Set<string>} */
   const decisionsSeen = new Set();
@@ -1003,6 +1129,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   let preToolCases = 0;
   let unenforceableDenyChecks = 0;
   let askTierChecks = 0;
+  let preToolKeyChecks = 0;
   let renders = 0;
 
   for (const testCase of fixtures.cases) {
@@ -1057,6 +1184,16 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
         spec.native,
         `render mismatch: ${testCase.name} / ${scenario}`,
       );
+      if (
+        assertPreToolKeysRead(
+          adapter,
+          parsed,
+          rendered,
+          `${testCase.name} / ${scenario}`,
+          assert,
+        )
+      )
+        preToolKeyChecks += 1;
       if (rendered.enforced) {
         assert.ok(
           rendered.exit_code !== 0,
@@ -1148,6 +1285,13 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     // An OBSERVE_ONLY render is exempt from the ≠-allow half: that transport has
     // no pre-emption channel at all, so its deny and allow are identical by
     // construction. Demanding a distinct signal there would demand a fiction.
+    assertPreToolKeysRead(
+      adapter,
+      unenforceable,
+      deniedRender,
+      `rule ⑧ probe: ${testCase.name}`,
+      assert,
+    );
     if (deniedRender.transport !== IntegrationMode.OBSERVE_ONLY)
       assert.notDeepEqual(
         deniedRender,
@@ -1225,6 +1369,13 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     `rule ⑪ (ask-tier declaration) ran on ${askTierChecks} of ${preToolCases} pre-tool cases`,
   );
 
+  // A suite with pre-tool cases must reach the native pre-tool event at least
+  // once, or a NATIVE_EVENT_FOR naming the wrong event would skip every render.
+  assert.ok(
+    preToolCases === 0 || preToolKeyChecks > 0,
+    `rule ⑫ (pre-tool key honesty) checked no fixture render on ${adapter.AGENT}'s native pre-tool event — the suite is vacuous`,
+  );
+
   return {
     cases: fixtures.cases.length,
     renders,
@@ -1237,5 +1388,6 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     coverageClassesChecked,
     unenforceableDenyChecks,
     askTierChecks,
+    preToolKeyChecks,
   };
 }

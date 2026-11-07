@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -30,6 +31,7 @@ import {
   asObject,
   asString,
   asStringOrNull,
+  fileModelCall,
 } from "../src/control-plane.mjs";
 import { toolCallEventSchema } from "../src/json-schema.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
@@ -758,4 +760,100 @@ describe("gatedResponse and BLOCK_TRANSPORT", () => {
       { transport: "external_hook", exit_code: 1, enforced: false },
     );
   });
+});
+
+describe("fileModelCall reads the PreToolFiling mini-language", () => {
+  // The JSON `agents.json` publishes, not the in-process export: what a
+  // consumer without a JS runtime applies is the parsed file, so that is what
+  // the reading is checked against.
+  const published = JSON.parse(
+    readFileSync(
+      new URL("../schema/control-plane/v1/agents.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const codexFiling = published.codex.pre_tool_filing;
+  const patch = "*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch\n";
+
+  for (const [name, args, expected] of [
+    [
+      "exec_command",
+      { cmd: "ls -la", tty: true, yield_time_ms: 500 },
+      { tool_name: "Bash", tool_input: { command: "ls -la" } },
+    ],
+    ["exec_command", { tty: true }, null],
+    ["exec_command", "ls", null],
+    ["exec_command", ["ls"], null],
+    ["exec_command", null, null],
+    [
+      "apply_patch",
+      patch,
+      { tool_name: "apply_patch", tool_input: { command: patch } },
+    ],
+    [
+      "multi_agent_v1spawn_agent",
+      { message: "go" },
+      { tool_name: "spawn_agent", tool_input: { message: "go" } },
+    ],
+    ["write_stdin", { session_id: 1, chars: "y\n" }, null],
+    ["wait", { cell_id: "c1" }, null],
+    ["exec", "console.log(1)", null],
+    [
+      "view_image",
+      { path: "/a.png" },
+      { tool_name: "view_image", tool_input: { path: "/a.png" } },
+    ],
+    [
+      "constructor",
+      { a: 1 },
+      { tool_name: "constructor", tool_input: { a: 1 } },
+    ],
+  ])
+    it(`codex files ${name}(${JSON.stringify(args)}) as ${JSON.stringify(expected)}`, () => {
+      assert.deepEqual(fileModelCall(codexFiling, name, args), expected);
+    });
+
+  it("files every call as asked on an agent with no renames", () => {
+    for (const id of ["claude", "amp", "gemini"])
+      assert.deepEqual(
+        fileModelCall(published[id].pre_tool_filing, "Bash", { command: "ls" }),
+        {
+          tool_name: "Bash",
+          tool_input: { command: "ls" },
+        },
+      );
+  });
+
+  it("does not resolve a $.<key> through the prototype", () => {
+    const filing = { t: { tool_name: "T", input: { v: "$.toString" } } };
+    assert.equal(fileModelCall(filing, "t", {}), null);
+  });
+
+  it("maps a nested reference object to the whole arguments value", () => {
+    const filing = { t: { tool_name: "T", input: { all: "$", one: "$.a" } } };
+    assert.deepEqual(fileModelCall(filing, "t", { a: 1, b: 2 }), {
+      tool_name: "T",
+      tool_input: { all: { a: 1, b: 2 }, one: 1 },
+    });
+  });
+
+  for (const [label, input, pattern] of [
+    [
+      "a string input other than $",
+      "$.cmd",
+      /neither "\$" nor an object of references/,
+    ],
+    [
+      "a reference outside the language",
+      { v: "cmd" },
+      /neither "\$" nor "\$\.<key>"/,
+    ],
+  ])
+    it(`throws on ${label}`, () => {
+      assert.throws(
+        () =>
+          fileModelCall({ t: { tool_name: "T", input } }, "t", { cmd: "x" }),
+        pattern,
+      );
+    });
 });

@@ -40,10 +40,10 @@
  * {@link Adapter} interface an integrator implements. A new REQUIRED adapter
  * member breaks every third-party adapter while every event on the wire stays
  * byte-identical, so it is a package-semver break and leaves
- * {@link CONTROL_PLANE_SCHEMA} alone. `UNRENDERED_FIELDS` is one and
- * `NATIVE_ASK_TIER` is the second: adding either is a one-line change per
- * adapter, and the conformance harness names the member and the migration
- * rather than throwing from inside itself.
+ * {@link CONTROL_PLANE_SCHEMA} alone. `UNRENDERED_FIELDS`, `NATIVE_ASK_TIER`,
+ * `PRE_TOOL_FILING` and `PRE_TOOL_RESPONSE` are such members: adding one is a
+ * one-line change per adapter, and the conformance harness names the member
+ * and the migration rather than throwing from inside itself.
  */
 
 /** Wire identifier for this schema version; bump on a breaking shape change. */
@@ -493,6 +493,94 @@ export function readonlySet(values) {
  */
 export const UNRENDERED_ON_UNKNOWN = readonlySet(VERDICT_CONTENT_FIELDS);
 
+/** The {@link PreToolFiling} input reference to a call's whole arguments value. */
+export const WHOLE_ARGUMENTS = "$";
+
+/** The prefix of a {@link PreToolFiling} input reference to one top-level argument. */
+export const ARGUMENT_KEY_PREFIX = "$.";
+
+/**
+ * How a host's pre-tool hook files a model's tool call, keyed by MODEL tool
+ * name: the call's `name`, prefixed with its `namespace` when it carries one
+ * (no separator). Each value is one of:
+ * - `null`: no pre-tool hook fires for this call.
+ * - `{ tool_name, input }`: the hook fires with `tool_name`, and `tool_input`
+ *   built from `input` — either {@link WHOLE_ARGUMENTS} (the call's whole
+ *   arguments value), or an object whose every value is {@link WHOLE_ARGUMENTS}
+ *   or `"$.<key>"` (the arguments' top-level `<key>`). When a `"$.<key>"` does
+ *   not resolve (arguments not an object, or no such key) the hook files nothing.
+ * A name absent from the map is filed as the model asked: same name, whole
+ * arguments. The ARGUMENTS VALUE is a function call's `arguments` parsed as
+ * JSON, or a freeform (custom) tool call's raw `input` string.
+ * Plain JSON by design: `agents.json` publishes it so a consumer with no JS
+ * runtime applies it the way {@link fileModelCall} does.
+ * @typedef {Readonly<Record<string, null | Readonly<{ tool_name: string, input: string | Readonly<Record<string, string>> }>>>} PreToolFiling
+ */
+
+/**
+ * What a host reads from the `hookSpecificOutput` of an exit-0 answer to its
+ * pre-tool event (`PreToolUse`, `BeforeTool`). `hook_specific_output_keys` is
+ * every key it reads there, sorted (empty when it reads no body).
+ * `unread_key_fails_open`: `true` ⇒ any other key there voids the whole body
+ * and the call RUNS; `false` ⇒ other keys are ignored; `null` ⇒ not
+ * established from the host's source.
+ * @typedef {Readonly<{ hook_specific_output_keys: readonly string[], unread_key_fails_open: boolean | null }>} PreToolResponse
+ */
+
+/**
+ * Resolve one {@link PreToolFiling} input reference against `args`; `undefined`
+ * when it names a key the arguments do not carry.
+ * @param {string} ref
+ * @param {unknown} args
+ * @returns {unknown}
+ */
+function resolveArgument(ref, args) {
+  if (ref === WHOLE_ARGUMENTS) return args;
+  if (!ref.startsWith(ARGUMENT_KEY_PREFIX))
+    throw new Error(
+      `control-plane: filing input reference ${JSON.stringify(ref)} is neither "${WHOLE_ARGUMENTS}" nor "${ARGUMENT_KEY_PREFIX}<key>"`,
+    );
+  const isRecord =
+    typeof args === "object" && args !== null && !Array.isArray(args);
+  return isRecord
+    ? lookup(
+        /** @type {Record<string, unknown>} */ (args),
+        ref.slice(ARGUMENT_KEY_PREFIX.length),
+      )
+    : undefined;
+}
+
+/**
+ * The call a host's pre-tool hook files for a model call to `name` with
+ * arguments value `args`, per that host's {@link PreToolFiling}; `null` when the
+ * hook files none. The reference reading of the mini-language `agents.json`
+ * publishes as `pre_tool_filing`.
+ * @param {PreToolFiling} filing
+ * @param {string} name the model tool name (namespace + name)
+ * @param {unknown} args the call's arguments value
+ * @returns {{ tool_name: string, tool_input: unknown } | null}
+ */
+export function fileModelCall(filing, name, args) {
+  if (!Object.hasOwn(filing, name))
+    return { tool_name: name, tool_input: args };
+  const rule = filing[name];
+  if (rule === null) return null;
+  if (rule.input === WHOLE_ARGUMENTS)
+    return { tool_name: rule.tool_name, tool_input: args };
+  if (typeof rule.input !== "object")
+    throw new Error(
+      `control-plane: filing input for ${JSON.stringify(name)} is ${JSON.stringify(rule.input)}, neither "${WHOLE_ARGUMENTS}" nor an object of references`,
+    );
+  /** @type {Record<string, unknown>} */
+  const tool_input = {};
+  for (const [key, ref] of Object.entries(rule.input)) {
+    const value = resolveArgument(ref, args);
+    if (value === undefined) return null;
+    tool_input[key] = value;
+  }
+  return { tool_name: rule.tool_name, tool_input };
+}
+
 /**
  * PROBLEM CLASS — an event marked vetoable on a path where the host can never
  * veto it, so a deny reads downstream as a block that never happened.
@@ -530,6 +618,8 @@ export const VETO_IMPOSSIBLE = Object.freeze([
  * @property {(verdict: Verdict, event: ToolCallEvent, options?: { soleGate?: boolean }) => NativeResponse} render
  * @property {Record<string, string|undefined>} [NATIVE_EVENT_FOR] the native event name this host uses for each {@link EventKind}, for a conformance probe of a kind no fixture produced. Optional: a kind absent here (`unknown` always, plus any kind this transport does not carry) is probed with a marker name, which takes the adapter's unrecognized-event branch. Never read at runtime — `parse` stamps the real name on `meta.native_event`.
  * @property {boolean} NATIVE_ASK_TIER whether this host's transport carries a DISTINCT "ask the human" tier that the host honours. `true` ⇒ a rendered `ask` suspends the call in front of a person (Claude Code's `permissionDecision: "ask"`, Amp's exit 1). `false` ⇒ the host has no such tier, so `render` collapses `ask` onto another signal (Gemini CLI writes its advisory `decision: "deny"`) and an un-escalated ask lets the tool run. A consumer that must not let an ask through reads this to decide where to escalate `ask` to `deny`, instead of keeping its own hand-typed list of agent ids. It is about the HOST, not the verdict: `ask` never renders as `enforced` on any adapter, and the tier it names is the PRE-TOOL gate — once a tool has run there is nothing left to suspend, so every host renders a post-tool `ask` as its block. The conformance harness probes the real `render` against it — a `true` whose ask renders as the host's abstaining allow fails, and so does a `false` whose ask differs from its own advisory deny.
+ * @property {PreToolFiling} PRE_TOOL_FILING how this host's pre-tool hook files a model tool call, for a consumer matching the model's calls against the hook's. `{}` when no rename is modelled.
+ * @property {PreToolResponse} PRE_TOOL_RESPONSE the `hookSpecificOutput` keys this host reads on its pre-tool event, and whether an unread key there runs the call. The conformance harness holds every pre-tool render to the key list.
  * @property {Record<string, ReadonlySet<string>|undefined>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. SCOPE — a row describes the ALLOW path only. An enforceable deny may drop more: Gemini's exit-2 System Block returns no stdout at all, so a deny there carries no `additional_context` whatever the row says. Do not read this map to infer what a deny delivers. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
  */
 

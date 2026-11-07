@@ -157,6 +157,36 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   a pre-tool event only — a `PostToolUse` payload in hand is proof the post-tool
   hook fired for that call.
   [OpenAI Codex hooks docs](https://developers.openai.com/codex/hooks).
+- **[X7] what `PreToolUse` files for a model call** — read from Codex's source
+  at `rust-v0.166.0`. The registry's default payload files a function tool
+  under its flat name (namespace + name, `flat_tool_name` in
+  [`tools/mod.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/mod.rs))
+  with its parsed arguments, and renames `spawn_agent` in the `multi_agent_v1`
+  namespace to `spawn_agent` (`function_hook_tool_name` in
+  [`registry.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/registry.rs)).
+  `exec_command` files `Bash` with `{command: cmd}`, or nothing when its
+  arguments do not parse
+  ([`exec_command.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs)).
+  `apply_patch` files its raw patch as `{command}`
+  ([`apply_patch.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/apply_patch.rs)).
+  `write_stdin` and code mode's `wait` return no payload
+  ([`wait_handler.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/code_mode/wait_handler.rs)),
+  and code mode's `exec` is a freeform tool that the default, function-only
+  payload skips
+  ([`execute_handler.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/code_mode/execute_handler.rs)).
+  An MCP call is filed as `mcp__<namespace>__<tool>` (`hook_tool_name` in
+  [`mcp.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/mcp.rs)).
+  `PRE_TOOL_FILING` in `src/adapters/codex.mjs` carries all of these except the
+  MCP rule.
+- **[X8] what Codex reads from a `PreToolUse` answer** — `rust-v0.166.0`.
+  `hookSpecificOutput` deserializes into `PreToolUseHookSpecificOutputWire`, a
+  `deny_unknown_fields` struct of `hookEventName`, `permissionDecision`,
+  `permissionDecisionReason`, `updatedInput` and `additionalContext`
+  ([`schema.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/schema.rs)).
+  On exit 0, a body that fails to deserialize marks the run failed and sets no
+  block, so the call runs
+  ([`pre_tool_use.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/events/pre_tool_use.rs)).
+  On exit 2 Codex reads only stderr.
 
 **Amp** (`external_hook`; per-tool permission engine, decision = delegate binary
 exit code — already shipped adapter)

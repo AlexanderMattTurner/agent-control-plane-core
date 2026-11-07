@@ -119,6 +119,35 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
+/**
+ * How Codex's `PreToolUse` hook files a model tool call ([X7], read from
+ * Codex's source at `rust-v0.166.0`). A function tool is filed under its flat
+ * name (namespace + name) with its parsed arguments by default (empty
+ * arguments parse as `{}`, unparseable ones stay the raw string); these
+ * handlers supply their own payload or none:
+ * - `exec_command` → `Bash` with `{command: <cmd>}`; arguments Codex cannot
+ *   parse as `ExecCommandArgs` file nothing, which this table models only for
+ *   a missing `cmd`.
+ * - `apply_patch` (a freeform tool) → `apply_patch` with its raw patch text as
+ *   `command`.
+ * - `spawn_agent` in the `multi_agent_v1` namespace → `spawn_agent`.
+ * - `write_stdin`, code mode's `wait`, and code mode's freeform `exec` → no hook.
+ * NOT MODELLED: Codex files an MCP call as `mcp__<namespace>__<tool>`
+ * (`mcp.rs` `hook_tool_name`), which differs from the flat name when the
+ * namespace does not end in `__` — a rule keyed by name cannot express it.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING: import("../control-plane.mjs").PreToolFiling;
+/**
+ * Codex's `PreToolUse` output parser ([X8], `rust-v0.166.0`) deserializes
+ * `hookSpecificOutput` into a `deny_unknown_fields` struct of exactly these
+ * five keys. Any other key fails the whole body: the run is marked failed, no
+ * block is set, and the call RUNS. A known key can still void the body by its
+ * combination (`updatedInput` without `permissionDecision: "allow"`), which
+ * this declaration does not describe.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE: import("../control-plane.mjs").PreToolResponse;
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION: readonly number[];
 /**

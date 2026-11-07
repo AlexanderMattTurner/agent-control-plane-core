@@ -192,9 +192,35 @@ A consumer that cannot import these modules (a bash hook wrapper, a Python
 monitor) reads `schema/control-plane/v1/agents.json` instead. It is generated
 from the adapters, with one row per agent: its block exit code and reason
 stream, whether a block needs a reason, whether it has an ask tier, the entry's
-default response when the hook breaks, its hook coverage, and the verdict
-fields an allow cannot carry. Read the file from the installed package, so it
-always matches the adapters that version ships.
+default response when the hook breaks, its hook coverage, the verdict
+fields an allow cannot carry, and two pre-tool facts:
+
+- `pre_tool_response`: `hook_specific_output_keys` lists the
+  `hookSpecificOutput` keys the host reads on an exit-0 pre-tool answer.
+  `unread_key_fails_open` says what any other key does there: `true` means the
+  host discards the whole body and runs the call (Codex), `false` means the key
+  is ignored, `null` means unknown. The conformance harness fails an adapter
+  whose pre-tool render emits a key outside the list.
+- `pre_tool_filing`: how the pre-tool hook files a model's tool call, so a
+  monitor can match the model's calls against the hook's. It is keyed by model
+  tool name: the call's `name`, prefixed with its `namespace` if it has one, with
+  no separator. Each value is one of:
+  - `null`: no pre-tool hook fires for this call.
+  - `{"tool_name": T, "input": I}`: the hook files `tool_name` T, and builds
+    `tool_input` from I. I is either `"$"`, meaning the call's whole arguments
+    value, or an object whose values are each `"$"` or `"$.<key>"`, meaning
+    that top-level argument. If a `"$.<key>"` does not resolve (the arguments
+    are not an object, or lack the key), the hook files nothing.
+
+  A name the map does not list is filed with the model's own name and
+  arguments. The arguments value is a function call's `arguments` parsed as
+  JSON, or a freeform tool call's raw `input` string. `fileModelCall` in
+  `/contract` is the reference implementation. The map does not model one
+  Codex rename: Codex files an MCP call as `mcp__<namespace>__<tool>`, which
+  differs from the flat name when the namespace does not end in `__`.
+
+Read the file from the installed package, so it always matches the adapters
+that version ships.
 
 Each entry fails the way its host expects when the hook itself breaks: claude,
 codex and gemini run the call, and amp asks. Set `ACP_FAIL_CLOSED=1` to block

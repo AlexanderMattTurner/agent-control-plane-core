@@ -170,6 +170,23 @@ export function parse(native) {
 export const NATIVE_ASK_TIER = true;
 
 /**
+ * No rename is modelled: no source shows Amp filing a call under a
+ * name or input other than the model's.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING = Object.freeze({});
+
+/**
+ * Amp reads only the hook's exit code and no body, so no key in one can change
+ * the outcome.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE = Object.freeze({
+  hook_specific_output_keys: Object.freeze([]),
+  unread_key_fails_open: false,
+});
+
+/**
  * The EXHAUSTIVE (decision × `this_call_vetoable`) → exit-code table for Amp's
  * pure exit-code transport: 0 allow / 1 ask / 2 reject.
  *
@@ -288,6 +305,8 @@ export const ampAdapter = {
   UNRENDERED_FIELDS,
   NATIVE_ASK_TIER,
   NATIVE_EVENT_FOR,
+  PRE_TOOL_FILING,
+  PRE_TOOL_RESPONSE,
   parse,
   render,
 };
