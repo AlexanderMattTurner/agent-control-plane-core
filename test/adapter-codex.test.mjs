@@ -145,6 +145,37 @@ describe("codex render: PreToolUse bodies Codex 0.166 applies", () => {
     });
 });
 
+describe("codex render: an advisory PreToolUse deny still carries a reason", () => {
+  // Codex voids a deny body with an empty reason, context and all, whether or
+  // not this adapter could confirm the host enforces it.
+  for (const [label, version] of [
+    ["with no version", undefined],
+    ["below v0.135", "0.134.9"],
+  ])
+    it(`fills the default reason so additionalContext survives ${label}`, () => {
+      const advisory = codexAdapter.parse({
+        hook_event_name: "PreToolUse",
+        version,
+        tool_name: "Bash",
+        tool_input: { command: "rm -rf build" },
+      });
+      const out = codexAdapter.render(
+        { decision: "deny", additional_context: "c" },
+        advisory,
+      );
+      assert.equal(out.enforced, false);
+      assert.equal(out.exit_code, 0);
+      assert.deepEqual(out.stdout, {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: DEFAULT_DENY_REASON,
+          additionalContext: "c",
+        },
+      });
+    });
+});
+
 describe("codex render: PermissionRequest answers in its own schema", () => {
   const event = codexAdapter.parse({
     hook_event_name: "PermissionRequest",
@@ -272,19 +303,6 @@ describe("codex adapter: enforced deny always carries a non-empty reason (Codex 
       out.stdout.hookSpecificOutput.permissionDecisionReason,
       "destructive delete",
     );
-  });
-
-  it("does not inject a reason on a non-enforced (advisory) deny", () => {
-    const preEnforcing = codexAdapter.parse({
-      hook_event_name: "PreToolUse",
-      version: "0.134.9",
-      tool_name: "Bash",
-      tool_input: { command: "rm -rf /" },
-    });
-    const out = codexAdapter.render({ decision: "deny" }, preEnforcing);
-    assert.equal(out.enforced, false);
-    assert.equal(out.exit_code, 0);
-    assert.ok(!("permissionDecisionReason" in out.stdout.hookSpecificOutput));
   });
 });
 

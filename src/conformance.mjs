@@ -750,15 +750,15 @@ const PRE_TOOL_RESPONSE_LEVELS = Object.freeze([
     keys: "top_level_keys",
     failsOpen: "unread_top_level_key_fails_open",
     where: "the body",
-    /** @param {Record<string, unknown>} body */
+    /** @param {any} body */
     pick: (body) => body,
   }),
   Object.freeze({
     keys: "hook_specific_output_keys",
     failsOpen: "unread_key_fails_open",
     where: "hookSpecificOutput",
-    /** @param {Record<string, unknown>} body */
-    pick: (body) => body.hookSpecificOutput,
+    /** @param {any} body */
+    pick: (body) => body?.hookSpecificOutput,
   }),
 ]);
 
@@ -785,7 +785,7 @@ function assertPreToolKeysRead(adapter, event, rendered, label, assert) {
   // and that rule, not this one, is what names it. No body reads as an empty one.
   const body = rendered?.stdout;
   for (const level of PRE_TOOL_RESPONSE_LEVELS) {
-    const found = isPlainObject(body) ? level.pick(body) : body;
+    const found = level.pick(body);
     const part = found === undefined ? {} : found;
     assert.ok(
       isPlainObject(part),
@@ -1291,7 +1291,15 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
       renders += 1;
     }
 
-    parsedByKind[parsed.event] ??= parsed;
+    // The kind's native event stands for it in the every-kind sweep when one
+    // arrives; another native name is only a seed to synthesize one from.
+    const held = lookup(parsedByKind, parsed.event);
+    if (
+      held === undefined ||
+      (!onKindsNativeEvent(adapter, held) &&
+        onKindsNativeEvent(adapter, parsed))
+    )
+      parsedByKind[parsed.event] = parsed;
     assertContentChannels(
       adapter,
       parsed,

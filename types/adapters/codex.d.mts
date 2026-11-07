@@ -43,8 +43,8 @@ export function parse(native: any, { version }?: {
  *
  * `soleGate` (default `false`) is the same dangerous, explicit opt-in as the
  * Claude adapter, and acts only on PermissionRequest: there an `allow` renders
- * `behavior: "allow"`, which grants the approval (from 0.166, not when the hook
- * is environment-sourced). PreToolUse has no allow that
+ * `behavior: "allow"`, which grants the approval (except, from 0.166, when the
+ * hook is environment-sourced). PreToolUse has no allow that
  * approves anything (Codex accepts `"allow"` only beside `updatedInput`, as a
  * rewrite), and post-tool there is no approval left to grant.
  * @param {Verdict} verdict

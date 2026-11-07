@@ -91,8 +91,9 @@ export const COVERAGE = Object.freeze({
 });
 
 /**
- * The event kinds this host can actually gate. `PreToolUse`/`PermissionRequest`
- * take a `permissionDecision: "deny"`; `PostToolUse` takes a top-level
+ * The event kinds this host can actually gate. `PreToolUse` takes
+ * `permissionDecision: "deny"`, `PermissionRequest` `decision.behavior: "deny"`;
+ * `PostToolUse` takes a top-level
  * `decision: "block"` (exit 2 "writes the feedback reason to stderr and blocks
  * further processing"), so a post-tool deny stops the turn even though the tool
  * itself already ran — the same shape the Claude adapter gates. Every other
@@ -385,8 +386,8 @@ export function parse(native, { version } = {}) {
  *
  * `soleGate` (default `false`) is the same dangerous, explicit opt-in as the
  * Claude adapter, and acts only on PermissionRequest: there an `allow` renders
- * `behavior: "allow"`, which grants the approval (from 0.166, not when the hook
- * is environment-sourced). PreToolUse has no allow that
+ * `behavior: "allow"`, which grants the approval (except, from 0.166, when the
+ * hook is environment-sourced). PreToolUse has no allow that
  * approves anything (Codex accepts `"allow"` only beside `updatedInput`, as a
  * rewrite), and post-tool there is no approval left to grant.
  * @param {Verdict} verdict
@@ -432,7 +433,7 @@ function nativeBody(hookEventName, vd, event, enforced, soleGate) {
     return postToolBody(hookEventName, vd, enforced);
   if (hookEventName === HookEvent.PERMISSION_REQUEST)
     return permissionRequestBody(hookEventName, vd, enforced, soleGate);
-  return preToolBody(hookEventName, vd, event, enforced);
+  return preToolBody(hookEventName, vd, event);
 }
 
 /**
@@ -443,10 +444,9 @@ function nativeBody(hookEventName, vd, event, enforced, soleGate) {
  * @param {string} hookEventName
  * @param {Verdict} vd a normalized verdict
  * @param {ToolCallEvent} event
- * @param {boolean} enforced
  * @returns {Record<string, unknown>}
  */
-function preToolBody(hookEventName, vd, event, enforced) {
+function preToolBody(hookEventName, vd, event) {
   /** @type {Record<string, unknown>} */
   const body = { hookEventName };
   // An UNKNOWN event reaches this body too. It has no established channel, so
@@ -454,17 +454,15 @@ function preToolBody(hookEventName, vd, event, enforced) {
   // host, or read to the caller as applied, while the host ignores it.
   if (event.event !== EventKind.PRE_TOOL) return { hookSpecificOutput: body };
   if (vd.decision !== Decision.ALLOW) {
+    // Codex voids a deny body whose reason is missing or empty: no block, no
+    // context, and the call runs (BLOCK_TRANSPORT.codex.reason_required). That
+    // holds on an advisory render too, so every deny carries a reason.
     body.permissionDecision = vd.decision;
-    if (vd.reason !== undefined) body.permissionDecisionReason = vd.reason;
+    body.permissionDecisionReason = blockReason(vd.reason);
   } else if (vd.mutated_input !== undefined) {
     body.permissionDecision = Decision.ALLOW;
     body.updatedInput = vd.mutated_input;
   }
-  // Codex FAILS OPEN on an enforced deny whose permissionDecisionReason is missing
-  // or empty: its PreToolUse output parser drops the block (block_reason = None)
-  // and runs the tool (BLOCK_TRANSPORT.codex.reason_required).
-  if (enforced && blockTransportFor(AGENT).reason_required)
-    body.permissionDecisionReason = blockReason(vd.reason);
   if (vd.additional_context !== undefined)
     body.additionalContext = vd.additional_context;
   return { hookSpecificOutput: body };

@@ -215,19 +215,23 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   [`output_parser.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/engine/output_parser.rs)):
   - `continue: false`, any `stopReason`, `suppressOutput: true`, or top-level
     `decision: "approve"`;
+  - top-level `reason` without `decision`, or `decision: "block"` with an empty
+    reason;
+  - `permissionDecisionReason` without `permissionDecision`;
   - `permissionDecision: "allow"` without `updatedInput`;
   - `updatedInput` without `"allow"`;
   - any `"ask"`;
   - `"deny"` with an empty reason.
 
-  So `"allow"` is a rewrite, never an approval. `additionalContext` reaches the
-  model only when the body is valid. `PermissionRequest` answers in its own
+  So `"allow"` is a rewrite, never an approval. For a sync handler,
+  `additionalContext` reaches the model only when the body is valid; from
+  `rust-v0.166.0`, an async handler's context is applied regardless. `PermissionRequest` answers in its own
   strict schema, `{hookEventName, decision: {behavior, message}}`; a body
   carrying `updatedInput`, `updatedPermissions` or `interrupt: true` is ignored
   and Codex's own approval flow decides. `behavior: "allow"` grants the
   approval, except, from `rust-v0.166.0`, from an environment-sourced hook
   ([`permission_request.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/events/permission_request.rs)).
-  Everything else here is the same at `rust-v0.135.0`, the enforcement floor.
+  Everything else here, apart from the async-handler context rule, is the same at `rust-v0.135.0`, the enforcement floor.
 
 **Amp** (`external_hook`; per-tool permission engine, decision = delegate binary
 exit code — already shipped adapter)
