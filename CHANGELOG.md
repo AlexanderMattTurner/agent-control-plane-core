@@ -12,6 +12,8 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.14.0] - 2026-11-07
+
 ### Added
 
 - `schema/control-plane/v1/agents.json`: one generated row per agent with its block exit code and reason stream, whether a block needs a reason, whether it has an ask tier, the hook entry's default response when the hook breaks, its hook coverage, and the verdict fields an allow cannot carry. A hook wrapper or monitor in another language reads these facts here, without keeping its own per-agent copy.
@@ -20,6 +22,7 @@ the prose from the release's commits.
 ### Changed
 
 - **Breaking:** `renderHookResponse` returns a promise, and a judge passed to it or to `runHookEntry` may answer with one, so a judge can ask a remote monitor. A rejected judge is treated like one that throws: its call goes to `ask`. `ACP_HOOK_TIMEOUT_MS` also answers a judge that is still waiting, and with no deadline set the entry gives its failure response when a judge's promise never settles, instead of exiting 13 with no response.
+- **Breaking:** Codex adapter now renders the PreToolUse and PermissionRequest bodies as per Codex 0.166.
 
 ### Fixed
 
