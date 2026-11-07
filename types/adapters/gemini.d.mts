@@ -139,7 +139,9 @@ export const PRE_TOOL_FILING: import("../control-plane.mjs").PreToolFiling;
  * other key is ignored (`packages/core/src/hooks/types.ts`
  * `BeforeToolHookOutput`; both firing paths, `core/coreToolHookTriggers.ts`
  * and `scheduler/hook-utils.ts` `evaluateBeforeToolHook`, read at gemini-cli
- * `62bab5b2`).
+ * `62bab5b2`). The top level is the `HookOutput` interface's seven keys, read
+ * from an unchecked `JSON.parse` cast (`hooks/hookRunner.ts`), so an unknown
+ * top-level key is ignored too.
  * @type {import("../control-plane.mjs").PreToolResponse}
  */
 export const PRE_TOOL_RESPONSE: import("../control-plane.mjs").PreToolResponse;

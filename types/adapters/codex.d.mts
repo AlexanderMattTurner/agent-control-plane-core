@@ -36,15 +36,16 @@ export function parse(native: any, { version }?: {
  * on an enforceable deny. On a pre-v0.135 Codex (`this_call_vetoable` false) the
  * body still renders but exit stays 0 and `enforced` is false — advisory only.
  *
- * The two kinds use DIFFERENT native shapes, because Codex does: a pre-tool
- * decision rides `hookSpecificOutput.permissionDecision`, a post-tool one the
- * top-level `decision`/`reason` pair (`permissionDecision` is accepted but inert
- * on PostToolUse, so emitting it there would read as a block that never bites).
+ * Each native event gets its OWN shape, because Codex parses each strictly: a
+ * PreToolUse decision rides `hookSpecificOutput.permissionDecision`, a
+ * PermissionRequest one `hookSpecificOutput.decision.behavior`, and a
+ * post-tool one the top-level `decision`/`reason` pair.
  *
  * `soleGate` (default `false`) is the same dangerous, explicit opt-in as the
- * Claude adapter: when `true` AND the verdict is `allow`, the render emits the
- * real `permissionDecision: "allow"` instead of abstaining. It has no meaning
- * post-tool — there is no approval left to grant — so it is ignored there.
+ * Claude adapter, and acts only on PermissionRequest: there an `allow` renders
+ * `behavior: "allow"`, which grants the approval. PreToolUse has no allow that
+ * approves anything (Codex accepts `"allow"` only beside `updatedInput`, as a
+ * rewrite), and post-tool there is no approval left to grant.
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
  * @param {{ soleGate?: boolean }} [options]
@@ -103,11 +104,14 @@ export const INTEGRATION_MODE: "external_hook";
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;
 /**
- * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each kind, so
- * `render` drops them. Codex splits its two content channels by event:
- * `updatedInput` exists only on PreToolUse (the call has not run yet), and
- * `hookSpecificOutput.additionalContext` only on PostToolUse — Codex documents
- * no context field on PreToolUse, where `updatedInput` is the whole surface.
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each kind's
+ * {@link NATIVE_EVENT_FOR} event, so `render` drops them. PreToolUse takes
+ * `updatedInput` (applied only beside `permissionDecision: "allow"`) and
+ * `additionalContext`; PostToolUse takes `additionalContext` alone ([X8], read
+ * at `rust-v0.166.0` and identical at `rust-v0.135.0`). `PermissionRequest`,
+ * which also parses as `pre_tool`, takes neither: its schema is
+ * `{hookEventName, decision: {behavior, message}}`, and it fails closed on
+ * `updatedInput`, so {@link render} drops both there.
  *
  * NEITHER kind can rewrite tool output: PostToolUse "can't undo side effects
  * from a tool that already ran", and Codex rejects `updatedMCPToolOutput`, so
@@ -144,10 +148,11 @@ export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
  */
 export const PRE_TOOL_FILING: import("../control-plane.mjs").PreToolFiling;
 /**
- * Codex's `PreToolUse` output parser ([X8], `rust-v0.166.0`) deserializes
- * `hookSpecificOutput` into a `deny_unknown_fields` struct of exactly these
- * five keys. Any other key fails the whole body: the run is marked failed, no
- * block is set, and the call RUNS. A known key can still void the body by its
+ * Codex's `PreToolUse` output parser ([X8], `rust-v0.166.0`) deserializes the
+ * body into `deny_unknown_fields` structs at both levels: these seven top-level
+ * keys (`PreToolUseCommandOutputWire` with its flattened universal fields), and
+ * these five in `hookSpecificOutput`. Any other key fails the whole body: the
+ * run is marked failed, no block is set, and the call RUNS. A known key can still void the body by its
  * combination (`updatedInput` without `permissionDecision: "allow"`), which
  * this declaration does not describe.
  * @type {import("../control-plane.mjs").PreToolResponse}

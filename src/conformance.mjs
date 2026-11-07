@@ -407,14 +407,20 @@ function assertRowReads(agent, kind, row, assert) {
  * @param {Set<string>} seen fields observed to REACH a wire
  */
 function assertEveryKindRenders(adapter, byKind, assert, seen) {
-  for (const kind of Object.values(EventKind))
+  for (const kind of Object.values(EventKind)) {
+    // A parsed event under another native name is not the event the row
+    // describes, so the probe synthesizes the native one instead.
+    const parsed = lookup(byKind, kind);
     assertContentChannels(
       adapter,
-      lookup(byKind, kind) ?? coherentEvent(adapter, byKind, kind),
+      parsed !== undefined && onKindsNativeEvent(adapter, parsed)
+        ? parsed
+        : coherentEvent(adapter, byKind, kind),
       `every-kind probe '${kind}'`,
       assert,
       seen,
     );
+  }
 }
 
 /**
@@ -578,6 +584,10 @@ function assertAskTier(adapter, event, vetoable, caseName, assert) {
  * (kind, decision) would state that, and is not worth its weight while the only
  * field a blocked call can still want is `additional_context`.
  *
+ * SCOPE — a row describes its kind's `NATIVE_EVENT_FOR` event, so an event of
+ * that kind under another native name (Codex's `PermissionRequest`, which
+ * parses as `pre_tool` and carries no content) is not held to it.
+ *
  * Reaching the wire is checked as SERIALIZATION, so the rule proves a field is
  * carried, not that the key it is carried in is one the host reads. Nothing
  * machine-readable describes a host's schema, so that half stays with the
@@ -589,6 +599,7 @@ function assertAskTier(adapter, event, vetoable, caseName, assert) {
  * @param {Set<string>} seen fields observed to REACH a wire, for the non-vacuity check
  */
 function assertContentChannels(adapter, event, caseName, assert, seen) {
+  if (!onKindsNativeEvent(adapter, event)) return;
   const declared = lookup(adapter.UNRENDERED_FIELDS, event.event);
 
   // Every value of a field is rendered and the renders compared to EACH OTHER.
@@ -718,13 +729,48 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
 }
 
 /**
+ * Whether `event` arrived as the native event `NATIVE_EVENT_FOR` names for its
+ * kind (always, when the adapter names none for that kind) — the event a
+ * kind-keyed declaration describes.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {import("./control-plane.mjs").ToolCallEvent} event
+ * @returns {boolean}
+ */
+function onKindsNativeEvent(adapter, event) {
+  const native = lookup(adapter.NATIVE_EVENT_FOR ?? {}, event.event);
+  return native === undefined || event.meta.native_event === native;
+}
+
+/**
+ * The two levels of a pre-tool body `PRE_TOOL_RESPONSE` declares, each as the
+ * key-list member, its fail-open member, and where in the body it applies.
+ */
+const PRE_TOOL_RESPONSE_LEVELS = Object.freeze([
+  Object.freeze({
+    keys: "top_level_keys",
+    failsOpen: "unread_top_level_key_fails_open",
+    where: "the body",
+    /** @param {Record<string, unknown>} body */
+    pick: (body) => body,
+  }),
+  Object.freeze({
+    keys: "hook_specific_output_keys",
+    failsOpen: "unread_key_fails_open",
+    where: "hookSpecificOutput",
+    /** @param {Record<string, unknown>} body */
+    pick: (body) => body.hookSpecificOutput,
+  }),
+]);
+
+/**
  * Rule ⑫, for one render: on the host's native pre-tool event, every key the
- * render puts in `hookSpecificOutput` is one the adapter's `PRE_TOOL_RESPONSE`
- * says the host reads. On Codex any other key voids the whole body and the call
- * RUNS, so an unread key is a silent fail-open, not a harmless extra. Scoped to
- * the native name `NATIVE_EVENT_FOR` gives the pre-tool kind (the event kind
- * when it gives none): Codex's `PermissionRequest` also parses as pre-tool but
- * answers in a different schema this declaration does not describe.
+ * render puts at the body's top level or in `hookSpecificOutput` is one the
+ * adapter's `PRE_TOOL_RESPONSE` says the host reads there. On Codex any other
+ * key, at either level, voids the whole body and the call RUNS, so an unread
+ * key is a silent fail-open, not a harmless extra. Scoped to the native name
+ * `NATIVE_EVENT_FOR` gives the pre-tool kind (any pre-tool event when it gives
+ * none): Codex's `PermissionRequest` also parses as pre-tool but answers in a
+ * different schema this declaration does not describe.
  * @param {import("./control-plane.mjs").Adapter} adapter
  * @param {import("./control-plane.mjs").ToolCallEvent} event
  * @param {import("./control-plane.mjs").NativeResponse} rendered
@@ -733,46 +779,50 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
  * @returns {boolean} whether the render was on the pre-tool event and checked
  */
 function assertPreToolKeysRead(adapter, event, rendered, label, assert) {
-  const preToolName = lookup(
-    adapter.NATIVE_EVENT_FOR ?? {},
-    EventKind.PRE_TOOL,
-  );
-  const onPreTool =
-    preToolName === undefined
-      ? event.event === EventKind.PRE_TOOL
-      : event.meta.native_event === preToolName;
-  if (!onPreTool) return false;
+  if (event.event !== EventKind.PRE_TOOL || !onKindsNativeEvent(adapter, event))
+    return false;
   // `?.`: a broken render under rule ⑩'s probes may not be an object at all,
-  // and that rule, not this one, is what names it.
-  const body = /** @type {{ hookSpecificOutput?: unknown } | undefined} */ (
-    rendered?.stdout
-  );
-  const specific =
-    body?.hookSpecificOutput === undefined ? {} : body.hookSpecificOutput;
-  assert.ok(
-    typeof specific === "object" &&
-      specific !== null &&
-      !Array.isArray(specific),
-    `${adapter.AGENT}: a pre-tool render's hookSpecificOutput is ${JSON.stringify(specific)}, not an object: ${label}`,
-  );
-  const read = new Set(adapter.PRE_TOOL_RESPONSE.hook_specific_output_keys);
-  const unread = Object.keys(/** @type {object} */ (specific)).filter(
-    (key) => !read.has(key),
-  );
-  assert.deepEqual(
-    unread,
-    [],
-    `${adapter.AGENT}: a pre-tool render puts ${JSON.stringify(unread)} in hookSpecificOutput, which PRE_TOOL_RESPONSE says this host does not read${adapter.PRE_TOOL_RESPONSE.unread_key_fails_open ? " — the host then voids the body and runs the call" : ""}: ${label}`,
-  );
+  // and that rule, not this one, is what names it. No body reads as an empty one.
+  const body = rendered?.stdout === undefined ? {} : rendered.stdout;
+  for (const level of PRE_TOOL_RESPONSE_LEVELS) {
+    const found = isPlainObject(body) ? level.pick(body) : body;
+    const part = found === undefined ? {} : found;
+    assert.ok(
+      isPlainObject(part),
+      `${adapter.AGENT}: in a pre-tool render, ${level.where} is ${JSON.stringify(part)}, not an object: ${label}`,
+    );
+    const read = new Set(
+      /** @type {readonly string[]} */ (
+        lookup(adapter.PRE_TOOL_RESPONSE, level.keys)
+      ),
+    );
+    const unread = Object.keys(/** @type {object} */ (part)).filter(
+      (key) => !read.has(key),
+    );
+    assert.deepEqual(
+      unread,
+      [],
+      `${adapter.AGENT}: a pre-tool render puts ${JSON.stringify(unread)} in ${level.where}, which PRE_TOOL_RESPONSE.${level.keys} says this host does not read${lookup(adapter.PRE_TOOL_RESPONSE, level.failsOpen) ? " — the host then voids the body and runs the call" : ""}: ${label}`,
+    );
+  }
   return true;
+}
+
+/**
+ * Whether `value` is an object that is neither `null` nor an array.
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
  * Assert an adapter declares a well-formed `PRE_TOOL_FILING` and
  * `PRE_TOOL_RESPONSE`: both frozen, every filing rule `null` or a frozen
- * `{tool_name, input}` in the mini-language {@link fileModelCall} reads, and the
- * response's key list sorted and duplicate-free beside a boolean-or-null
- * `unread_key_fails_open`. `agents.json` publishes both verbatim, so a shape a
+ * `{tool_name, input}` in the mini-language {@link fileModelCall} reads, and
+ * each of the response's key lists sorted and duplicate-free beside its
+ * boolean-or-null fail-open bit. `agents.json` publishes both verbatim, so a shape a
  * Python consumer cannot apply is refused here, not discovered there.
  * @param {import("./control-plane.mjs").Adapter} adapter
  * @param {any} assert
@@ -800,22 +850,26 @@ function assertPreToolDeclarationsWellFormed(adapter, assert) {
     typeof response === "object" &&
       response !== null &&
       Object.isFrozen(response),
-    `${agent}: adapter declares no frozen PRE_TOOL_RESPONSE — every adapter needs one naming the hookSpecificOutput keys its host reads on the pre-tool event (an empty list when it reads no body)`,
+    `${agent}: adapter declares no frozen PRE_TOOL_RESPONSE — every adapter needs one naming the top-level and hookSpecificOutput keys its host reads on the pre-tool event (empty lists when it reads no body)`,
   );
-  const keys = response.hook_specific_output_keys;
-  assert.ok(
-    Array.isArray(keys) && Object.isFrozen(keys),
-    `${agent}: PRE_TOOL_RESPONSE.hook_specific_output_keys is not a frozen array`,
-  );
-  assert.deepEqual(
-    [...keys],
-    [...new Set(keys)].sort(),
-    `${agent}: PRE_TOOL_RESPONSE.hook_specific_output_keys must be sorted and duplicate-free`,
-  );
-  assert.ok(
-    [true, false, null].includes(response.unread_key_fails_open),
-    `${agent}: PRE_TOOL_RESPONSE.unread_key_fails_open must be true, false or null`,
-  );
+  for (const level of PRE_TOOL_RESPONSE_LEVELS) {
+    const keys = /** @type {any} */ (lookup(response, level.keys));
+    assert.ok(
+      Array.isArray(keys) && Object.isFrozen(keys),
+      `${agent}: PRE_TOOL_RESPONSE.${level.keys} is not a frozen array`,
+    );
+    assert.deepEqual(
+      [...keys],
+      [...new Set(keys)].sort(),
+      `${agent}: PRE_TOOL_RESPONSE.${level.keys} must be sorted and duplicate-free`,
+    );
+    assert.ok(
+      [true, false, null].includes(
+        /** @type {any} */ (lookup(response, level.failsOpen)),
+      ),
+      `${agent}: PRE_TOOL_RESPONSE.${level.failsOpen} must be true, false or null`,
+    );
+  }
 }
 
 /**

@@ -133,11 +133,11 @@ export const NATIVE_ASK_TIER = true;
 export const PRE_TOOL_FILING = Object.freeze({});
 
 /**
- * The `hookSpecificOutput` keys Claude Code's hooks reference documents for
- * `PreToolUse` (https://code.claude.com/docs/en/hooks). Whether an unread key
- * fails open is NOT established: the reference says an exit-0 body that fails
- * schema validation lets the call go ahead, but not whether an extra key fails
- * it, and the host's source is not public.
+ * The top-level and `hookSpecificOutput` keys Claude Code's hooks reference
+ * documents for `PreToolUse` (https://code.claude.com/docs/en/hooks). Whether
+ * an unread key fails open, at either level, is NOT established: the reference
+ * says an exit-0 body that fails schema validation lets the call go ahead, but
+ * not whether an extra key fails it, and the host's source is not public.
  * @type {import("../control-plane.mjs").PreToolResponse}
  */
 export const PRE_TOOL_RESPONSE = Object.freeze({
@@ -149,6 +149,16 @@ export const PRE_TOOL_RESPONSE = Object.freeze({
     "updatedInput",
   ]),
   unread_key_fails_open: null,
+  top_level_keys: Object.freeze([
+    "continue",
+    "decision",
+    "hookSpecificOutput",
+    "reason",
+    "stopReason",
+    "suppressOutput",
+    "systemMessage",
+  ]),
+  unread_top_level_key_fails_open: null,
 });
 
 /** Claude Code native hook event names (the `hook_event_name` field). */

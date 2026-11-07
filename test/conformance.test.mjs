@@ -112,6 +112,8 @@ const echoAdapter = {
   PRE_TOOL_RESPONSE: Object.freeze({
     hook_specific_output_keys: Object.freeze([]),
     unread_key_fails_open: false,
+    top_level_keys: Object.freeze([]),
+    unread_top_level_key_fails_open: false,
   }),
   // Honours `this_call_vetoable` the way rule ⑤/⑧ require of a REAL adapter: a
   // deny it cannot enforce degrades to the transport's ask (1), never to allow.
@@ -1310,6 +1312,11 @@ describe("conformance harness self-tests (non-vacuity)", () => {
     // reading the declaration is told the opposite of what ships.
     const leaking = {
       ...echoAdapter,
+      // Declared read, so rule ⑫ stays silent and only rule ⑩ can fire.
+      PRE_TOOL_RESPONSE: Object.freeze({
+        ...echoAdapter.PRE_TOOL_RESPONSE,
+        top_level_keys: Object.freeze(["context"]),
+      }),
       render: (verdict, event) => {
         const rendered = echoAdapter.render(verdict, event);
         // Only when the field is present, so the fixtures' own goldens (which
@@ -1794,6 +1801,8 @@ describe("conformance harness self-tests (pre-tool key honesty, rule ⑫)", () =
     PRE_TOOL_RESPONSE: Object.freeze({
       hook_specific_output_keys: Object.freeze(keys),
       unread_key_fails_open: failsOpen,
+      top_level_keys: Object.freeze(["hookSpecificOutput"]),
+      unread_top_level_key_fails_open: failsOpen,
     }),
     render: (/** @type {any} */ verdict, /** @type {any} */ event) => ({
       ...echoAdapter.render(verdict, event),
@@ -1850,7 +1859,7 @@ describe("conformance harness self-tests (pre-tool key honesty, rule ⑫)", () =
     assert.throws(
       () => run(adapter, selfGolden(adapter, ["PreToolUse"])),
       (error) =>
-        /puts \["x"\] in hookSpecificOutput, which PRE_TOOL_RESPONSE says this host does not read: /.test(
+        /puts \["x"\] in hookSpecificOutput, which PRE_TOOL_RESPONSE\.hook_specific_output_keys says this host does not read: /.test(
           error.message,
         ),
     );
@@ -1867,7 +1876,7 @@ describe("conformance harness self-tests (pre-tool key honesty, rule ⑫)", () =
     };
     assert.throws(
       () => run(nulled, selfGolden(nulled, ["PreToolUse"])),
-      /a pre-tool render's hookSpecificOutput is null, not an object: PreToolUse \/ allow/,
+      /in a pre-tool render, hookSpecificOutput is null, not an object: PreToolUse \/ allow/,
     );
   });
 
@@ -1907,6 +1916,74 @@ describe("conformance harness self-tests (pre-tool key honesty, rule ⑫)", () =
     assert.throws(
       () => run(strayKey, selfGolden(strayKey, ["PreToolUse"])),
       /puts \["stray"\] in hookSpecificOutput.*: rule ⑧ probe: /s,
+    );
+  });
+
+  it("throws on a top-level key the host does not read, and says the host then runs the call", () => {
+    const adapter = bodyAdapter(["hookEventName"], true);
+    const strayKey = {
+      ...adapter,
+      render: (verdict, event) => {
+        const out = adapter.render(verdict, event);
+        out.stdout.extra = 1;
+        return out;
+      },
+    };
+    assert.throws(
+      () => run(strayKey, selfGolden(strayKey, ["PreToolUse"])),
+      /puts \["extra"\] in the body, which PRE_TOOL_RESPONSE\.top_level_keys says this host does not read — the host then voids the body and runs the call: PreToolUse \/ allow\n/,
+    );
+  });
+
+  it("refuses a pre-tool body that is not an object", () => {
+    const adapter = bodyAdapter(["hookEventName"], true);
+    const textBody = {
+      ...adapter,
+      render: (verdict, event) => ({
+        ...adapter.render(verdict, event),
+        stdout: "text",
+      }),
+    };
+    assert.throws(
+      () => run(textBody, selfGolden(textBody, ["PreToolUse"])),
+      /: t: in a pre-tool render, the body is "text", not an object: PreToolUse \/ allow$/,
+    );
+  });
+
+  // Content reaches the wire only on PreToolUse, never on PermissionRequest.
+  const preToolUseOnlyContext = (contextOn) => {
+    const adapter = bodyAdapter(["ctx", "hookEventName"], true);
+    return {
+      ...adapter,
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "mutated_output"]),
+      }),
+      render: (verdict, event) => {
+        const out = adapter.render(verdict, event);
+        if (
+          verdict.additional_context !== undefined &&
+          event.meta.native_event === contextOn
+        )
+          out.stdout.hookSpecificOutput.ctx = verdict.additional_context;
+        return out;
+      },
+    };
+  };
+
+  it("does not hold rule ⑩ to a row on a pre-tool event under another native name", () => {
+    const adapter = preToolUseOnlyContext("PreToolUse");
+    const summary = run(
+      adapter,
+      selfGolden(adapter, ["PermissionRequest", "PreToolUse"]),
+    );
+    assert.deepEqual([...summary.contentFieldsSeen], ["additional_context"]);
+  });
+
+  it("still checks the row on a synthesized native event when no case arrives as one", () => {
+    const adapter = preToolUseOnlyContext("PermissionRequest");
+    assert.throws(
+      () => run(adapter, selfGolden(adapter, ["PermissionRequest"])),
+      /'every-kind probe 'pre_tool'' \(t\), additional_context alone: additional_context reaches no native channel on pre_tool/,
     );
   });
 
@@ -1960,17 +2037,35 @@ describe("conformance harness self-tests (pre-tool key honesty, rule ⑫)", () =
       () => run(narrowed, loadFixture("codex")),
       /puts \["permissionDecisionReason"\] in hookSpecificOutput/,
     );
+    const noTopLevel = {
+      ...codex,
+      PRE_TOOL_RESPONSE: Object.freeze({
+        ...codex.PRE_TOOL_RESPONSE,
+        top_level_keys: Object.freeze([]),
+      }),
+    };
+    assert.throws(
+      () => run(noTopLevel, loadFixture("codex")),
+      /puts \["hookSpecificOutput"\] in the body/,
+    );
   });
 });
 
 describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () => {
   const filing = (rule) => Object.freeze({ t: rule });
-  const response = (keys, failsOpen) =>
+  const frozenKeys = (...keys) => Object.freeze(keys);
+  const response = (
+    keys,
+    failsOpen,
+    topKeys = frozenKeys(),
+    topFailsOpen = false,
+  ) =>
     Object.freeze({
       hook_specific_output_keys: keys,
       unread_key_fails_open: failsOpen,
+      top_level_keys: topKeys,
+      unread_top_level_key_fails_open: topFailsOpen,
     });
-  const frozenKeys = (...keys) => Object.freeze(keys);
 
   it("passes well-formed rules of every shape", () => {
     const adapter = {
@@ -2093,6 +2188,8 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
         PRE_TOOL_RESPONSE: {
           hook_specific_output_keys: frozenKeys(),
           unread_key_fails_open: false,
+          top_level_keys: frozenKeys(),
+          unread_top_level_key_fails_open: false,
         },
       },
       /declares no frozen PRE_TOOL_RESPONSE/,
@@ -2116,6 +2213,29 @@ describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () 
       "a non-boolean fails-open flag",
       { PRE_TOOL_RESPONSE: response(frozenKeys(), "yes") },
       /unread_key_fails_open must be true, false or null/,
+    ],
+    [
+      "an unfrozen top-level key list",
+      { PRE_TOOL_RESPONSE: response(frozenKeys(), false, ["a"]) },
+      /PRE_TOOL_RESPONSE\.top_level_keys is not a frozen array/,
+    ],
+    [
+      "an unsorted top-level key list",
+      {
+        PRE_TOOL_RESPONSE: response(frozenKeys(), false, frozenKeys("b", "a")),
+      },
+      /PRE_TOOL_RESPONSE\.top_level_keys must be sorted and duplicate-free/,
+    ],
+    [
+      "a missing top-level fails-open flag",
+      {
+        PRE_TOOL_RESPONSE: Object.freeze({
+          hook_specific_output_keys: frozenKeys(),
+          unread_key_fails_open: false,
+          top_level_keys: frozenKeys(),
+        }),
+      },
+      /unread_top_level_key_fails_open must be true, false or null/,
     ],
   ])
     it(`refuses ${label}`, () => {

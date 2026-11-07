@@ -173,7 +173,7 @@ export function fileModelCall(filing: PreToolFiling, kind: "function" | "freefor
  * @property {boolean} NATIVE_ASK_TIER whether this host's transport carries a DISTINCT "ask the human" tier that the host honours. `true` ⇒ a rendered `ask` suspends the call in front of a person (Claude Code's `permissionDecision: "ask"`, Amp's exit 1). `false` ⇒ the host has no such tier, so `render` collapses `ask` onto another signal (Gemini CLI writes its advisory `decision: "deny"`) and an un-escalated ask lets the tool run. A consumer that must not let an ask through reads this to decide where to escalate `ask` to `deny`, instead of keeping its own hand-typed list of agent ids. It is about the HOST, not the verdict: `ask` never renders as `enforced` on any adapter, and the tier it names is the PRE-TOOL gate — once a tool has run there is nothing left to suspend, so every host renders a post-tool `ask` as its block. The conformance harness probes the real `render` against it — a `true` whose ask renders as the host's abstaining allow fails, and so does a `false` whose ask differs from its own advisory deny.
  * @property {PreToolFiling} PRE_TOOL_FILING how this host's pre-tool hook files a model tool call, for a consumer matching the model's calls against the hook's. `{}` when no rename is modelled.
  * @property {PreToolResponse} PRE_TOOL_RESPONSE the `hookSpecificOutput` keys this host reads on its pre-tool event, and whether an unread key there runs the call. The conformance harness holds every pre-tool render to the key list.
- * @property {Record<string, ReadonlySet<string>|undefined>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. SCOPE — a row describes the ALLOW path only. An enforceable deny may drop more: Gemini's exit-2 System Block returns no stdout at all, so a deny there carries no `additional_context` whatever the row says. Do not read this map to infer what a deny delivers. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
+ * @property {Record<string, ReadonlySet<string>|undefined>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. SCOPE — a row describes the ALLOW path on the kind's `NATIVE_EVENT_FOR` event only; another native event of that kind (Codex's `PermissionRequest`) may drop more. An enforceable deny may drop more: Gemini's exit-2 System Block returns no stdout at all, so a deny there carries no `additional_context` whatever the row says. Do not read this map to infer what a deny delivers. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
  */
 /**
  * Build a normalized {@link ToolCallEvent}, stamping the schema version. Pure —
@@ -645,17 +645,19 @@ export const BLOCK_TRANSPORT: Readonly<Record<string, Readonly<{
     reason_required: boolean;
 }>>>;
 /**
- * What a host reads from the `hookSpecificOutput` of an exit-0 answer to its
- * pre-tool event (`PreToolUse`, `BeforeTool`). `hook_specific_output_keys` is
- * every key it reads there, sorted (empty when it reads no body).
- * `unread_key_fails_open`: `true` ⇒ any other key there voids the whole body
- * and the call RUNS; `false` ⇒ other keys are ignored; `null` ⇒ not
- * established from the host's source. Top-level keys are outside this record;
- * Codex parses those `deny_unknown_fields` too ([X8]).
+ * What a host reads from an exit-0 answer to its pre-tool event (`PreToolUse`,
+ * `BeforeTool`), as two sorted key lists, each empty when the host reads no
+ * body: `hook_specific_output_keys` inside `hookSpecificOutput`, and
+ * `top_level_keys` at the body's top level. Each list has a fail-open bit,
+ * `unread_key_fails_open` and `unread_top_level_key_fails_open`: `true` ⇒ any
+ * other key there voids the whole body and the call RUNS; `false` ⇒ other keys
+ * are ignored; `null` ⇒ not established from the host's source.
  */
 export type PreToolResponse = Readonly<{
     hook_specific_output_keys: readonly string[];
     unread_key_fails_open: boolean | null;
+    top_level_keys: readonly string[];
+    unread_top_level_key_fails_open: boolean | null;
 }>;
 /**
  * The translator for one agent's protocol. `parse` maps a native event to a
@@ -691,7 +693,7 @@ export type Adapter = {
      */
     PRE_TOOL_RESPONSE: PreToolResponse;
     /**
-     * per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. SCOPE — a row describes the ALLOW path only. An enforceable deny may drop more: Gemini's exit-2 System Block returns no stdout at all, so a deny there carries no `additional_context` whatever the row says. Do not read this map to infer what a deny delivers. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
+     * per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. SCOPE — a row describes the ALLOW path on the kind's `NATIVE_EVENT_FOR` event only; another native event of that kind (Codex's `PermissionRequest`) may drop more. An enforceable deny may drop more: Gemini's exit-2 System Block returns no stdout at all, so a deny there carries no `additional_context` whatever the row says. Do not read this map to infer what a deny delivers. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
      */
     UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
 };

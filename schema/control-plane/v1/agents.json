@@ -47,7 +47,17 @@
         "permissionDecisionReason",
         "updatedInput"
       ],
-      "unread_key_fails_open": null
+      "unread_key_fails_open": null,
+      "top_level_keys": [
+        "continue",
+        "decision",
+        "hookSpecificOutput",
+        "reason",
+        "stopReason",
+        "suppressOutput",
+        "systemMessage"
+      ],
+      "unread_top_level_key_fails_open": null
     }
   },
   "codex": {
@@ -70,7 +80,6 @@
     },
     "unrendered_fields_on_allow": {
       "pre_tool": [
-        "additional_context",
         "mutated_output"
       ],
       "post_tool": [
@@ -122,7 +131,17 @@
         "permissionDecisionReason",
         "updatedInput"
       ],
-      "unread_key_fails_open": true
+      "unread_key_fails_open": true,
+      "top_level_keys": [
+        "continue",
+        "decision",
+        "hookSpecificOutput",
+        "reason",
+        "stopReason",
+        "suppressOutput",
+        "systemMessage"
+      ],
+      "unread_top_level_key_fails_open": true
     }
   },
   "amp": {
@@ -173,7 +192,9 @@
     "pre_tool_filing": {},
     "pre_tool_response": {
       "hook_specific_output_keys": [],
-      "unread_key_fails_open": false
+      "unread_key_fails_open": false,
+      "top_level_keys": [],
+      "unread_top_level_key_fails_open": false
     }
   },
   "gemini": {
@@ -222,7 +243,17 @@
       "hook_specific_output_keys": [
         "tool_input"
       ],
-      "unread_key_fails_open": false
+      "unread_key_fails_open": false,
+      "top_level_keys": [
+        "continue",
+        "decision",
+        "hookSpecificOutput",
+        "reason",
+        "stopReason",
+        "suppressOutput",
+        "systemMessage"
+      ],
+      "unread_top_level_key_fails_open": false
     }
   }
 }

@@ -108,11 +108,14 @@ const GATED_EVENTS = Object.freeze(
 assertGatedKinds(GATED_EVENTS, AGENT);
 
 /**
- * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each kind, so
- * `render` drops them. Codex splits its two content channels by event:
- * `updatedInput` exists only on PreToolUse (the call has not run yet), and
- * `hookSpecificOutput.additionalContext` only on PostToolUse — Codex documents
- * no context field on PreToolUse, where `updatedInput` is the whole surface.
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each kind's
+ * {@link NATIVE_EVENT_FOR} event, so `render` drops them. PreToolUse takes
+ * `updatedInput` (applied only beside `permissionDecision: "allow"`) and
+ * `additionalContext`; PostToolUse takes `additionalContext` alone ([X8], read
+ * at `rust-v0.166.0` and identical at `rust-v0.135.0`). `PermissionRequest`,
+ * which also parses as `pre_tool`, takes neither: its schema is
+ * `{hookEventName, decision: {behavior, message}}`, and it fails closed on
+ * `updatedInput`, so {@link render} drops both there.
  *
  * NEITHER kind can rewrite tool output: PostToolUse "can't undo side effects
  * from a tool that already ran", and Codex rejects `updatedMCPToolOutput`, so
@@ -127,7 +130,7 @@ export const UNRENDERED_FIELDS = Object.freeze({
   ...Object.fromEntries(
     Object.values(EventKind).map((kind) => [kind, UNRENDERED_ON_UNKNOWN]),
   ),
-  [EventKind.PRE_TOOL]: readonlySet(["mutated_output", "additional_context"]),
+  [EventKind.PRE_TOOL]: readonlySet(["mutated_output"]),
   [EventKind.POST_TOOL]: readonlySet(["mutated_input", "mutated_output"]),
 });
 
@@ -173,10 +176,11 @@ export const PRE_TOOL_FILING = Object.freeze({
 });
 
 /**
- * Codex's `PreToolUse` output parser ([X8], `rust-v0.166.0`) deserializes
- * `hookSpecificOutput` into a `deny_unknown_fields` struct of exactly these
- * five keys. Any other key fails the whole body: the run is marked failed, no
- * block is set, and the call RUNS. A known key can still void the body by its
+ * Codex's `PreToolUse` output parser ([X8], `rust-v0.166.0`) deserializes the
+ * body into `deny_unknown_fields` structs at both levels: these seven top-level
+ * keys (`PreToolUseCommandOutputWire` with its flattened universal fields), and
+ * these five in `hookSpecificOutput`. Any other key fails the whole body: the
+ * run is marked failed, no block is set, and the call RUNS. A known key can still void the body by its
  * combination (`updatedInput` without `permissionDecision: "allow"`), which
  * this declaration does not describe.
  * @type {import("../control-plane.mjs").PreToolResponse}
@@ -190,6 +194,16 @@ export const PRE_TOOL_RESPONSE = Object.freeze({
     "updatedInput",
   ]),
   unread_key_fails_open: true,
+  top_level_keys: Object.freeze([
+    "continue",
+    "decision",
+    "hookSpecificOutput",
+    "reason",
+    "stopReason",
+    "suppressOutput",
+    "systemMessage",
+  ]),
+  unread_top_level_key_fails_open: true,
 });
 
 /** Minimum Codex version whose hook can actually veto a tool call. */
@@ -361,15 +375,16 @@ export function parse(native, { version } = {}) {
  * on an enforceable deny. On a pre-v0.135 Codex (`this_call_vetoable` false) the
  * body still renders but exit stays 0 and `enforced` is false — advisory only.
  *
- * The two kinds use DIFFERENT native shapes, because Codex does: a pre-tool
- * decision rides `hookSpecificOutput.permissionDecision`, a post-tool one the
- * top-level `decision`/`reason` pair (`permissionDecision` is accepted but inert
- * on PostToolUse, so emitting it there would read as a block that never bites).
+ * Each native event gets its OWN shape, because Codex parses each strictly: a
+ * PreToolUse decision rides `hookSpecificOutput.permissionDecision`, a
+ * PermissionRequest one `hookSpecificOutput.decision.behavior`, and a
+ * post-tool one the top-level `decision`/`reason` pair.
  *
  * `soleGate` (default `false`) is the same dangerous, explicit opt-in as the
- * Claude adapter: when `true` AND the verdict is `allow`, the render emits the
- * real `permissionDecision: "allow"` instead of abstaining. It has no meaning
- * post-tool — there is no approval left to grant — so it is ignored there.
+ * Claude adapter, and acts only on PermissionRequest: there an `allow` renders
+ * `behavior: "allow"`, which grants the approval. PreToolUse has no allow that
+ * approves anything (Codex accepts `"allow"` only beside `updatedInput`, as a
+ * rewrite), and post-tool there is no approval left to grant.
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
  * @param {{ soleGate?: boolean }} [options]
@@ -395,15 +410,12 @@ export function render(verdict, event, { soleGate = false } = {}) {
     unblocked_exit_code: 0,
     enforced,
     reason: vd.reason,
-    stdout:
-      event.event === EventKind.POST_TOOL
-        ? postToolBody(hookEventName, vd, enforced)
-        : preToolBody(hookEventName, vd, event, enforced, soleGate),
+    stdout: nativeBody(hookEventName, vd, event, enforced, soleGate),
   });
 }
 
 /**
- * The `hookSpecificOutput` body for a pre-tool (or unmodelled) event.
+ * The stdout body for `event`, in the schema its native event answers in.
  * @param {string} hookEventName
  * @param {Verdict} vd a normalized verdict
  * @param {ToolCallEvent} event
@@ -411,34 +423,74 @@ export function render(verdict, event, { soleGate = false } = {}) {
  * @param {boolean} soleGate
  * @returns {Record<string, unknown>}
  */
-function preToolBody(hookEventName, vd, event, enforced, soleGate) {
-  // As in the Claude adapter, `allow` omits permissionDecision by default so the
-  // guardrail never auto-approves a call it merely had no objection to; only
-  // deny/ask emit an explicit decision, unless `soleGate` opts into it.
+function nativeBody(hookEventName, vd, event, enforced, soleGate) {
+  if (event.event === EventKind.POST_TOOL)
+    return postToolBody(hookEventName, vd, enforced);
+  if (hookEventName === HookEvent.PERMISSION_REQUEST)
+    return permissionRequestBody(hookEventName, vd, enforced, soleGate);
+  return preToolBody(hookEventName, vd, event, enforced);
+}
+
+/**
+ * The body for a PreToolUse (or unmodelled) event. Codex's PreToolUse parser
+ * ([X8]) voids the body, and the call runs, on `"allow"` without `updatedInput`
+ * and on `updatedInput` without `"allow"` — so an allow emits a decision only
+ * to carry a mutation, and a deny never carries one.
+ * @param {string} hookEventName
+ * @param {Verdict} vd a normalized verdict
+ * @param {ToolCallEvent} event
+ * @param {boolean} enforced
+ * @returns {Record<string, unknown>}
+ */
+function preToolBody(hookEventName, vd, event, enforced) {
   /** @type {Record<string, unknown>} */
   const body = { hookEventName };
-  // An UNKNOWN event reaches this body too. It has no established decision
-  // channel, so it carries none: a decision there would act on the host while
-  // the render reports no block.
-  if (
-    event.event === EventKind.PRE_TOOL &&
-    (vd.decision !== Decision.ALLOW || soleGate)
-  ) {
+  // An UNKNOWN event reaches this body too. It has no established channel, so
+  // it carries nothing: a decision or `updatedInput` there would act on the
+  // host, or read to the caller as applied, while the host ignores it.
+  if (event.event !== EventKind.PRE_TOOL) return { hookSpecificOutput: body };
+  if (vd.decision !== Decision.ALLOW) {
     body.permissionDecision = vd.decision;
     if (vd.reason !== undefined) body.permissionDecisionReason = vd.reason;
+  } else if (vd.mutated_input !== undefined) {
+    body.permissionDecision = Decision.ALLOW;
+    body.updatedInput = vd.mutated_input;
   }
   // Codex FAILS OPEN on an enforced deny whose permissionDecisionReason is missing
   // or empty: its PreToolUse output parser drops the block (block_reason = None)
   // and runs the tool (BLOCK_TRANSPORT.codex.reason_required).
   if (enforced && blockTransportFor(AGENT).reason_required)
     body.permissionDecisionReason = blockReason(vd.reason);
-  // PRE_TOOL only. An UNKNOWN event reaches this body too, and an event the
-  // adapter cannot name has no channel it can claim: emitting `updatedInput`
-  // there names a key the host ignores while reading to the caller as a
-  // mutation applied.
-  if (event.event === EventKind.PRE_TOOL && vd.mutated_input !== undefined)
-    body.updatedInput = vd.mutated_input;
+  if (vd.additional_context !== undefined)
+    body.additionalContext = vd.additional_context;
   return { hookSpecificOutput: body };
+}
+
+/**
+ * The body for a PermissionRequest event: Codex's
+ * `PermissionRequestHookSpecificOutputWire` ([X8]), `{hookEventName, decision:
+ * {behavior, message}}`. `behavior: "allow"` GRANTS the approval, so an allow
+ * abstains unless `soleGate` opts in. Content fields have no channel here:
+ * `updatedInput` fails the request closed and there is no context key.
+ * @param {string} hookEventName
+ * @param {Verdict} vd a normalized verdict
+ * @param {boolean} enforced
+ * @param {boolean} soleGate
+ * @returns {Record<string, unknown>}
+ */
+function permissionRequestBody(hookEventName, vd, enforced, soleGate) {
+  /** @type {Record<string, unknown>} */
+  const hookSpecificOutput = { hookEventName };
+  if (vd.decision !== Decision.ALLOW) {
+    const message = enforced ? blockReason(vd.reason) : vd.reason;
+    hookSpecificOutput.decision = {
+      behavior: Decision.DENY,
+      ...(message === undefined ? {} : { message }),
+    };
+  } else if (soleGate) {
+    hookSpecificOutput.decision = { behavior: Decision.ALLOW };
+  }
+  return { hookSpecificOutput };
 }
 
 /**

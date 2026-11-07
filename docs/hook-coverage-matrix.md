@@ -208,9 +208,18 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   On exit 2 Codex reads only stderr. The top level is strict too:
   `PreToolUseCommandOutputWire` is `deny_unknown_fields` over `continue`,
   `stopReason`, `suppressOutput`, `systemMessage`, `decision`, `reason` and
-  `hookSpecificOutput` (same `schema.rs`). `PRE_TOOL_RESPONSE` does not cover
-  the top level; the adapter's pre-tool render emits only `hookSpecificOutput`
-  there.
+  `hookSpecificOutput` (same `schema.rs`); `PRE_TOOL_RESPONSE` lists both levels.
+  Valid keys can still void the body by combination
+  (`unsupported_pre_tool_use_hook_specific_output` in
+  [`output_parser.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/engine/output_parser.rs)):
+  `permissionDecision: "allow"` without `updatedInput`, `updatedInput` without
+  `"allow"`, `"ask"`, or `"deny"` without a non-empty reason. So `"allow"` is a
+  rewrite, never an approval. `additionalContext` reaches the model only when
+  the body is valid. `PermissionRequest` answers in its own strict schema,
+  `{hookEventName, decision: {behavior, message}}`, where `behavior: "allow"`
+  grants the approval, and it fails closed on `updatedInput`,
+  `updatedPermissions` or `interrupt: true`. All of this is the same at
+  `rust-v0.135.0`, the enforcement floor.
 
 **Amp** (`external_hook`; per-tool permission engine, decision = delegate binary
 exit code — already shipped adapter)
