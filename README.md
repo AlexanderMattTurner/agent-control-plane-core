@@ -200,11 +200,13 @@ fields an allow cannot carry, and two pre-tool facts:
   `unread_key_fails_open` says what any other key does there: `true` means the
   host discards the whole body and runs the call (Codex), `false` means the key
   is ignored, `null` means unknown. The conformance harness fails an adapter
-  whose pre-tool render emits a key outside the list.
+  whose pre-tool render emits a key outside the list. Neither field covers the
+  body's top-level keys, which Codex also parses strictly.
 - `pre_tool_filing`: how the pre-tool hook files a model's tool call, so a
   monitor can match the model's calls against the hook's. It is keyed by model
-  tool name: the call's `name`, prefixed with its `namespace` if it has one, with
-  no separator. Each value is one of:
+  tool name: the call's `name`, prefixed with its `namespace` with no
+  separator, unless the namespace is empty or Codex's default `functions`
+  (`flatToolName` in `/contract`). Each value is one of:
   - `null`: no pre-tool hook fires for this call.
   - `{"tool_name": T, "input": I}`: the hook files `tool_name` T, and builds
     `tool_input` from I. I is either `"$"`, meaning the call's whole arguments
@@ -214,14 +216,17 @@ fields an allow cannot carry, and two pre-tool facts:
     lack the key, or hold `null` there), the hook files nothing.
 
   A function call the map does not list is filed with the model's own name and
-  arguments. A freeform (custom) call the map does not list files nothing; of the
-  shipped hosts only Codex makes them. On Codex the arguments value is a function call's
-  `arguments` parsed as JSON (an empty string reads as `{}`, unparseable text
-  stays the raw string), or a freeform call's raw `input` string. `fileModelCall` in
-  `/contract` is the reference implementation; it takes the call's kind,
-  `"function"` or `"freeform"`. The map does not model one
-  Codex rename: Codex files an MCP call as `mcp__<namespace>__<tool>`, which
-  differs from the flat name when the namespace does not end in `__`.
+  arguments. A freeform (custom) call the map does not list files nothing; of
+  the shipped hosts only Codex makes them. The map describes calls the host
+  dispatches: Codex files nothing for a call it rejects first (a name it has
+  no tool for, a call kind the tool does not take, or an `apply_patch` whose
+  patch does not parse). On Codex the arguments value is a function call's
+  `arguments` parsed as JSON (an empty or all-whitespace string reads as `{}`,
+  unparseable text stays the raw string), or a freeform call's raw `input`
+  string. `fileModelCall` in `/contract` is the reference implementation; it
+  takes the call's kind, `"function"` or `"freeform"`. The map does not model
+  Codex's MCP names: Codex files an MCP call as `mcp__<namespace>__<tool>`,
+  which can differ from the flat name.
 
 Read the file from the installed package, so it always matches the adapters
 that version ships.

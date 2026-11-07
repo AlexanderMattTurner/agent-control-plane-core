@@ -177,8 +177,22 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   Extension tools can be freeform too (`matches_kind` in
   [`extension_tools.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/extension_tools.rs)),
   and take the same default payload, so an unlisted freeform call files nothing.
-  An MCP call is filed as `mcp__<namespace>__<tool>` (`hook_tool_name` in
-  [`mcp.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/mcp.rs)).
+  An MCP call is filed as `mcp__<namespace>__<tool>`, with `_` trimmed from
+  the namespace's end and the tool's start (`hook_tool_name` in
+  [`mcp.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/mcp.rs)),
+  which can differ from the flat name.
+  The flat name drops the namespace when it is empty or the default
+  `functions`, which Codex stamps on every un-namespaced call
+  (`is_default_namespace` in
+  [`tool_name.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/protocol/src/tool_name.rs),
+  `build_tool_call` in
+  [`router.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/router.rs)).
+  No hook fires for a call the registry rejects before its hook: an unknown
+  name, a payload kind the tool does not take (`matches_kind`), or a failing
+  `environments_for_input`, which for `apply_patch` parses the patch
+  ([`registry.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/registry.rs)).
+  Empty or all-whitespace function arguments are filed as `{}`
+  (`function_hook_tool_input`, same file).
   `PRE_TOOL_FILING` in `src/adapters/codex.mjs` carries all of these except the
   MCP rule.
 - **[X8] what Codex reads from a `PreToolUse` answer** — `rust-v0.166.0`.
@@ -189,7 +203,12 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   On exit 0, a body that fails to deserialize marks the run failed and sets no
   block, so the call runs
   ([`pre_tool_use.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/events/pre_tool_use.rs)).
-  On exit 2 Codex reads only stderr.
+  On exit 2 Codex reads only stderr. The top level is strict too:
+  `PreToolUseCommandOutputWire` is `deny_unknown_fields` over `continue`,
+  `stopReason`, `suppressOutput`, `systemMessage`, `decision`, `reason` and
+  `hookSpecificOutput` (same `schema.rs`). `PRE_TOOL_RESPONSE` does not cover
+  the top level; the adapter's pre-tool render emits only `hookSpecificOutput`
+  there.
 
 **Amp** (`external_hook`; per-tool permission engine, decision = delegate binary
 exit code — already shipped adapter)

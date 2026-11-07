@@ -501,8 +501,8 @@ export const ARGUMENT_KEY_PREFIX = "$.";
 
 /**
  * How a host's pre-tool hook files a model's tool call, keyed by MODEL tool
- * name: the call's `name`, prefixed with its `namespace` when it carries one
- * (no separator). Each value is one of:
+ * name, the {@link flatToolName} of the call's `namespace` and `name`. Each
+ * value is one of:
  * - `null`: no pre-tool hook fires for this call.
  * - `{ tool_name, input }`: the hook fires with `tool_name`, and `tool_input`
  *   built from `input` — either `"$"` (the call's whole arguments value), or
@@ -514,13 +514,34 @@ export const ARGUMENT_KEY_PREFIX = "$.";
  * name, whole arguments. A FREEFORM (custom) call the map does not list files
  * nothing. Of the shipped hosts only Codex makes freeform calls ([X7] in
  * `docs/hook-coverage-matrix.md`).
+ * The map describes a call the host DISPATCHES. Codex files nothing for a call
+ * it rejects first: a name it has no tool for, a call kind the tool does not
+ * take (each listed rule assumes the tool's own kind), or arguments the
+ * handler refuses before its hook (`apply_patch` whose patch does not parse).
  * On Codex the ARGUMENTS VALUE is a function call's `arguments` parsed as JSON
- * (an empty string reads as `{}`, unparseable text stays the raw string), or a
- * freeform call's raw `input` string.
+ * (an empty or all-whitespace string reads as `{}`, unparseable text stays the
+ * raw string), or a freeform call's raw `input` string.
  * Plain JSON by design: `agents.json` publishes it so a consumer with no JS
  * runtime applies it the way {@link fileModelCall} does.
  * @typedef {Readonly<Record<string, null | Readonly<{ tool_name: string, input: string | Readonly<Record<string, string>> }>>>} PreToolFiling
  */
+
+/** Codex's default namespace, which it stamps on un-namespaced function calls. */
+const DEFAULT_FUNCTION_NAMESPACE = "functions";
+
+/**
+ * The model tool name a {@link PreToolFiling} is keyed by: `name`, prefixed
+ * (no separator) with `namespace` unless that is absent, empty, or Codex's
+ * default `functions` namespace (`flat_tool_name`, `is_default_namespace`;
+ * [X7] in `docs/hook-coverage-matrix.md`).
+ * @param {string | null | undefined} namespace
+ * @param {string} name
+ * @returns {string}
+ */
+export function flatToolName(namespace, name) {
+  if (!namespace || namespace === DEFAULT_FUNCTION_NAMESPACE) return name;
+  return namespace + name;
+}
 
 /**
  * What a host reads from the `hookSpecificOutput` of an exit-0 answer to its
@@ -528,7 +549,8 @@ export const ARGUMENT_KEY_PREFIX = "$.";
  * every key it reads there, sorted (empty when it reads no body).
  * `unread_key_fails_open`: `true` ⇒ any other key there voids the whole body
  * and the call RUNS; `false` ⇒ other keys are ignored; `null` ⇒ not
- * established from the host's source.
+ * established from the host's source. Top-level keys are outside this record;
+ * Codex parses those `deny_unknown_fields` too ([X8]).
  * @typedef {Readonly<{ hook_specific_output_keys: readonly string[], unread_key_fails_open: boolean | null }>} PreToolResponse
  */
 
@@ -616,7 +638,7 @@ function resolveArgument(ref, args) {
  * grammar or a kind outside {@link MODEL_CALL_KINDS}.
  * @param {PreToolFiling} filing
  * @param {"function" | "freeform"} kind whether the model made a function call or a freeform (custom) call
- * @param {string} name the model tool name (namespace + name)
+ * @param {string} name the model tool name, a {@link flatToolName}
  * @param {unknown} args the call's arguments value
  * @returns {{ tool_name: string, tool_input: unknown } | null}
  */

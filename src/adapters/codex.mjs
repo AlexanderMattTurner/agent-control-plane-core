@@ -145,9 +145,10 @@ export const UNRENDERED_FIELDS = Object.freeze({
  * - `write_stdin`, code mode's `wait`, and code mode's freeform `exec` → no hook.
  *   The default payload is function-only, so a freeform extension tool files
  *   nothing too — the mini-language's rule for an unlisted freeform call.
- * NOT MODELLED: Codex files an MCP call as `mcp__<namespace>__<tool>`
- * (`mcp.rs` `hook_tool_name`), which differs from the flat name when the
- * namespace does not end in `__` — a rule keyed by name cannot express it.
+ * NOT MODELLED: Codex files an MCP call as `mcp__<namespace>__<tool>`, with
+ * `_` trimmed from the namespace's end and the tool's start (`mcp.rs`
+ * `hook_tool_name`), which can differ from the flat name — a rule keyed by
+ * one name cannot express that.
  * @type {import("../control-plane.mjs").PreToolFiling}
  */
 export const PRE_TOOL_FILING = Object.freeze({

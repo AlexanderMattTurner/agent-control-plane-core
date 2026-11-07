@@ -32,6 +32,7 @@ import {
   asString,
   asStringOrNull,
   fileModelCall,
+  flatToolName,
   FILING_RULE_GRAMMAR,
 } from "../src/control-plane.mjs";
 import { toolCallEventSchema } from "../src/json-schema.mjs";
@@ -761,6 +762,20 @@ describe("gatedResponse and BLOCK_TRANSPORT", () => {
       { transport: "external_hook", exit_code: 1, enforced: false },
     );
   });
+});
+
+describe("flatToolName keys a call the way Codex's flat_tool_name does", () => {
+  for (const [namespace, name, expected] of [
+    [undefined, "exec_command", "exec_command"],
+    [null, "exec_command", "exec_command"],
+    ["", "exec_command", "exec_command"],
+    ["functions", "exec_command", "exec_command"],
+    ["multi_agent_v1", "spawn_agent", "multi_agent_v1spawn_agent"],
+    ["mcp__srv__", "read", "mcp__srv__read"],
+  ])
+    it(`${JSON.stringify(namespace)} + ${name} → ${expected}`, () => {
+      assert.equal(flatToolName(namespace, name), expected);
+    });
 });
 
 describe("fileModelCall reads the PreToolFiling mini-language", () => {
