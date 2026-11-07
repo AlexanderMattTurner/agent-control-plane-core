@@ -19,10 +19,12 @@ the prose from the release's commits.
 
 ### Changed
 
+- **Breaking:** `/contract` no longer exports `MODEL_CALL_KINDS` or `ARGUMENT_KEY_PREFIX`; `fileModelCall` and `isFilingRule` carry the same rules. It now exports `isPlainObject`. `runAdapterConformance` no longer requires `PRE_TOOL_FILING` and `PRE_TOOL_RESPONSE` to be frozen or their key lists sorted (`agents.json` still publishes them sorted).
 - **Breaking:** `renderHookResponse` returns a promise, and a judge passed to it or to `runHookEntry` may answer with one, so a judge can ask a remote monitor. A rejected judge is treated like one that throws: its call goes to `ask`. `ACP_HOOK_TIMEOUT_MS` also answers a judge that is still waiting, and with no deadline set the entry gives its failure response when a judge's promise never settles, instead of exiting 13 with no response.
 
 ### Fixed
 
+- Codex: a `PermissionRequest` deny always carries a message, advisory renders included, as every other Codex deny body does. Codex substitutes its own text for an empty one, so this changes the wording the model sees, not whether the call runs.
 - The hook entries render through `renderEscalated`. On Gemini, a judge's `ask` (or a malformed verdict, which clamps to `ask`) on a vetoable call now exits 2 and blocks; it used to exit 0 and run the call.
 
 ## [0.11.0] - 2026-10-27

@@ -135,9 +135,26 @@ export function readonlySet(values: Iterable<string>): ReadonlySet<string>;
  */
 export function flatToolName(namespace: string | null | undefined, name: string): string;
 /**
- * Whether `rule` is a non-null {@link PreToolFiling} rule: a plain object with
- * exactly a non-empty string `tool_name` and a well-formed `input`. The one
- * grammar both {@link fileModelCall} and the conformance harness hold a rule to.
+ * What a host reads from an exit-0 answer to its pre-tool event (`PreToolUse`,
+ * `BeforeTool`), as two key lists, each empty when the host reads no
+ * body: `hook_specific_output_keys` inside `hookSpecificOutput`, and
+ * `top_level_keys` at the body's top level. Each list has a fail-open bit,
+ * `unread_key_fails_open` and `unread_top_level_key_fails_open`: `true` ⇒ any
+ * other key there voids the whole body and the call RUNS; `false` ⇒ other keys
+ * are ignored; `null` ⇒ not established from the host's source.
+ * @typedef {Readonly<{ hook_specific_output_keys: readonly string[], unread_key_fails_open: boolean | null, top_level_keys: readonly string[], unread_top_level_key_fails_open: boolean | null }>} PreToolResponse
+ */
+/**
+ * Whether `value` is a plain object: not null, not an array.
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+export function isPlainObject(value: unknown): value is Record<string, unknown>;
+/**
+ * Whether `rule` is a non-null {@link PreToolFiling} rule: exactly a non-empty
+ * string `tool_name` and an `input` that is `"$"` or an object of `"$"` /
+ * `"$.<key>"` references. The one grammar both {@link fileModelCall} and the
+ * conformance harness hold a rule to.
  * @param {unknown} rule
  * @returns {boolean}
  */
@@ -147,7 +164,7 @@ export function isFilingRule(rule: unknown): boolean;
  * with arguments value `args`, per that host's {@link PreToolFiling}; `null`
  * when the hook files none. The reference reading of the mini-language
  * `agents.json` publishes as `pre_tool_filing`. Throws on a rule outside that
- * grammar or a kind outside {@link MODEL_CALL_KINDS}.
+ * grammar or a kind other than `"function"` or `"freeform"`.
  * @param {PreToolFiling} filing
  * @param {"function" | "freeform"} kind whether the model made a function call or a freeform (custom) call
  * @param {string} name the model tool name, a {@link flatToolName}
@@ -582,12 +599,8 @@ export const VERDICT_CONTENT_FIELDS: readonly string[];
 export const UNRENDERED_ON_UNKNOWN: ReadonlySet<string>;
 /** The {@link PreToolFiling} input reference to a call's whole arguments value. */
 export const WHOLE_ARGUMENTS: "$";
-/** The prefix of a {@link PreToolFiling} input reference to one top-level argument. */
-export const ARGUMENT_KEY_PREFIX: "$.";
 /** What a {@link PreToolFiling} rule must be, for error messages. */
 export const FILING_RULE_GRAMMAR: "{tool_name: <non-empty string>, input: \"$\" or an object of \"$\"/\"$.<key>\" references (<key>: non-empty, no \".\")}";
-/** The kinds of model tool call a {@link PreToolFiling} distinguishes. */
-export const MODEL_CALL_KINDS: ReadonlySet<string>;
 /**
  * PROBLEM CLASS — an event marked vetoable on a path where the host can never
  * veto it, so a deny reads downstream as a block that never happened.
@@ -648,7 +661,7 @@ export const BLOCK_TRANSPORT: Readonly<Record<string, Readonly<{
 }>>>;
 /**
  * What a host reads from an exit-0 answer to its pre-tool event (`PreToolUse`,
- * `BeforeTool`), as two sorted key lists, each empty when the host reads no
+ * `BeforeTool`), as two key lists, each empty when the host reads no
  * body: `hook_specific_output_keys` inside `hookSpecificOutput`, and
  * `top_level_keys` at the body's top level. Each list has a fail-open bit,
  * `unread_key_fails_open` and `unread_top_level_key_fails_open`: `true` ⇒ any

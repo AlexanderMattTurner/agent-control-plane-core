@@ -496,9 +496,6 @@ export const UNRENDERED_ON_UNKNOWN = readonlySet(VERDICT_CONTENT_FIELDS);
 /** The {@link PreToolFiling} input reference to a call's whole arguments value. */
 export const WHOLE_ARGUMENTS = "$";
 
-/** The prefix of a {@link PreToolFiling} input reference to one top-level argument. */
-export const ARGUMENT_KEY_PREFIX = "$.";
-
 /**
  * How a host's pre-tool hook files a model's tool call, keyed by MODEL tool
  * name, the {@link flatToolName} of the call's `namespace` and `name`. Each
@@ -545,7 +542,7 @@ export function flatToolName(namespace, name) {
 
 /**
  * What a host reads from an exit-0 answer to its pre-tool event (`PreToolUse`,
- * `BeforeTool`), as two sorted key lists, each empty when the host reads no
+ * `BeforeTool`), as two key lists, each empty when the host reads no
  * body: `hook_specific_output_keys` inside `hookSpecificOutput`, and
  * `top_level_keys` at the body's top level. Each list has a fail-open bit,
  * `unread_key_fails_open` and `unread_top_level_key_fails_open`: `true` ⇒ any
@@ -555,79 +552,41 @@ export function flatToolName(namespace, name) {
  */
 
 /**
- * Whether `ref` is a {@link PreToolFiling} input reference: `"$"`, or `"$."`
- * followed by one non-empty key with no `.`.
- * @param {unknown} ref
- * @returns {boolean}
+ * Whether `value` is a plain object: not null, not an array.
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
  */
-function isFilingRef(ref) {
-  if (ref === WHOLE_ARGUMENTS) return true;
-  if (typeof ref !== "string" || !ref.startsWith(ARGUMENT_KEY_PREFIX))
-    return false;
-  const key = ref.slice(ARGUMENT_KEY_PREFIX.length);
-  return key !== "" && !key.includes(".");
+export function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * Whether `input` is a {@link PreToolFiling} rule's input: `"$"`, or a plain
- * object (not an array) whose every value is `"$"` or `"$.<key>"`.
- * @param {unknown} input
- * @returns {boolean}
- */
-function isFilingInput(input) {
-  if (input === WHOLE_ARGUMENTS) return true;
-  return (
-    typeof input === "object" &&
-    input !== null &&
-    !Array.isArray(input) &&
-    Object.values(input).every(isFilingRef)
-  );
-}
+/** A {@link PreToolFiling} reference to one top-level argument; group 1 is the key. */
+const ARGUMENT_REF = /^\$\.([^.]+)$/u;
 
 /** What a {@link PreToolFiling} rule must be, for error messages. */
-export const FILING_RULE_GRAMMAR = `{tool_name: <non-empty string>, input: "${WHOLE_ARGUMENTS}" or an object of "${WHOLE_ARGUMENTS}"/"${ARGUMENT_KEY_PREFIX}<key>" references (<key>: non-empty, no ".")}`;
+export const FILING_RULE_GRAMMAR = `{tool_name: <non-empty string>, input: "${WHOLE_ARGUMENTS}" or an object of "${WHOLE_ARGUMENTS}"/"$.<key>" references (<key>: non-empty, no ".")}`;
 
 /**
- * Whether `rule` is a non-null {@link PreToolFiling} rule: a plain object with
- * exactly a non-empty string `tool_name` and a well-formed `input`. The one
- * grammar both {@link fileModelCall} and the conformance harness hold a rule to.
+ * Whether `rule` is a non-null {@link PreToolFiling} rule: exactly a non-empty
+ * string `tool_name` and an `input` that is `"$"` or an object of `"$"` /
+ * `"$.<key>"` references. The one grammar both {@link fileModelCall} and the
+ * conformance harness hold a rule to.
  * @param {unknown} rule
  * @returns {boolean}
  */
 export function isFilingRule(rule) {
-  if (typeof rule !== "object" || rule === null || Array.isArray(rule))
-    return false;
-  const keys = Object.keys(rule).sort();
-  const { tool_name, input } = /** @type {Record<string, unknown>} */ (rule);
+  if (!isPlainObject(rule)) return false;
+  const { tool_name, input, ...extra } = rule;
+  const isRef = (/** @type {unknown} */ ref) =>
+    ref === WHOLE_ARGUMENTS ||
+    (typeof ref === "string" && ARGUMENT_REF.test(ref));
   return (
-    keys.length === 2 &&
-    keys[0] === "input" &&
-    keys[1] === "tool_name" &&
+    Object.keys(extra).length === 0 &&
     typeof tool_name === "string" &&
     tool_name !== "" &&
-    isFilingInput(input)
+    (input === WHOLE_ARGUMENTS ||
+      (isPlainObject(input) && Object.values(input).every(isRef)))
   );
-}
-
-/** The kinds of model tool call a {@link PreToolFiling} distinguishes. */
-export const MODEL_CALL_KINDS = readonlySet(["function", "freeform"]);
-
-/**
- * Resolve one valid {@link PreToolFiling} input reference against `args`;
- * `undefined` when it does not resolve (see {@link PreToolFiling}).
- * @param {string} ref
- * @param {unknown} args
- * @returns {unknown}
- */
-function resolveArgument(ref, args) {
-  if (ref === WHOLE_ARGUMENTS) return args;
-  if (typeof args !== "object" || args === null || Array.isArray(args))
-    return undefined;
-  const value = lookup(
-    /** @type {Record<string, unknown>} */ (args),
-    ref.slice(ARGUMENT_KEY_PREFIX.length),
-  );
-  return value === null ? undefined : value;
 }
 
 /**
@@ -635,7 +594,7 @@ function resolveArgument(ref, args) {
  * with arguments value `args`, per that host's {@link PreToolFiling}; `null`
  * when the hook files none. The reference reading of the mini-language
  * `agents.json` publishes as `pre_tool_filing`. Throws on a rule outside that
- * grammar or a kind outside {@link MODEL_CALL_KINDS}.
+ * grammar or a kind other than `"function"` or `"freeform"`.
  * @param {PreToolFiling} filing
  * @param {"function" | "freeform"} kind whether the model made a function call or a freeform (custom) call
  * @param {string} name the model tool name, a {@link flatToolName}
@@ -643,7 +602,7 @@ function resolveArgument(ref, args) {
  * @returns {{ tool_name: string, tool_input: unknown } | null}
  */
 export function fileModelCall(filing, kind, name, args) {
-  if (!MODEL_CALL_KINDS.has(kind))
+  if (kind !== "function" && kind !== "freeform")
     throw new Error(
       `control-plane: model call kind ${JSON.stringify(kind)} is neither "function" nor "freeform"`,
     );
@@ -657,10 +616,13 @@ export function fileModelCall(filing, kind, name, args) {
     );
   if (rule.input === WHOLE_ARGUMENTS)
     return { tool_name: rule.tool_name, tool_input: args };
-  const entries = Object.entries(rule.input).map(([key, ref]) => [
-    key,
-    resolveArgument(ref, args),
-  ]);
+  const entries = Object.entries(rule.input).map(([key, ref]) => {
+    const argument = ARGUMENT_REF.exec(ref)?.[1];
+    if (argument === undefined) return [key, args];
+    // A missing key, a null value, or non-object arguments all fail to resolve.
+    const value = isPlainObject(args) ? lookup(args, argument) : undefined;
+    return [key, value === null ? undefined : value];
+  });
   if (entries.some(([, value]) => value === undefined)) return null;
   // fromEntries defines own properties, so an input key `__proto__` stays a
   // key, as it is in a Python consumer's dict, instead of hitting the setter.

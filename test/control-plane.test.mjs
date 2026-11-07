@@ -889,67 +889,30 @@ describe("fileModelCall reads the PreToolFiling mini-language", () => {
     );
   });
 
-  for (const [label, rule, shown] of [
-    [
-      "a string input other than $",
-      { tool_name: "T", input: "$.cmd" },
-      '{"tool_name":"T","input":"$.cmd"}',
-    ],
+  for (const [label, rule] of [
+    ["a string input other than $", { tool_name: "T", input: "$.cmd" }],
     [
       "a reference outside the language",
       { tool_name: "T", input: { v: "cmd" } },
-      '{"tool_name":"T","input":{"v":"cmd"}}',
     ],
-    [
-      "an empty key reference",
-      { tool_name: "T", input: { v: "$." } },
-      '{"tool_name":"T","input":{"v":"$."}}',
-    ],
-    [
-      "a dotted key reference",
-      { tool_name: "T", input: { v: "$.a.b" } },
-      '{"tool_name":"T","input":{"v":"$.a.b"}}',
-    ],
-    [
-      "a non-string reference",
-      { tool_name: "T", input: { v: 1 } },
-      '{"tool_name":"T","input":{"v":1}}',
-    ],
-    [
-      "an array input",
-      { tool_name: "T", input: ["$"] },
-      '{"tool_name":"T","input":["$"]}',
-    ],
-    [
-      "a null input",
-      { tool_name: "T", input: null },
-      '{"tool_name":"T","input":null}',
-    ],
-    ["a missing tool_name", { input: "$" }, '{"input":"$"}'],
-    [
-      "an empty tool_name",
-      { tool_name: "", input: "$" },
-      '{"tool_name":"","input":"$"}',
-    ],
-    [
-      "a non-string tool_name",
-      { tool_name: 1, input: "$" },
-      '{"tool_name":1,"input":"$"}',
-    ],
-    [
-      "an extra member",
-      { tool_name: "T", input: "$", x: 1 },
-      '{"tool_name":"T","input":"$","x":1}',
-    ],
-    ["a non-object rule", "T", '"T"'],
-    ["an array rule", ["T", "$"], '["T","$"]'],
+    ["an empty key reference", { tool_name: "T", input: { v: "$." } }],
+    ["a dotted key reference", { tool_name: "T", input: { v: "$.a.b" } }],
+    ["a non-string reference", { tool_name: "T", input: { v: 1 } }],
+    ["an array input", { tool_name: "T", input: ["$"] }],
+    ["a null input", { tool_name: "T", input: null }],
+    ["a missing tool_name", { input: "$" }],
+    ["an empty tool_name", { tool_name: "", input: "$" }],
+    ["a non-string tool_name", { tool_name: 1, input: "$" }],
+    ["an extra member", { tool_name: "T", input: "$", x: 1 }],
+    ["a non-object rule", "T"],
+    ["an array rule", ["T", "$"]],
   ])
     it(`throws on ${label}`, () => {
       assert.throws(
         () => fileModelCall({ t: rule }, "function", "t", { cmd: "x" }),
         (error) =>
           error.message ===
-          `control-plane: filing rule for "t" is ${shown}, not ${FILING_RULE_GRAMMAR}`,
+          `control-plane: filing rule for "t" is ${JSON.stringify(rule)}, not ${FILING_RULE_GRAMMAR}`,
       );
     });
 });
