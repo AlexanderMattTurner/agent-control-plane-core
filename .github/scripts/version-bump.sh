@@ -24,20 +24,27 @@ source "$SCRIPT_DIR/lib/git-auth.bash"
 
 log() { echo "$@" >&2; }
 
-# dispatch_required_checks BRANCH — start, on BRANCH, every workflow that reports
-# a GitHub Actions check the default branch's ruleset requires. A release-docs PR
-# opened with GITHUB_TOKEN starts no pull_request run (GitHub's loop guard
-# exempts only workflow_dispatch and repository_dispatch), so without this its
-# required checks never report and its auto-merge never fires. A dispatched
-# run's check runs land on BRANCH's head, which is the commit the ruleset
-# evaluates. A PAT-opened PR starts its own runs, so the caller skips this then.
-dispatch_required_checks() {
-  local branch="$1" contexts workflows workflow
-  # integration_id 15368 is GitHub Actions; null means any source may report it.
-  contexts=$(retry_cmd 4 2 gh api "repos/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY required}/rules/branches/$DEFAULT_BRANCH" \
+# fetch_required_contexts — write the required-check contexts of the default
+# branch's ruleset that GitHub Actions can report (integration_id 15368, or null
+# for any source) to CONTEXTS_FILE. `>` rewrites the file on every attempt: a
+# failed gh api still prints its error body to stdout, which a retried command
+# substitution would keep beside the real answer.
+fetch_required_contexts() {
+  gh api "repos/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY required}/rules/branches/$DEFAULT_BRANCH" \
     --jq '.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]
-      | select((.integration_id // 15368) == 15368) | .context') || return 1
-  workflows=$(bash "$SCRIPT_DIR/run-with-pyyaml.sh" "$SCRIPT_DIR/required-check-workflows.py" .github/workflows <<<"$contexts") || return 1
+      | select((.integration_id // 15368) == 15368) | .context' >"$CONTEXTS_FILE"
+}
+
+# dispatch_required_checks BRANCH — start, on BRANCH, every workflow that reports
+# a required check. A GITHUB_TOKEN-opened PR starts no pull_request run (the loop
+# guard exempts only workflow_dispatch and repository_dispatch), so its checks
+# never report and its auto-merge never fires; a dispatched run's check runs land
+# on BRANCH's head, which is the commit the ruleset evaluates.
+dispatch_required_checks() {
+  local branch="$1" workflows workflow
+  CONTEXTS_FILE="$(mktemp)"
+  retry_cmd 4 2 fetch_required_contexts || return 1
+  workflows=$(bash "$SCRIPT_DIR/run-with-pyyaml.sh" "$SCRIPT_DIR/required-check-workflows.py" .github/workflows <"$CONTEXTS_FILE") || return 1
   while IFS= read -r workflow; do
     [[ -n "$workflow" ]] || continue
     retry_cmd 4 2 gh workflow run "$workflow" --ref "$branch" || return 1
@@ -112,7 +119,7 @@ determine_bump() {
 # success path can never contaminate CURRENT_VERSION.
 PACKAGE_NAME=$(node -p "require('./package.json').name")
 NPM_VIEW_ERR="$(mktemp)"
-trap 'rm -f "$NPM_VIEW_ERR" "${PUSH_LOG:-}"' EXIT
+trap 'rm -f "$NPM_VIEW_ERR" "${PUSH_LOG:-}" "${CONTEXTS_FILE:-}"' EXIT
 if CURRENT_VERSION=$(npm view "$PACKAGE_NAME" version 2>"$NPM_VIEW_ERR"); then
   :
 elif grep -q "E404" "$NPM_VIEW_ERR"; then

@@ -235,6 +235,9 @@ const GH_STUB = [
   'echo "$*" >>"$PWD/gh-calls.log"',
   'case "$1 $2" in',
   '"api "*)',
+  '  if [[ -f "$PWD/api-fails-once" ]]; then',
+  '    rm "$PWD/api-fails-once"; echo \'{"message":"Server Error"}\'; exit 1',
+  "  fi",
   '  while [[ $# -gt 0 ]]; do [[ "$1" == --jq ]] && filter="$2"; shift; done',
   '  jq -r "$filter" "$PWD/ruleset.json" ;;',
   '"pr create") echo "https://github.com/o/r/pull/7" ;;',
@@ -245,7 +248,10 @@ const GH_STUB = [
 
 const DISPATCHABLE = "on: [pull_request, workflow_dispatch]\n";
 const WORKFLOWS = {
-  "unit.yaml": `${DISPATCHABLE}jobs:\n  test: {}\n  unit-passed: {}\n`,
+  // The map form with a bare `workflow_dispatch:` (a null value) is the one
+  // every real required-check workflow uses.
+  "unit.yaml":
+    "on:\n  pull_request:\n  workflow_dispatch:\njobs:\n  test: {}\n  unit-passed: {}\n",
   "lint.yml": `${DISPATCHABLE}jobs:\n  gate:\n    name: Lint gate\n`,
   "scan.yaml": `${DISPATCHABLE}jobs:\n  scan: {}\n`,
 };
@@ -267,6 +273,8 @@ for (const {
   workflows = WORKFLOWS,
   viaGithubToken = true,
   dispatchFails = false,
+  apiFailsOnce = false,
+  apiCalls = viaGithubToken ? 1 : 0,
   ok,
   error,
   dispatched,
@@ -280,6 +288,14 @@ for (const {
     ]),
     ok: true,
     dispatched: ["lint.yml", "unit.yaml"],
+  },
+  {
+    name: "reads only the retry's answer after a failed ruleset read",
+    rules: ruleset([{ context: "unit-passed" }]),
+    apiFailsOnce: true,
+    ok: true,
+    apiCalls: 2,
+    dispatched: ["unit.yaml"],
   },
   {
     name: "dispatches nothing when the ruleset requires no check",
@@ -330,6 +346,7 @@ for (const {
       chmodSync(join(binDir, "gh"), 0o755);
       writeFileSync(join(dir, "ruleset.json"), rules);
       if (dispatchFails) writeFileSync(join(dir, "workflow-run-fails"), "");
+      if (apiFailsOnce) writeFileSync(join(dir, "api-fails-once"), "");
       const wfDir = join(dir, ".github", "workflows");
       mkdirSync(wfDir, { recursive: true });
       for (const [file, body] of Object.entries(workflows)) {
@@ -354,7 +371,7 @@ for (const {
         .filter(Boolean);
       assert.deepEqual(
         calls.filter((c) => c.startsWith("api ")).map((c) => c.split(" ")[1]),
-        viaGithubToken ? ["repos/o/r/rules/branches/main"] : [],
+        Array(apiCalls).fill("repos/o/r/rules/branches/main"),
       );
       assert.deepEqual(
         calls.filter((c) => c.startsWith("workflow run ")),
