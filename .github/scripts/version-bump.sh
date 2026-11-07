@@ -42,7 +42,7 @@ fetch_required_contexts() {
 # on BRANCH's head, which is the commit the ruleset evaluates.
 dispatch_required_checks() {
   local branch="$1" workflows workflow
-  CONTEXTS_FILE="$(mktemp)"
+  CONTEXTS_FILE="$(mktemp)" || return 1
   retry_cmd 4 2 fetch_required_contexts || return 1
   workflows=$(bash "$SCRIPT_DIR/run-with-pyyaml.sh" "$SCRIPT_DIR/required-check-workflows.py" .github/workflows <"$CONTEXTS_FILE") || return 1
   while IFS= read -r workflow; do
@@ -119,7 +119,10 @@ determine_bump() {
 # success path can never contaminate CURRENT_VERSION.
 PACKAGE_NAME=$(node -p "require('./package.json').name")
 NPM_VIEW_ERR="$(mktemp)"
-trap 'rm -f "$NPM_VIEW_ERR" "${PUSH_LOG:-}" "${CONTEXTS_FILE:-}"' EXIT
+# Set before the trap so an inherited value never names a file it deletes.
+PUSH_LOG=""
+CONTEXTS_FILE=""
+trap 'rm -f "$NPM_VIEW_ERR" "$PUSH_LOG" "$CONTEXTS_FILE"' EXIT
 if CURRENT_VERSION=$(npm view "$PACKAGE_NAME" version 2>"$NPM_VIEW_ERR"); then
   :
 elif grep -q "E404" "$NPM_VIEW_ERR"; then
