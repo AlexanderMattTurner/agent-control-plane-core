@@ -1050,6 +1050,8 @@ export const DEFAULT_DENY_REASON = "blocked by monitor";
  *   exit. Every host here discards (or never gets) the stdout body on exit 2.
  * - `reason_required`: the host drops a block whose reason is empty and runs
  *   the tool, so every body field that carries the reason must be non-empty.
+ *   Unlike the other two fields, this holds for ANY block body the host parses,
+ *   enforced or advisory: Codex voids an empty-reason deny either way.
  *
  * {@link gatedResponse} derives each adapter's enforced render from its row,
  * and the conformance harness holds every enforced render to the same row.
