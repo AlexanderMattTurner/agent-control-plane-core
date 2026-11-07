@@ -1893,6 +1893,23 @@ describe("conformance harness self-tests (pre-tool key honesty, rule ⑫)", () =
     );
   });
 
+  it("catches a key only a rule ⑧ unenforceable-deny probe renders", () => {
+    const adapter = bodyAdapter(["hookEventName"], true);
+    const strayKey = {
+      ...adapter,
+      render: (verdict, event) => {
+        const out = adapter.render(verdict, event);
+        if (!event.this_call_vetoable && verdict.decision === "deny")
+          out.stdout.hookSpecificOutput.stray = true;
+        return out;
+      },
+    };
+    assert.throws(
+      () => run(strayKey, selfGolden(strayKey, ["PreToolUse"])),
+      /puts \["stray"\] in hookSpecificOutput.*: rule ⑧ probe: /s,
+    );
+  });
+
   it("does not hold another event that parses as pre-tool to the pre-tool keys", () => {
     // Codex's PermissionRequest parses as pre_tool but answers in its own schema.
     const adapter = bodyAdapter(["hookEventName"], true);

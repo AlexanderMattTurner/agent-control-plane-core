@@ -188,8 +188,10 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   `build_tool_call` in
   [`router.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/router.rs)).
   No hook fires for a call the registry rejects before its hook: an unknown
-  name, a payload kind the tool does not take (`matches_kind`), or a failing
-  `environments_for_input`, which for `apply_patch` parses the patch
+  name, a payload kind the tool does not take (`matches_kind`), a failing
+  `environments_for_input` (for `apply_patch` it parses the patch), or a
+  failing `pre_tool_use_cwd` (for `exec_command` it parses `workdir`, so a
+  non-string `workdir` files nothing)
   ([`registry.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/registry.rs)).
   Empty or all-whitespace function arguments are filed as `{}`
   (`function_hook_tool_input`, same file).

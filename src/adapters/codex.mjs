@@ -138,11 +138,13 @@ export const UNRENDERED_FIELDS = Object.freeze({
  * handlers supply their own payload or none:
  * - `exec_command` → `Bash` with `{command: <cmd>}`; arguments Codex cannot
  *   parse as `ExecCommandArgs` file nothing, which this table models only for
- *   a missing `cmd`.
+ *   a missing or null `cmd` or non-object arguments, not other type errors.
  * - `apply_patch` (a freeform tool) → `apply_patch` with its raw patch text as
  *   `command`.
  * - `spawn_agent` in the `multi_agent_v1` namespace → `spawn_agent`.
  * - `write_stdin`, code mode's `wait`, and code mode's freeform `exec` → no hook.
+ *   These rules assume the named tool owns the name; a client-defined tool
+ *   called `wait` with code mode off takes the default payload.
  *   The default payload is function-only, so a freeform extension tool files
  *   nothing too — the mini-language's rule for an unlisted freeform call.
  * NOT MODELLED: Codex files an MCP call as `mcp__<namespace>__<tool>`, with

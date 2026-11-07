@@ -218,9 +218,10 @@ fields an allow cannot carry, and two pre-tool facts:
   A function call the map does not list is filed with the model's own name and
   arguments. A freeform (custom) call the map does not list files nothing; of
   the shipped hosts only Codex makes them. The map describes calls the host
-  dispatches: Codex files nothing for a call it rejects first (a name it has
-  no tool for, a call kind the tool does not take, or an `apply_patch` whose
-  patch does not parse). On Codex the arguments value is a function call's
+  dispatches: Codex files nothing for a call it rejects first, e.g. a name it
+  has no tool for, a call kind the tool does not take, or arguments a handler
+  refuses before its hook (an `apply_patch` patch that does not parse, an
+  `exec_command` with a non-string `workdir`). On Codex the arguments value is a function call's
   `arguments` parsed as JSON (an empty or all-whitespace string reads as `{}`,
   unparseable text stays the raw string), or a freeform call's raw `input`
   string. `fileModelCall` in `/contract` is the reference implementation; it
