@@ -635,14 +635,14 @@ export function fileModelCall(filing, kind, name, args) {
     );
   if (rule.input === WHOLE_ARGUMENTS)
     return { tool_name: rule.tool_name, tool_input: args };
-  /** @type {Record<string, unknown>} */
-  const tool_input = {};
-  for (const [key, ref] of Object.entries(rule.input)) {
-    const value = resolveArgument(ref, args);
-    if (value === undefined) return null;
-    tool_input[key] = value;
-  }
-  return { tool_name: rule.tool_name, tool_input };
+  const entries = Object.entries(rule.input).map(([key, ref]) => [
+    key,
+    resolveArgument(ref, args),
+  ]);
+  if (entries.some(([, value]) => value === undefined)) return null;
+  // fromEntries defines own properties, so an input key `__proto__` stays a
+  // key, as it is in a Python consumer's dict, instead of hitting the setter.
+  return { tool_name: rule.tool_name, tool_input: Object.fromEntries(entries) };
 }
 
 /**

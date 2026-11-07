@@ -844,6 +844,15 @@ describe("fileModelCall reads the PreToolFiling mini-language", () => {
     assert.equal(fileModelCall(filing, "function", "t", {}), null);
   });
 
+  it("keeps an input key named __proto__ as an own key", () => {
+    const filing = JSON.parse(
+      '{"t":{"tool_name":"T","input":{"__proto__":"$.a"}}}',
+    );
+    const filed = fileModelCall(filing, "function", "t", { a: { x: 1 } });
+    assert.equal(JSON.stringify(filed?.tool_input), '{"__proto__":{"x":1}}');
+    assert.equal(Object.getPrototypeOf(filed?.tool_input), Object.prototype);
+  });
+
   it("mixes $ and $.<key> references in one input", () => {
     const filing = { t: { tool_name: "T", input: { all: "$", one: "$.a" } } };
     assert.deepEqual(fileModelCall(filing, "function", "t", { a: 1, b: 2 }), {
