@@ -58,11 +58,12 @@ export function render(verdict: Verdict, event: ToolCallEvent, { soleGate }?: {
  * the Codex version the launcher pinned (Codex's hook stdin carries none).
  * Below {@link MIN_ENFORCING_VERSION} every event parses observe-only and a
  * deny renders advisory. With no `version`, `parse` falls back to a payload
- * `version` (see {@link parse}).
+ * `version` (see {@link parse}). An option outside {@link OPTION_NAMES} throws,
+ * so a misspelled setting is never dropped in silence.
  * @param {{ version?: string }} [options]
  * @returns {import("../control-plane.mjs").Adapter}
  */
-export function createCodexAdapter({ version }?: {
+export function createCodexAdapter(options?: {
     version?: string;
 }): import("../control-plane.mjs").Adapter;
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
@@ -140,6 +141,8 @@ export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
  * naming a key the host discards.
  */
 export const NATIVE_ASK_TIER: false;
+/** The launcher option names {@link createCodexAdapter} reads. */
+export const OPTION_NAMES: readonly string[];
 /**
  * The Codex adapter with no launcher-pinned version. Real Codex sends no
  * version, so every event it sends parses observe-only here. A deployment that

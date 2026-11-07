@@ -411,16 +411,28 @@ function postToolBody(hookEventName, vd, enforced) {
   return body;
 }
 
+/** The launcher option names {@link createCodexAdapter} reads. */
+export const OPTION_NAMES = Object.freeze(["version"]);
+
 /**
  * Build a Codex adapter whose `parse` judges every payload against `version`,
  * the Codex version the launcher pinned (Codex's hook stdin carries none).
  * Below {@link MIN_ENFORCING_VERSION} every event parses observe-only and a
  * deny renders advisory. With no `version`, `parse` falls back to a payload
- * `version` (see {@link parse}).
+ * `version` (see {@link parse}). An option outside {@link OPTION_NAMES} throws,
+ * so a misspelled setting is never dropped in silence.
  * @param {{ version?: string }} [options]
  * @returns {import("../control-plane.mjs").Adapter}
  */
-export function createCodexAdapter({ version } = {}) {
+export function createCodexAdapter(options = {}) {
+  const unread = Object.keys(options).filter(
+    (name) => !OPTION_NAMES.includes(name),
+  );
+  if (unread.length > 0)
+    throw new Error(
+      `codex: no option ${unread.map((name) => JSON.stringify(name)).join(", ")} (reads: ${OPTION_NAMES.join(", ")})`,
+    );
+  const { version } = options;
   return {
     AGENT,
     INTEGRATION_MODE,

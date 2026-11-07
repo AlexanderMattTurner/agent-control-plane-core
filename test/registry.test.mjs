@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ADAPTERS,
   AGENT_IDS,
+  LAUNCHER_OPTIONS,
   adapterFor,
   assertRegistryConsistent,
 } from "../src/registry.mjs";
@@ -108,6 +109,36 @@ describe("adapter registry", () => {
       () => adapterFor("claude", { version: "1.0.0" }),
       /adapter "claude" takes no options/,
     );
+  });
+
+  it("adapterFor throws on an option the adapter does not read", () => {
+    assert.throws(
+      () => adapterFor("codex", { verison: "0.151.0" }),
+      /codex: no option "verison" \(reads: version\)/,
+    );
+  });
+
+  // A launcher builds every agent's options from this table, so each row must
+  // name exactly what adapterFor accepts for that agent: an adapter with names
+  // takes them, and one with none refuses any option.
+  it("LAUNCHER_OPTIONS names every agent, and adapterFor agrees with each row", () => {
+    assert.deepEqual(Object.keys(LAUNCHER_OPTIONS), [...AGENT_IDS]);
+    assert.ok(
+      Object.values(LAUNCHER_OPTIONS).some((names) => names.length > 0),
+      "no configurable row: the accepting branch below would be vacuous",
+    );
+    for (const [id, names] of Object.entries(LAUNCHER_OPTIONS)) {
+      const options = Object.fromEntries(
+        names.map((name) => [name, undefined]),
+      );
+      if (names.length > 0) assert.equal(adapterFor(id, options).AGENT, id);
+      else
+        assert.throws(
+          () => adapterFor(id, { version: "1.0.0" }),
+          /takes no options/,
+        );
+    }
+    assert.ok(Object.isFrozen(LAUNCHER_OPTIONS));
   });
 });
 

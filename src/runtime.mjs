@@ -21,6 +21,12 @@ import {
 } from "./control-plane.mjs";
 
 /**
+ * A guardrail judge: one normalized event in, its verdict out, synchronously or
+ * as a promise. Its answer is untrusted either way (see {@link renderHookResponse}).
+ * @typedef {(event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict | Promise<import("./control-plane.mjs").Verdict>} Judge
+ */
+
+/**
  * Read all of stdin to a string.
  * @returns {Promise<string>}
  */
@@ -77,16 +83,18 @@ export function demoJudge(event) {
  * greppable trace. Every host tolerates hook stderr: claude/codex surface it
  * only in verbose/debug on a 0 exit, amp forwards the helper's stderr, and
  * gemini reads stderr as a reason only on exit 2.
- * `judge` is the seam a real deployment fills — {@link demoJudge} is a stand-in,
- * so the guardrail is supplied here rather than by forking this file. Whatever
- * it returns is treated as untrusted (see the clamp below).
+ * `judge` is the seam a real deployment fills, so the guardrail is supplied here
+ * rather than by forking this file ({@link demoJudge} is a stand-in). It may
+ * return a promise (a judge that asks a remote monitor); a rejection takes the
+ * same path as a throw. Whatever it returns is treated as untrusted (see the
+ * clamp below).
  * @param {import("./control-plane.mjs").Adapter} adapter
  * @param {string} rawInput
  * @param {import("./control-plane.mjs").NativeResponse} onFailure
- * @param {(event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict} [judge]
- * @returns {import("./control-plane.mjs").NativeResponse}
+ * @param {Judge} [judge]
+ * @returns {Promise<import("./control-plane.mjs").NativeResponse>}
  */
-export function renderHookResponse(
+export async function renderHookResponse(
   adapter,
   rawInput,
   onFailure,
@@ -107,7 +115,7 @@ export function renderHookResponse(
     /** @type {unknown} */
     let answer;
     try {
-      answer = judge(event);
+      answer = await judge(event);
     } catch (err) {
       // No `decision`, so the clamp below turns this into an `ask`.
       answer = { reason: `hook judge threw: ${describe(err).split("\n")[0]}` };
@@ -227,9 +235,11 @@ export function failurePosture(agent, env = process.env) {
  * {@link renderHookResponse} with that host's {@link failurePosture}, and
  * {@link emit} the result. Every `bin/<host>-hook.mjs` is this one call. The
  * failure response also answers a stdin read error and, when
- * {@link hookDeadlineMs} is set, a hook still running at that deadline.
+ * {@link hookDeadlineMs} is set, a hook still running at that deadline. It also
+ * answers a judge promise that never settles once nothing else keeps node alive,
+ * which would otherwise end the process with no response.
  * @param {import("./control-plane.mjs").Adapter} adapter
- * @param {(event: import("./control-plane.mjs").ToolCallEvent) => import("./control-plane.mjs").Verdict} [judge]
+ * @param {Judge} [judge]
  * @returns {Promise<never>}
  */
 export async function runHookEntry(adapter, judge = demoJudge) {
@@ -258,7 +268,17 @@ export async function runHookEntry(adapter, judge = demoJudge) {
   } catch (err) {
     return fail("hook stdin error", err);
   }
-  return emit(renderHookResponse(adapter, raw, onFailure, judge));
+  // An unsettled judge promise with no pending I/O drains the event loop, and
+  // node then exits with no response (13 under top-level await, 0 otherwise),
+  // which a fail-open host runs. Registered after stdin is read, so only the
+  // judge can be what never answered.
+  process.once("beforeExit", () =>
+    fail(
+      "hook judge never answered",
+      new Error("the judge's promise never settled"),
+    ),
+  );
+  return emit(await renderHookResponse(adapter, raw, onFailure, judge));
 }
 
 /**

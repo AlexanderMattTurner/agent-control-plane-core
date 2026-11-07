@@ -182,6 +182,20 @@ on a non-blocking pipe. The entries ship as `acp-claude-hook`, `acp-codex-hook`,
 set `ACP_CODEX_VERSION` to the Codex version your launcher pins (or call
 `createCodexAdapter({ version })`); without it, Codex calls parse advisory.
 
+A judge may return its verdict or a promise of one, so a judge can ask a
+remote monitor before it answers. `renderHookResponse` returns a promise.
+`adapterFor(id, options)` takes the options its `LAUNCHER_OPTIONS[id]` row
+names, so a launcher passes a pinned version to whichever agents read one
+without naming them.
+
+A consumer that cannot import these modules (a bash hook wrapper, a Python
+monitor) reads `schema/control-plane/v1/agents.json` instead. It is generated
+from the adapters, with one row per agent: its block exit code and reason
+stream, whether a block needs a reason, whether it has an ask tier, the entry's
+default response when the hook breaks, its hook coverage, and the verdict
+fields an allow cannot carry. Read the file from the installed package, so it
+always matches the adapters that version ships.
+
 Each entry fails the way its host expects when the hook itself breaks: claude,
 codex and gemini run the call, and amp asks. Set `ACP_FAIL_CLOSED=1` to block
 instead, on every host. The entry then exits 2 with the reason on stderr when
