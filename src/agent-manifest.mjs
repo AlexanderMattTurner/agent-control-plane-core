@@ -31,6 +31,11 @@ import { HOST_FAILURE } from "./runtime.mjs";
  * - `coverage`: `COVERAGE`, per call class.
  * - `unrendered_fields_on_allow`: `UNRENDERED_FIELDS`, each set as a sorted
  *   list. It describes the allow path only: a deny can drop more.
+ * - `pre_tool_filing`: `PRE_TOOL_FILING`, how the pre-tool hook files a model
+ *   tool call, in the mini-language the `PreToolFiling` typedef specifies.
+ * - `pre_tool_response`: `PRE_TOOL_RESPONSE`, the `hookSpecificOutput` keys the
+ *   host reads on an exit-0 pre-tool answer, and `unread_key_fails_open`
+ *   (`true`: any other key voids the body and the call runs; `null`: unknown).
  * @param {string} id
  * @returns {Record<string, unknown>}
  */
@@ -55,6 +60,8 @@ function manifestRow(id) {
         ].sort(),
       ]),
     ),
+    pre_tool_filing: adapter.PRE_TOOL_FILING,
+    pre_tool_response: adapter.PRE_TOOL_RESPONSE,
   };
 }
 

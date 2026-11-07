@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -30,6 +31,9 @@ import {
   asObject,
   asString,
   asStringOrNull,
+  fileModelCall,
+  flatToolName,
+  FILING_RULE_GRAMMAR,
 } from "../src/control-plane.mjs";
 import { toolCallEventSchema } from "../src/json-schema.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
@@ -758,4 +762,194 @@ describe("gatedResponse and BLOCK_TRANSPORT", () => {
       { transport: "external_hook", exit_code: 1, enforced: false },
     );
   });
+});
+
+describe("flatToolName keys a call the way Codex's flat_tool_name does", () => {
+  for (const [namespace, name, expected] of [
+    [undefined, "exec_command", "exec_command"],
+    [null, "exec_command", "exec_command"],
+    ["", "exec_command", "exec_command"],
+    ["functions", "exec_command", "exec_command"],
+    ["multi_agent_v1", "spawn_agent", "multi_agent_v1spawn_agent"],
+    ["mcp__srv__", "read", "mcp__srv__read"],
+  ])
+    it(`${JSON.stringify(namespace)} + ${name} → ${expected}`, () => {
+      assert.equal(flatToolName(namespace, name), expected);
+    });
+});
+
+describe("fileModelCall reads the PreToolFiling mini-language", () => {
+  // The JSON `agents.json` publishes, not the in-process export: what a
+  // consumer without a JS runtime applies is the parsed file, so that is what
+  // the reading is checked against.
+  const published = JSON.parse(
+    readFileSync(
+      new URL("../schema/control-plane/v1/agents.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const codexFiling = published.codex.pre_tool_filing;
+  const patch = "*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch\n";
+
+  for (const [kind, name, args, expected] of [
+    [
+      "function",
+      "exec_command",
+      { cmd: "ls -la", tty: true, yield_time_ms: 500 },
+      { tool_name: "Bash", tool_input: { command: "ls -la" } },
+    ],
+    ["function", "exec_command", { tty: true }, null],
+    ["function", "exec_command", { cmd: null }, null],
+    ["function", "exec_command", "ls", null],
+    ["function", "exec_command", null, null],
+    [
+      "freeform",
+      "apply_patch",
+      patch,
+      { tool_name: "apply_patch", tool_input: { command: patch } },
+    ],
+    [
+      "function",
+      "multi_agent_v1spawn_agent",
+      { message: "go" },
+      { tool_name: "spawn_agent", tool_input: { message: "go" } },
+    ],
+    ["function", "write_stdin", { session_id: 1, chars: "y\n" }, null],
+    ["function", "wait", { cell_id: "c1" }, null],
+    ["freeform", "exec", "console.log(1)", null],
+    [
+      "function",
+      "view_image",
+      { path: "/a.png" },
+      { tool_name: "view_image", tool_input: { path: "/a.png" } },
+    ],
+    ["freeform", "ext_freeform_tool", "raw text", null],
+    [
+      "function",
+      "constructor",
+      { a: 1 },
+      { tool_name: "constructor", tool_input: { a: 1 } },
+    ],
+  ])
+    it(`codex files ${kind} ${name}(${JSON.stringify(args)}) as ${JSON.stringify(expected)}`, () => {
+      assert.deepEqual(fileModelCall(codexFiling, kind, name, args), expected);
+    });
+
+  it("files every function call as asked on an agent with no renames", () => {
+    for (const id of ["claude", "amp", "gemini"])
+      assert.deepEqual(
+        fileModelCall(published[id].pre_tool_filing, "function", "Bash", {
+          command: "ls",
+        }),
+        { tool_name: "Bash", tool_input: { command: "ls" } },
+      );
+  });
+
+  it("reads a $.<key> as one literal key and keeps a falsy non-null value", () => {
+    const filing = { t: { tool_name: "T", input: { v: "$.a" } } };
+    assert.deepEqual(
+      fileModelCall(filing, "function", "t", { a: 0, "a.b": 1 }),
+      { tool_name: "T", tool_input: { v: 0 } },
+    );
+  });
+
+  it("resolves no $.<key> against array arguments", () => {
+    // The mini-language's own reading; Codex's serde reads a positional array
+    // into ExecCommandArgs, which the codex table does not model.
+    const filing = { t: { tool_name: "T", input: { v: "$.0" } } };
+    assert.equal(fileModelCall(filing, "function", "t", ["ls"]), null);
+  });
+
+  it("does not resolve a $.<key> through the prototype", () => {
+    const filing = { t: { tool_name: "T", input: { v: "$.toString" } } };
+    assert.equal(fileModelCall(filing, "function", "t", {}), null);
+  });
+
+  it("keeps an input key named __proto__ as an own key", () => {
+    const filing = JSON.parse(
+      '{"t":{"tool_name":"T","input":{"__proto__":"$.a"}}}',
+    );
+    const filed = fileModelCall(filing, "function", "t", { a: { x: 1 } });
+    assert.equal(JSON.stringify(filed?.tool_input), '{"__proto__":{"x":1}}');
+    assert.equal(Object.getPrototypeOf(filed?.tool_input), Object.prototype);
+  });
+
+  it("mixes $ and $.<key> references in one input", () => {
+    const filing = { t: { tool_name: "T", input: { all: "$", one: "$.a" } } };
+    assert.deepEqual(fileModelCall(filing, "function", "t", { a: 1, b: 2 }), {
+      tool_name: "T",
+      tool_input: { all: { a: 1, b: 2 }, one: 1 },
+    });
+  });
+
+  it("throws on a call kind other than function or freeform", () => {
+    assert.throws(
+      () => fileModelCall({}, "custom", "t", {}),
+      /^Error: control-plane: model call kind "custom" is neither "function" nor "freeform"$/,
+    );
+  });
+
+  for (const [label, rule, shown] of [
+    [
+      "a string input other than $",
+      { tool_name: "T", input: "$.cmd" },
+      '{"tool_name":"T","input":"$.cmd"}',
+    ],
+    [
+      "a reference outside the language",
+      { tool_name: "T", input: { v: "cmd" } },
+      '{"tool_name":"T","input":{"v":"cmd"}}',
+    ],
+    [
+      "an empty key reference",
+      { tool_name: "T", input: { v: "$." } },
+      '{"tool_name":"T","input":{"v":"$."}}',
+    ],
+    [
+      "a dotted key reference",
+      { tool_name: "T", input: { v: "$.a.b" } },
+      '{"tool_name":"T","input":{"v":"$.a.b"}}',
+    ],
+    [
+      "a non-string reference",
+      { tool_name: "T", input: { v: 1 } },
+      '{"tool_name":"T","input":{"v":1}}',
+    ],
+    [
+      "an array input",
+      { tool_name: "T", input: ["$"] },
+      '{"tool_name":"T","input":["$"]}',
+    ],
+    [
+      "a null input",
+      { tool_name: "T", input: null },
+      '{"tool_name":"T","input":null}',
+    ],
+    ["a missing tool_name", { input: "$" }, '{"input":"$"}'],
+    [
+      "an empty tool_name",
+      { tool_name: "", input: "$" },
+      '{"tool_name":"","input":"$"}',
+    ],
+    [
+      "a non-string tool_name",
+      { tool_name: 1, input: "$" },
+      '{"tool_name":1,"input":"$"}',
+    ],
+    [
+      "an extra member",
+      { tool_name: "T", input: "$", x: 1 },
+      '{"tool_name":"T","input":"$","x":1}',
+    ],
+    ["a non-object rule", "T", '"T"'],
+    ["an array rule", ["T", "$"], '["T","$"]'],
+  ])
+    it(`throws on ${label}`, () => {
+      assert.throws(
+        () => fileModelCall({ t: rule }, "function", "t", { cmd: "x" }),
+        (error) =>
+          error.message ===
+          `control-plane: filing rule for "t" is ${shown}, not ${FILING_RULE_GRAMMAR}`,
+      );
+    });
 });

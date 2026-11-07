@@ -75,6 +75,21 @@ export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
  * host did, pending an answer.
  */
 export const NATIVE_ASK_TIER: true;
+/**
+ * No rename is modelled: no source shows Claude Code filing a call under a
+ * name or input other than the model's.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING: import("../control-plane.mjs").PreToolFiling;
+/**
+ * The `hookSpecificOutput` keys Claude Code's hooks reference documents for
+ * `PreToolUse` (https://code.claude.com/docs/en/hooks). Whether an unread key
+ * fails open is NOT established: the reference says an exit-0 body that fails
+ * schema validation lets the call go ahead, but not whether an extra key fails
+ * it, and the host's source is not public.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE: import("../control-plane.mjs").PreToolResponse;
 /** Claude Code native hook event names (the `hook_event_name` field). */
 export const HookEvent: Readonly<{
     PRE_TOOL_USE: "PreToolUse";

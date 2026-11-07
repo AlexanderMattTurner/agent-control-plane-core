@@ -119,6 +119,40 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
+/**
+ * How Codex's `PreToolUse` hook files a model tool call ([X7], read from
+ * Codex's source at `rust-v0.166.0`). A function tool is filed under its flat
+ * name (namespace + name) with its parsed arguments by default; these
+ * handlers supply their own payload or none:
+ * - `exec_command` → `Bash` with `{command: <cmd>}`; arguments Codex cannot
+ *   parse as `ExecCommandArgs` file nothing, which this table models only for
+ *   a missing or null `cmd` or scalar arguments. Not modelled: other type
+ *   errors, and a positional array, which serde reads (`["ls"]` is `cmd: "ls"`).
+ * - `apply_patch` (a freeform tool) → `apply_patch` with its raw patch text as
+ *   `command`.
+ * - `spawn_agent` in the `multi_agent_v1` namespace → `spawn_agent`.
+ * - `write_stdin`, code mode's `wait`, and code mode's freeform `exec` → no hook.
+ *   These rules assume the named tool owns the name; a client-defined tool
+ *   called `wait` with code mode off takes the default payload.
+ *   The default payload is function-only, so a freeform extension tool files
+ *   nothing too — the mini-language's rule for an unlisted freeform call.
+ * NOT MODELLED: Codex files an MCP call as `mcp__<namespace>__<tool>`, with
+ * `_` trimmed from the namespace's end and the tool's start (`mcp.rs`
+ * `hook_tool_name`), which can differ from the flat name — a rule keyed by
+ * one name cannot express that.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING: import("../control-plane.mjs").PreToolFiling;
+/**
+ * Codex's `PreToolUse` output parser ([X8], `rust-v0.166.0`) deserializes
+ * `hookSpecificOutput` into a `deny_unknown_fields` struct of exactly these
+ * five keys. Any other key fails the whole body: the run is marked failed, no
+ * block is set, and the call RUNS. A known key can still void the body by its
+ * combination (`updatedInput` without `permissionDecision: "allow"`), which
+ * this declaration does not describe.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE: import("../control-plane.mjs").PreToolResponse;
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION: readonly number[];
 /**

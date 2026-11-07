@@ -37,6 +37,17 @@
         "mutated_input",
         "mutated_output"
       ]
+    },
+    "pre_tool_filing": {},
+    "pre_tool_response": {
+      "hook_specific_output_keys": [
+        "additionalContext",
+        "hookEventName",
+        "permissionDecision",
+        "permissionDecisionReason",
+        "updatedInput"
+      ],
+      "unread_key_fails_open": null
     }
   },
   "codex": {
@@ -81,6 +92,37 @@
         "mutated_input",
         "mutated_output"
       ]
+    },
+    "pre_tool_filing": {
+      "exec_command": {
+        "tool_name": "Bash",
+        "input": {
+          "command": "$.cmd"
+        }
+      },
+      "apply_patch": {
+        "tool_name": "apply_patch",
+        "input": {
+          "command": "$"
+        }
+      },
+      "multi_agent_v1spawn_agent": {
+        "tool_name": "spawn_agent",
+        "input": "$"
+      },
+      "write_stdin": null,
+      "wait": null,
+      "exec": null
+    },
+    "pre_tool_response": {
+      "hook_specific_output_keys": [
+        "additionalContext",
+        "hookEventName",
+        "permissionDecision",
+        "permissionDecisionReason",
+        "updatedInput"
+      ],
+      "unread_key_fails_open": true
     }
   },
   "amp": {
@@ -127,6 +169,11 @@
         "mutated_input",
         "mutated_output"
       ]
+    },
+    "pre_tool_filing": {},
+    "pre_tool_response": {
+      "hook_specific_output_keys": [],
+      "unread_key_fails_open": false
     }
   },
   "gemini": {
@@ -169,6 +216,13 @@
         "mutated_input",
         "mutated_output"
       ]
+    },
+    "pre_tool_filing": {},
+    "pre_tool_response": {
+      "hook_specific_output_keys": [
+        "tool_input"
+      ],
+      "unread_key_fails_open": false
     }
   }
 }

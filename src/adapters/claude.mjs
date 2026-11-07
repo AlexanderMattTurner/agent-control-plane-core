@@ -125,6 +125,32 @@ export const UNRENDERED_FIELDS = Object.freeze({
  */
 export const NATIVE_ASK_TIER = true;
 
+/**
+ * No rename is modelled: no source shows Claude Code filing a call under a
+ * name or input other than the model's.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING = Object.freeze({});
+
+/**
+ * The `hookSpecificOutput` keys Claude Code's hooks reference documents for
+ * `PreToolUse` (https://code.claude.com/docs/en/hooks). Whether an unread key
+ * fails open is NOT established: the reference says an exit-0 body that fails
+ * schema validation lets the call go ahead, but not whether an extra key fails
+ * it, and the host's source is not public.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE = Object.freeze({
+  hook_specific_output_keys: Object.freeze([
+    "additionalContext",
+    "hookEventName",
+    "permissionDecision",
+    "permissionDecisionReason",
+    "updatedInput",
+  ]),
+  unread_key_fails_open: null,
+});
+
 /** Claude Code native hook event names (the `hook_event_name` field). */
 export const HookEvent = Object.freeze({
   PRE_TOOL_USE: "PreToolUse",
@@ -339,6 +365,8 @@ export const claudeAdapter = {
   UNRENDERED_FIELDS,
   NATIVE_ASK_TIER,
   NATIVE_EVENT_FOR,
+  PRE_TOOL_FILING,
+  PRE_TOOL_RESPONSE,
   parse,
   render,
 };

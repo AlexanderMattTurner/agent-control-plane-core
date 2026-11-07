@@ -126,6 +126,23 @@ export const GEMINI_TOOL_ALIASES: Readonly<Record<string, string>>;
  * here, because an un-escalated ask lets Gemini run the tool.
  */
 export const NATIVE_ASK_TIER: false;
+/**
+ * No rename is modelled. Gemini CLI hands `BeforeTool` the invocation's tool
+ * name beside an `originalRequestName`, so an aliased call may be filed under
+ * a name the model did not use; that is unverified, so not published.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING: import("../control-plane.mjs").PreToolFiling;
+/**
+ * Gemini CLI keeps `hookSpecificOutput` as a `Record<string, unknown>` and its
+ * `BeforeTool` path reads only `tool_input` from it, by `in` lookup, so any
+ * other key is ignored (`packages/core/src/hooks/types.ts`
+ * `BeforeToolHookOutput`; both firing paths, `core/coreToolHookTriggers.ts`
+ * and `scheduler/hook-utils.ts` `evaluateBeforeToolHook`, read at gemini-cli
+ * `62bab5b2`).
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE: import("../control-plane.mjs").PreToolResponse;
 /** @type {import("../control-plane.mjs").Adapter} */
 export const geminiAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;

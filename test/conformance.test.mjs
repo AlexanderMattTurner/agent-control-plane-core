@@ -108,6 +108,11 @@ const echoAdapter = {
   // Exit 1 is this transport's ask, and it is a tier of its own — so the
   // declaration rule ⑪ holds the render to is `true`.
   NATIVE_ASK_TIER: true,
+  PRE_TOOL_FILING: Object.freeze({}),
+  PRE_TOOL_RESPONSE: Object.freeze({
+    hook_specific_output_keys: Object.freeze([]),
+    unread_key_fails_open: false,
+  }),
   // Honours `this_call_vetoable` the way rule ⑤/⑧ require of a REAL adapter: a
   // deny it cannot enforce degrades to the transport's ask (1), never to allow.
   // An `ask` renders as that same 1, which is what makes the degrade honest:
@@ -1774,4 +1779,349 @@ describe("rule ⑩ non-vacuity: every content field is witnessed on some adapter
         seen.add(field);
     assert.deepEqual([...seen].sort(), [...VERDICT_CONTENT_FIELDS].sort());
   });
+});
+
+describe("conformance harness self-tests (pre-tool key honesty, rule ⑫)", () => {
+  const preToolEvent = (nativeEvent) => ({
+    ...echoEvent(true),
+    meta: { native_event: nativeEvent },
+  });
+  // `extra` lands in hookSpecificOutput on every render for an event named
+  // `nativeEvent`, so a rule ⑫ failure is the only thing that can fail the run.
+  const bodyAdapter = (keys, failsOpen, extra = {}) => ({
+    ...echoAdapter,
+    NATIVE_EVENT_FOR: Object.freeze({ [EventKind.PRE_TOOL]: "PreToolUse" }),
+    PRE_TOOL_RESPONSE: Object.freeze({
+      hook_specific_output_keys: Object.freeze(keys),
+      unread_key_fails_open: failsOpen,
+    }),
+    render: (/** @type {any} */ verdict, /** @type {any} */ event) => ({
+      ...echoAdapter.render(verdict, event),
+      stdout: {
+        hookSpecificOutput: {
+          hookEventName: event.meta.native_event,
+          ...extra,
+        },
+      },
+    }),
+  });
+  // Golden from the adapter's own render, so the fixture comparison agrees and
+  // the run reaches rule ⑫.
+  const selfGolden = (adapter, nativeEvents) => ({
+    agent: "t",
+    cases: nativeEvents.map((nativeEvent) => {
+      const event = preToolEvent(nativeEvent);
+      const verdicts = {
+        allow: { decision: "allow" },
+        deny: { decision: "deny" },
+        ask: { decision: "ask" },
+        mutation: { decision: "allow", mutated_input: { a: 1 } },
+      };
+      return {
+        name: nativeEvent,
+        native: { event },
+        event,
+        render: Object.fromEntries(
+          Object.entries(verdicts).map(([scenario, verdict]) => [
+            scenario,
+            { verdict, native: adapter.render(verdict, event) },
+          ]),
+        ),
+      };
+    }),
+  });
+
+  it("passes and counts every fixture render when each emitted key is declared", () => {
+    const adapter = bodyAdapter(["hookEventName", "x"], true, { x: 1 });
+    const summary = run(adapter, selfGolden(adapter, ["PreToolUse"]));
+    assert.equal(summary.preToolKeyChecks, 4);
+  });
+
+  it("throws on a key the host does not read, and says the host then runs the call", () => {
+    const adapter = bodyAdapter(["hookEventName"], true, { x: 1 });
+    assert.throws(
+      () => run(adapter, selfGolden(adapter, ["PreToolUse"])),
+      /a pre-tool render puts \["x"\] in hookSpecificOutput.*voids the body and runs the call: PreToolUse \/ allow/,
+    );
+  });
+
+  it("omits the fail-open clause on a host that ignores the key", () => {
+    const adapter = bodyAdapter(["hookEventName"], null, { x: 1 });
+    assert.throws(
+      () => run(adapter, selfGolden(adapter, ["PreToolUse"])),
+      (error) =>
+        /puts \["x"\] in hookSpecificOutput, which PRE_TOOL_RESPONSE says this host does not read: /.test(
+          error.message,
+        ),
+    );
+  });
+
+  it("refuses a hookSpecificOutput that is not an object", () => {
+    const adapter = bodyAdapter(["hookEventName"], true);
+    const nulled = {
+      ...adapter,
+      render: (verdict, event) => ({
+        ...adapter.render(verdict, event),
+        stdout: { hookSpecificOutput: null },
+      }),
+    };
+    assert.throws(
+      () => run(nulled, selfGolden(nulled, ["PreToolUse"])),
+      /a pre-tool render's hookSpecificOutput is null, not an object: PreToolUse \/ allow/,
+    );
+  });
+
+  it("catches a key only a rule ⑩ content probe renders", () => {
+    // No fixture carries additional_context, so only the probe reaches it.
+    const adapter = {
+      ...bodyAdapter(["hookEventName"], true),
+      UNRENDERED_FIELDS: rowMap({
+        pre_tool: readonlySet(["mutated_input", "mutated_output"]),
+      }),
+    };
+    const render = adapter.render;
+    adapter.render = (verdict, event) => {
+      const out = render(verdict, event);
+      if (verdict.additional_context !== undefined)
+        out.stdout.hookSpecificOutput.additionalContext =
+          verdict.additional_context;
+      return out;
+    };
+    assert.throws(
+      () => run(adapter, selfGolden(adapter, ["PreToolUse"])),
+      /puts \["additionalContext"\] in hookSpecificOutput.*: 'PreToolUse' \(t\), /s,
+    );
+  });
+
+  it("catches a key only a rule ⑧ unenforceable-deny probe renders", () => {
+    const adapter = bodyAdapter(["hookEventName"], true);
+    const strayKey = {
+      ...adapter,
+      render: (verdict, event) => {
+        const out = adapter.render(verdict, event);
+        if (!event.this_call_vetoable && verdict.decision === "deny")
+          out.stdout.hookSpecificOutput.stray = true;
+        return out;
+      },
+    };
+    assert.throws(
+      () => run(strayKey, selfGolden(strayKey, ["PreToolUse"])),
+      /puts \["stray"\] in hookSpecificOutput.*: rule ⑧ probe: /s,
+    );
+  });
+
+  it("does not hold another event that parses as pre-tool to the pre-tool keys", () => {
+    // Codex's PermissionRequest parses as pre_tool but answers in its own schema.
+    const adapter = bodyAdapter(["hookEventName"], true);
+    const strayKey = {
+      ...adapter,
+      render: (verdict, event) => {
+        const out = adapter.render(verdict, event);
+        if (event.meta.native_event === "PermissionRequest")
+          out.stdout.hookSpecificOutput.decision = { behavior: "deny" };
+        return out;
+      },
+    };
+    const summary = run(
+      strayKey,
+      selfGolden(strayKey, ["PreToolUse", "PermissionRequest"]),
+    );
+    assert.equal(summary.preToolKeyChecks, 4);
+  });
+
+  it("refuses a suite whose pre-tool cases never reach the native pre-tool event", () => {
+    const adapter = bodyAdapter(["hookEventName"], true);
+    assert.throws(
+      () => run(adapter, selfGolden(adapter, ["PermissionRequest"])),
+      /rule ⑫ \(pre-tool key honesty\) checked no fixture render on t's native pre-tool event/,
+    );
+  });
+
+  it("holds every shipped adapter's fixtures to its declaration", () => {
+    // Positive marker per adapter, and the proof the shipped fixtures reach the
+    // rule: dropping one key a shipped render emits fails that adapter.
+    for (const adapter of AGENT_IDS.map(capturedAdapter)) {
+      const summary = run(adapter, loadFixture(adapter.AGENT));
+      assert.ok(summary.preToolKeyChecks > 0, adapter.AGENT);
+    }
+    const codex = capturedAdapter("codex");
+    const narrowed = {
+      ...codex,
+      PRE_TOOL_RESPONSE: Object.freeze({
+        ...codex.PRE_TOOL_RESPONSE,
+        hook_specific_output_keys: Object.freeze(
+          codex.PRE_TOOL_RESPONSE.hook_specific_output_keys.filter(
+            (key) => key !== "permissionDecisionReason",
+          ),
+        ),
+      }),
+    };
+    assert.throws(
+      () => run(narrowed, loadFixture("codex")),
+      /puts \["permissionDecisionReason"\] in hookSpecificOutput/,
+    );
+  });
+});
+
+describe("conformance harness self-tests (pre-tool declarations, rule ⑫)", () => {
+  const filing = (rule) => Object.freeze({ t: rule });
+  const response = (keys, failsOpen) =>
+    Object.freeze({
+      hook_specific_output_keys: keys,
+      unread_key_fails_open: failsOpen,
+    });
+  const frozenKeys = (...keys) => Object.freeze(keys);
+
+  it("passes well-formed rules of every shape", () => {
+    const adapter = {
+      ...echoAdapter,
+      PRE_TOOL_FILING: Object.freeze({
+        none: null,
+        whole: Object.freeze({ tool_name: "W", input: "$" }),
+        keyed: Object.freeze({
+          tool_name: "K",
+          input: Object.freeze({ a: "$.x", b: "$" }),
+        }),
+      }),
+      PRE_TOOL_RESPONSE: response(frozenKeys("a", "b"), true),
+    };
+    assert.doesNotThrow(() => run(adapter, fullFixtures()));
+  });
+
+  for (const [label, overrides, pattern] of [
+    [
+      "no PRE_TOOL_FILING",
+      { PRE_TOOL_FILING: undefined },
+      /declares no frozen PRE_TOOL_FILING/,
+    ],
+    [
+      "an unfrozen PRE_TOOL_FILING",
+      { PRE_TOOL_FILING: {} },
+      /declares no frozen PRE_TOOL_FILING/,
+    ],
+    [
+      "an unfrozen rule",
+      { PRE_TOOL_FILING: filing({ tool_name: "T", input: "$" }) },
+      /PRE_TOOL_FILING\["t"\] is not frozen/,
+    ],
+    [
+      "a rule with an extra member",
+      {
+        PRE_TOOL_FILING: filing(
+          Object.freeze({ tool_name: "T", input: "$", x: 1 }),
+        ),
+      },
+      /PRE_TOOL_FILING\["t"\] is \{"tool_name":"T","input":"\$","x":1\}, not \{tool_name: <non-empty string>, /,
+    ],
+    [
+      "an empty tool_name",
+      { PRE_TOOL_FILING: filing(Object.freeze({ tool_name: "", input: "$" })) },
+      /PRE_TOOL_FILING\["t"\] is \{"tool_name":"","input":"\$"\}, not /,
+    ],
+    [
+      "a string input other than $",
+      {
+        PRE_TOOL_FILING: filing(
+          Object.freeze({ tool_name: "T", input: "$.x" }),
+        ),
+      },
+      /PRE_TOOL_FILING\["t"\] is \{"tool_name":"T","input":"\$\.x"\}, not /,
+    ],
+    [
+      "an array input",
+      {
+        PRE_TOOL_FILING: filing(
+          Object.freeze({ tool_name: "T", input: Object.freeze(["$"]) }),
+        ),
+      },
+      /PRE_TOOL_FILING\["t"\] is \{"tool_name":"T","input":\["\$"\]\}, not /,
+    ],
+    [
+      "an unfrozen input object",
+      {
+        PRE_TOOL_FILING: filing(
+          Object.freeze({ tool_name: "T", input: { a: "$" } }),
+        ),
+      },
+      /PRE_TOOL_FILING\["t"\]\.input is not frozen/,
+    ],
+    [
+      "an empty key reference",
+      {
+        PRE_TOOL_FILING: filing(
+          Object.freeze({ tool_name: "T", input: Object.freeze({ a: "$." }) }),
+        ),
+      },
+      /"input":\{"a":"\$\."\}\}, not /,
+    ],
+    [
+      "a reference outside the language",
+      {
+        PRE_TOOL_FILING: filing(
+          Object.freeze({ tool_name: "T", input: Object.freeze({ a: "cmd" }) }),
+        ),
+      },
+      /"input":\{"a":"cmd"\}\}, not /,
+    ],
+    [
+      "a dotted key reference",
+      {
+        PRE_TOOL_FILING: filing(
+          Object.freeze({
+            tool_name: "T",
+            input: Object.freeze({ a: "$.a.b" }),
+          }),
+        ),
+      },
+      /"input":\{"a":"\$\.a\.b"\}\}, not /,
+    ],
+    [
+      "a null input",
+      {
+        PRE_TOOL_FILING: filing(Object.freeze({ tool_name: "T", input: null })),
+      },
+      /"input":null\}, not /,
+    ],
+    [
+      "no PRE_TOOL_RESPONSE",
+      { PRE_TOOL_RESPONSE: undefined },
+      /declares no frozen PRE_TOOL_RESPONSE/,
+    ],
+    [
+      "an unfrozen PRE_TOOL_RESPONSE",
+      {
+        PRE_TOOL_RESPONSE: {
+          hook_specific_output_keys: frozenKeys(),
+          unread_key_fails_open: false,
+        },
+      },
+      /declares no frozen PRE_TOOL_RESPONSE/,
+    ],
+    [
+      "an unfrozen key list",
+      { PRE_TOOL_RESPONSE: response(["a"], false) },
+      /hook_specific_output_keys is not a frozen array/,
+    ],
+    [
+      "an unsorted key list",
+      { PRE_TOOL_RESPONSE: response(frozenKeys("b", "a"), false) },
+      /must be sorted and duplicate-free/,
+    ],
+    [
+      "a duplicated key",
+      { PRE_TOOL_RESPONSE: response(frozenKeys("a", "a"), false) },
+      /must be sorted and duplicate-free/,
+    ],
+    [
+      "a non-boolean fails-open flag",
+      { PRE_TOOL_RESPONSE: response(frozenKeys(), "yes") },
+      /unread_key_fails_open must be true, false or null/,
+    ],
+  ])
+    it(`refuses ${label}`, () => {
+      assert.throws(
+        () => run({ ...echoAdapter, ...overrides }, fullFixtures()),
+        pattern,
+      );
+    });
 });
