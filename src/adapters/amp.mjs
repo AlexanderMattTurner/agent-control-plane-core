@@ -184,6 +184,8 @@ export const PRE_TOOL_FILING = Object.freeze({});
 export const PRE_TOOL_RESPONSE = Object.freeze({
   hook_specific_output_keys: Object.freeze([]),
   unread_key_fails_open: false,
+  top_level_keys: Object.freeze([]),
+  unread_top_level_key_fails_open: false,
 });
 
 /**

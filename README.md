@@ -193,15 +193,18 @@ monitor) reads `schema/control-plane/v1/agents.json` instead. It is generated
 from the adapters, with one row per agent: its block exit code and reason
 stream, whether a block needs a reason, whether it has an ask tier, the entry's
 default response when the hook breaks, its hook coverage, the verdict
-fields an allow cannot carry, and two pre-tool facts:
+fields an allow cannot carry on each kind's main native event (Codex's
+`PermissionRequest`, which also parses as `pre_tool`, carries none), and two
+pre-tool facts:
 
-- `pre_tool_response`: `hook_specific_output_keys` lists the
-  `hookSpecificOutput` keys the host reads on an exit-0 pre-tool answer.
-  `unread_key_fails_open` says what any other key does there: `true` means the
-  host discards the whole body and runs the call (Codex), `false` means the key
-  is ignored, `null` means unknown. The conformance harness fails an adapter
-  whose pre-tool render emits a key outside the list. Neither field covers the
-  body's top-level keys, which Codex also parses strictly.
+- `pre_tool_response`: the keys the host reads on an exit-0 pre-tool answer,
+  as two sorted lists: `top_level_keys` for the body's top level and
+  `hook_specific_output_keys` for `hookSpecificOutput`. Each has a bit saying
+  what any other key there does, `unread_top_level_key_fails_open` and
+  `unread_key_fails_open`: `true` means the host discards the whole body and
+  runs the call (Codex, at both levels), `false` means the key is ignored,
+  `null` means unknown. The conformance harness fails an adapter whose pre-tool
+  render emits a key outside either list.
 - `pre_tool_filing`: how the pre-tool hook files a model's tool call, so a
   monitor can match the model's calls against the hook's. It is keyed by model
   tool name: the call's `name`, prefixed with its `namespace` with no

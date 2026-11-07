@@ -30,12 +30,13 @@ import { HOST_FAILURE } from "./runtime.mjs";
  *   `ACP_FAIL_CLOSED=1` replaces it with `block`.
  * - `coverage`: `COVERAGE`, per call class.
  * - `unrendered_fields_on_allow`: `UNRENDERED_FIELDS`, each set as a sorted
- *   list. It describes the allow path only: a deny can drop more.
+ *   list. It describes the allow path on each kind's `NATIVE_EVENT_FOR` event
+ *   only: a deny, or another native event of that kind, can drop more.
  * - `pre_tool_filing`: `PRE_TOOL_FILING`, how the pre-tool hook files a model
  *   tool call, in the mini-language the `PreToolFiling` typedef specifies.
- * - `pre_tool_response`: `PRE_TOOL_RESPONSE`, the `hookSpecificOutput` keys the
- *   host reads on an exit-0 pre-tool answer, and `unread_key_fails_open`
- *   (`true`: any other key voids the body and the call runs; `null`: unknown).
+ * - `pre_tool_response`: `PRE_TOOL_RESPONSE`, the top-level and
+ *   `hookSpecificOutput` keys the host reads on an exit-0 pre-tool answer, each
+ *   list with its fail-open bit, as the `PreToolResponse` typedef specifies.
  * @param {string} id
  * @returns {Record<string, unknown>}
  */
