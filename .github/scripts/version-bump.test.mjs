@@ -35,16 +35,15 @@ const TEMPLATE_SYNC_YAML = join(
  */
 const expr = (inner) => `$\{{ ${inner} }}`;
 
-// --- Bug B: the release push rides an own-repo credential, never a
+// --- Bug B: the release push rides an own-owner credential, never a
 // cross-account PAT --------------------------------------------------------
 // The release-docs commit and vX.Y.Z tag are pushed with the credentials the
 // checkout persists. A cross-account PAT (TEMPLATE_SYNC_TOKEN, minted for a
 // different owner) is rejected 403 by this repo's remote, stranding every
 // release: npm publishes but the tag never lands, so the next run re-reads the
-// climbing npm version and bumps again. GITHUB_TOKEN's `contents: write`
-// authorizes github-actions[bot] on its own repo and is the default; the only
-// permitted override is RELEASE_BYPASS_TOKEN, an own-owner PAT registered as a
-// bypass actor for a protected default branch.
+// climbing npm version and bumps again. TEMPLATE_SYNC_TOKEN_ORG is this owner's
+// org PAT, registered as a bypass actor on the protected default branch;
+// GITHUB_TOKEN is the fallback where it is unset (a fork).
 
 test("auto-version.yaml runs the .github/scripts release script", () => {
   const yaml = readFileSync(AUTO_VERSION_YAML, "utf8");
@@ -59,7 +58,7 @@ test("auto-version.yaml runs the .github/scripts release script", () => {
   assert.ok(existsSync(LIVE_SCRIPT), "the invoked script must exist on disk");
 });
 
-test("the release checkout falls back to GITHUB_TOKEN and names no cross-account PAT", () => {
+test("the release checkout uses the own-owner org PAT and names no cross-account PAT", () => {
   const yaml = readFileSync(AUTO_VERSION_YAML, "utf8");
   const tokenLines = yaml
     .split("\n")
@@ -67,12 +66,14 @@ test("the release checkout falls back to GITHUB_TOKEN and names no cross-account
     .map((l) => l.trim());
   assert.deepEqual(
     tokenLines,
-    [`token: ${expr("secrets.RELEASE_BYPASS_TOKEN || secrets.GITHUB_TOKEN")}`],
-    "the checkout must default to GITHUB_TOKEN, overridable only by the own-owner bypass PAT",
+    [
+      `token: ${expr("secrets.TEMPLATE_SYNC_TOKEN_ORG || secrets.GITHUB_TOKEN")}`,
+    ],
+    "the checkout must push with the own-owner org PAT, falling back to GITHUB_TOKEN",
   );
   assert.doesNotMatch(
     yaml,
-    /secrets\.TEMPLATE_SYNC_TOKEN/,
+    /secrets\.TEMPLATE_SYNC_TOKEN\b/,
     "the release checkout must never reach for the cross-account template-sync PAT",
   );
 });
