@@ -12,6 +12,8 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.15.2] - 2026-11-07
+
 ### Added
 
 - `schema/control-plane/v1/agents.json`: one generated row per agent with its block exit code and reason stream, whether a block needs a reason, whether it has an ask tier, the hook entry's default response when the hook breaks, its hook coverage, and the verdict fields an allow cannot carry. A hook wrapper or monitor in another language reads these facts here, without keeping its own per-agent copy.
@@ -26,6 +28,7 @@ the prose from the release's commits.
 
 - Codex: a `PermissionRequest` deny always carries a message, advisory renders included, as every other Codex deny body does. Codex substitutes its own text for an empty one, so this changes the wording the model sees, not whether the call runs.
 - The hook entries render through `renderEscalated`. On Gemini, a judge's `ask` (or a malformed verdict, which clamps to `ask`) on a vetoable call now exits 2 and blocks; it used to exit 0 and run the call.
+- Release process now properly handles mktemp errors and ensures trap handlers are correctly pinned before installation.
 
 ## [0.11.0] - 2026-10-27
 
