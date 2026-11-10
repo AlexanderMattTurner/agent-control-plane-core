@@ -12,6 +12,12 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.15.4] - 2026-11-10
+
+### Fixed
+
+- Fixed release workflow to correctly push release documentation with TEMPLATE_SYNC_TOKEN_ORG authentication.
+
 ## [0.15.2] - 2026-11-07
 
 ### Added
