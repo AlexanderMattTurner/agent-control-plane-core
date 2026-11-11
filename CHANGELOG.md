@@ -12,6 +12,12 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.15.5] - 2026-11-11
+
+### Fixed
+
+- CI improvements for security scanning: unshallow repository inside check-existing-security-pr.sh and check out full history in the weekly security scan workflow.
+
 ## [0.15.4] - 2026-11-10
 
 ### Fixed
