@@ -1,0 +1,8 @@
+# Security overrides for transitive dev deps of c8 (via test-exclude).
+# Drop once test-exclude depends on glob >=14.0.2 / minimatch >=11.0.1.
+overrides:
+  # GHSA-3g3m-2fjr-6pw4
+  test-exclude>glob: ^14.0.2
+  # GHSA-g3hv-75wg-m249
+  glob>minimatch: ^11.0.1
+  test-exclude>minimatch: ^11.0.1
