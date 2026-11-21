@@ -94,7 +94,8 @@ verdict written, and the review step then fails as if you never reviewed. Write
 
 7. Also surface, where it genuinely improves the change (usually `nit`, at most
    `warning`). **Severity decides what the reader sees and what holds the merge**
-   — all three hold here, so even a 🔵 `nit` opens a thread the merge waits on. Choose
+   — a finding whose severity is in `config/review-severities.json`'s `gating`
+   list opens a thread the merge waits on. Choose
    severity by consequence, and leave out anything too trivial to be worth the
    author's read:
    - reductions in lines of code the reader would thank you for — dead code,
@@ -146,10 +147,9 @@ verdict written, and the review step then fails as if you never reviewed. Write
 Your review posts as a plain GitHub COMMENT review, so your FINDINGS carry the
 merge consequence and your `verdict` carries none:
 
-- **Every finding whose severity gates opens a review thread that holds the
-  merge until somebody resolves it.** A 🔵 `nit` holds it too, because `nit` is
-  in `config/review-severities.json`'s `gating` list here. So a finding is never
-  a free aside: file one when you want the author to act, and leave it out when
+- **Every finding whose severity is in `config/review-severities.json`'s
+  `gating` list opens a review thread that holds the merge until somebody
+  resolves it.** So a gating finding is never a free aside: file one when you want the author to act, and leave it out when
   you do not. Reserve a finding for a real problem: a correctness or security
   bug, a broken or missing test, a violated convention, or a load-bearing lax
   design with a clearly better shape at comparable cost (step 6's escalation
