@@ -12,6 +12,19 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.15.9] - 2026-11-21
+
+### Changed
+
+- Review gate now requires "Review findings resolved" as an explicit merge gate condition.
+
+### Fixed
+
+- Fixed CI to report pending status when the gate script is not yet on the base branch.
+- Fixed CI to re-derive the review gate immediately after the reviewer posts.
+- Fixed CI to count dismissed reviews as read.
+- Fixed review gate to use an explicit skip-set complement for more accurate gating logic.
+
 ## [0.15.5] - 2026-11-11
 
 ### Fixed
