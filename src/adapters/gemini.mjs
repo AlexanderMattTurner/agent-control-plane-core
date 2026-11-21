@@ -358,6 +358,40 @@ export function parse(native) {
 export const NATIVE_ASK_TIER = false;
 
 /**
+ * No rename is modelled. Gemini CLI hands `BeforeTool` the invocation's tool
+ * name beside an `originalRequestName`, so an aliased call may be filed under
+ * a name the model did not use; that is unverified, so not published.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING = Object.freeze({});
+
+/**
+ * Gemini CLI keeps `hookSpecificOutput` as a `Record<string, unknown>` and its
+ * `BeforeTool` path reads only `tool_input` from it, by `in` lookup, so any
+ * other key is ignored (`packages/core/src/hooks/types.ts`
+ * `BeforeToolHookOutput`; both firing paths, `core/coreToolHookTriggers.ts`
+ * and `scheduler/hook-utils.ts` `evaluateBeforeToolHook`, read at gemini-cli
+ * `62bab5b2`). The top level is the `HookOutput` interface's seven keys, read
+ * from an unchecked `JSON.parse` cast (`hooks/hookRunner.ts`), so an unknown
+ * top-level key is ignored too.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE = Object.freeze({
+  hook_specific_output_keys: Object.freeze(["tool_input"]),
+  unread_key_fails_open: false,
+  top_level_keys: Object.freeze([
+    "continue",
+    "decision",
+    "hookSpecificOutput",
+    "reason",
+    "stopReason",
+    "suppressOutput",
+    "systemMessage",
+  ]),
+  unread_top_level_key_fails_open: false,
+});
+
+/**
  * Render into Gemini CLI's native external-hook transport. An enforceable deny
  * renders as exit 2 (the System Block on BeforeTool; documented on BeforeAgent
  * as "same as decision: deny" — it aborts the turn); everything else exits 0
@@ -477,6 +511,8 @@ export const geminiAdapter = {
   UNRENDERED_FIELDS,
   NATIVE_ASK_TIER,
   NATIVE_EVENT_FOR,
+  PRE_TOOL_FILING,
+  PRE_TOOL_RESPONSE,
   parse,
   render,
 };

@@ -132,13 +132,18 @@ export function assertAliasedInputsCanonical(fixturesList: any[], assert: any): 
  *      decide where an `ask` must be escalated to a `deny`, so a wrong one
  *      either lets a call through or denies every asked call on the hosts that
  *      do ask. OBSERVE_ONLY renders are exempt, as in rule ⑧.
+ *  12. pre-tool key honesty: the adapter declares a well-formed
+ *      `PRE_TOOL_FILING` and `PRE_TOOL_RESPONSE`, and every render on the host's
+ *      native pre-tool event — fixture, rule ⑧ and rule ⑩ probes alike — puts
+ *      in `hookSpecificOutput` only keys `PRE_TOOL_RESPONSE` says the host
+ *      reads. At least one such render must be checked.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number, askTierChecks: number }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number, askTierChecks: number, preToolKeyChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }: {
     adapter: import("./control-plane.mjs").Adapter;
@@ -156,4 +161,5 @@ export function runAdapterConformance({ adapter, fixtures, assert }: {
     coverageClassesChecked: Set<string>;
     unenforceableDenyChecks: number;
     askTierChecks: number;
+    preToolKeyChecks: number;
 };

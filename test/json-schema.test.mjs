@@ -25,6 +25,7 @@ import {
   serializeSchema,
 } from "../src/json-schema.mjs";
 import { AGENT_IDS } from "../src/registry.mjs";
+import { generatedDocuments } from "../src/agent-manifest.mjs";
 import { capturedAdapter } from "../.github/scripts/live-capture/assert-captured.mjs";
 
 const ROOT = new URL("../", import.meta.url);
@@ -87,7 +88,7 @@ const validEvent = () => ({
 });
 
 describe("the committed files are the generated ones", () => {
-  const documents = Object.entries(jsonSchemaDocuments());
+  const documents = Object.entries(generatedDocuments());
 
   it("generates at least one file", () => {
     assert.ok(documents.length > 0, "every freshness case below is vacuous");

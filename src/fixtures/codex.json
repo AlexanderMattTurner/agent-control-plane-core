@@ -79,7 +79,8 @@
             "enforced": false,
             "stdout": {
               "hookSpecificOutput": {
-                "hookEventName": "PreToolUse"
+                "hookEventName": "PreToolUse",
+                "additionalContext": "redacted 1 secret"
               }
             }
           }
@@ -127,7 +128,7 @@
             "mutated_input": {
               "command": "ls"
             },
-            "additional_context": "dropped by codex"
+            "additional_context": "narrowed to a plain ls"
           },
           "native": {
             "transport": "external_hook",
@@ -136,9 +137,11 @@
             "stdout": {
               "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
                 "updatedInput": {
                   "command": "ls"
-                }
+                },
+                "additionalContext": "narrowed to a plain ls"
               }
             }
           }
@@ -285,6 +288,7 @@
             "stdout": {
               "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
                 "updatedInput": {
                   "command": ["ls"]
                 }
@@ -370,8 +374,10 @@
             "stdout": {
               "hookSpecificOutput": {
                 "hookEventName": "PermissionRequest",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": "nope"
+                "decision": {
+                  "behavior": "deny",
+                  "message": "nope"
+                }
               }
             },
             "stderr": "nope"

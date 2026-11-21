@@ -63,8 +63,8 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     });
   const FAIL = { transport: "external_hook", exit_code: 0, enforced: false };
 
-  it("renders a deny for rm -rf (exit 2, permissionDecision deny)", () => {
-    const out = renderHookResponse(
+  it("renders a deny for rm -rf (exit 2, permissionDecision deny)", async () => {
+    const out = await renderHookResponse(
       claudeAdapter,
       claudePayload("rm -rf /"),
       FAIL,
@@ -74,19 +74,26 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "deny");
   });
 
-  it("renders an allow that abstains (exit 0, no permissionDecision)", () => {
-    const out = renderHookResponse(claudeAdapter, claudePayload("ls"), FAIL);
+  it("renders an allow that abstains (exit 0, no permissionDecision)", async () => {
+    const out = await renderHookResponse(
+      claudeAdapter,
+      claudePayload("ls"),
+      FAIL,
+    );
     assert.equal(out.exit_code, 0);
     assert.equal("permissionDecision" in out.stdout.hookSpecificOutput, false);
   });
 
-  it("returns the host's exact onFailure object on unparseable input", () => {
+  it("returns the host's exact onFailure object on unparseable input", async () => {
     // Identity, not just shape: the fallback the host declared is what comes back.
-    assert.equal(renderHookResponse(claudeAdapter, "not json {{{", FAIL), FAIL);
-    assert.equal(renderHookResponse(claudeAdapter, "", FAIL), FAIL);
+    assert.equal(
+      await renderHookResponse(claudeAdapter, "not json {{{", FAIL),
+      FAIL,
+    );
+    assert.equal(await renderHookResponse(claudeAdapter, "", FAIL), FAIL);
   });
 
-  it("writes a greppable diagnostic to stderr on failure, verdict unchanged", () => {
+  it("writes a greppable diagnostic to stderr on failure, verdict unchanged", async () => {
     // The fail direction is deliberate and must stay; the diagnostic is what
     // keeps a silent enforcement-disable regression discoverable.
     const written = [];
@@ -97,7 +104,7 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     };
     let out;
     try {
-      out = renderHookResponse(claudeAdapter, "not json {{{", FAIL);
+      out = await renderHookResponse(claudeAdapter, "not json {{{", FAIL);
     } finally {
       process.stderr.write = realWrite;
     }
@@ -118,7 +125,7 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     string: ['"ls"', /got string/u],
   };
   for (const [label, [raw, named]] of Object.entries(nonObjectPayloads))
-    it(`refuses a top-level ${label} payload instead of judging {}`, () => {
+    it(`refuses a top-level ${label} payload instead of judging {}`, async () => {
       const written = [];
       const realWrite = process.stderr.write;
       process.stderr.write = (chunk) => {
@@ -127,7 +134,7 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
       };
       let out;
       try {
-        out = renderHookResponse(claudeAdapter, raw, FAIL);
+        out = await renderHookResponse(claudeAdapter, raw, FAIL);
       } finally {
         process.stderr.write = realWrite;
       }
@@ -142,7 +149,14 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
   // A judge that throws has failed to answer, the same as one that answers
   // garbage, so it takes the clamp's ask rather than the host's exit-0
   // fail-safe. The diagnostic must stay readable whatever was thrown: a judge
-  // can throw a bare string, and an Error can reach here with no `stack`.
+  // can throw a bare string, and an Error can reach here with no `stack`. An
+  // asynchronous judge fails the same way by rejecting.
+  const failingForms = {
+    throws: (thrown) => () => {
+      throw thrown;
+    },
+    rejects: (thrown) => () => Promise.reject(thrown),
+  };
   const thrownShapes = {
     "a bare string": ["judge exploded", /judge exploded/u],
     "an Error with no stack": [
@@ -150,40 +164,43 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
       /no stack here/u,
     ],
   };
-  for (const [label, [thrown, named]] of Object.entries(thrownShapes))
-    it(`a judge that throws ${label} clamps to ask and reports it`, () => {
-      const written = [];
-      const realWrite = process.stderr.write;
-      process.stderr.write = (chunk) => {
-        written.push(String(chunk));
-        return true;
-      };
-      let out;
-      try {
-        out = renderHookResponse(
-          claudeAdapter,
-          claudePayload("ls"),
+  for (const [form, failing] of Object.entries(failingForms))
+    for (const [label, [thrown, named]] of Object.entries(thrownShapes))
+      it(`a judge that ${form} ${label} clamps to ask and reports it`, async () => {
+        const written = [];
+        const realWrite = process.stderr.write;
+        process.stderr.write = (chunk) => {
+          written.push(String(chunk));
+          return true;
+        };
+        let out;
+        try {
+          out = await renderHookResponse(
+            claudeAdapter,
+            claudePayload("ls"),
+            FAIL,
+            failing(thrown),
+          );
+        } finally {
+          process.stderr.write = realWrite;
+        }
+        assert.notEqual(
+          out,
           FAIL,
-          () => {
-            throw thrown;
-          },
+          `a judge that ${form} took the fail-open path`,
         );
-      } finally {
-        process.stderr.write = realWrite;
-      }
-      assert.notEqual(out, FAIL, "a throwing judge took the fail-open path");
-      assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "ask");
-      assert.equal(out.exit_code, 0);
-      assert.match(
-        out.stdout.hookSpecificOutput.permissionDecisionReason,
-        /^hook judge threw: .*clamped to "ask"/u,
-      );
-      assert.match(written[0], /^\[acp\] hook judge error: /u);
-      assert.match(written[0], named);
-      assert.doesNotMatch(written[0], /error: undefined/u);
-    });
+        assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "ask");
+        assert.equal(out.exit_code, 0);
+        assert.match(
+          out.stdout.hookSpecificOutput.permissionDecisionReason,
+          /^hook judge threw: .*clamped to "ask"/u,
+        );
+        assert.match(written[0], /^\[acp\] hook judge error: /u);
+        assert.match(written[0], named);
+        assert.doesNotMatch(written[0], /error: undefined/u);
+      });
 
-  it("clamps a malformed judge decision to ask instead of failing open", () => {
+  it("clamps a malformed judge decision to ask instead of failing open", async () => {
     // The failure this closes: `normalizeVerdict` throws on a decision outside
     // allow/deny/ask, that throw lands in the pipeline catch, and the catch
     // returns the host's fail-safe — exit 0 for claude. So a judge that MEANT
@@ -192,7 +209,7 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
       decision: "denied",
       reason: "blocked by policy",
     });
-    const out = renderHookResponse(
+    const out = await renderHookResponse(
       claudeAdapter,
       claudePayload("ls"),
       FAIL,
@@ -212,11 +229,11 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     );
   });
 
-  it("still renders a well-formed judge verdict untouched", () => {
+  it("still renders a well-formed judge verdict untouched", async () => {
     // Positive marker: the clamp is not swallowing ordinary verdicts, so the
     // case above is the malformed path and not a blanket rewrite.
     const denying = () => ({ decision: "deny", reason: "no" });
-    const out = renderHookResponse(
+    const out = await renderHookResponse(
       claudeAdapter,
       claudePayload("ls"),
       FAIL,
@@ -227,13 +244,27 @@ describe("renderHookResponse: pipes adapter parse→judge→render", () => {
     assert.notEqual(out.exit_code, 0);
   });
 
-  it("carries the adapter's transport through (amp = pure exit code)", () => {
+  // A judge that asks a remote monitor answers with a promise, awaited.
+  it("awaits an asynchronous judge's verdict", async () => {
+    const out = await renderHookResponse(
+      claudeAdapter,
+      claudePayload("ls"),
+      FAIL,
+      async () => ({ decision: "deny", reason: "remote monitor said no" }),
+    );
+    assert.equal(out.enforced, true);
+    assert.equal(out.exit_code, 2);
+    assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "deny");
+    assert.equal(out.stderr, "remote monitor said no");
+  });
+
+  it("carries the adapter's transport through (amp = pure exit code)", async () => {
     const ampFail = {
       transport: "external_hook",
       exit_code: 1,
       enforced: false,
     };
-    const out = renderHookResponse(
+    const out = await renderHookResponse(
       ampAdapter,
       JSON.stringify({ tool: "Bash", input: { command: "rm -rf /tmp" } }),
       ampFail,
@@ -440,24 +471,31 @@ describe("renderHookResponse: a blocking onFailure beats the ask clamp", () => {
     },
     "answers no decision": () => ({ decision: "denied" }),
     "answers null": () => null,
+    rejects: () => Promise.reject(new Error("monitor down")),
+    "resolves no decision": async () => ({ decision: "denied" }),
   };
   for (const [label, judge] of Object.entries(answers))
-    it(`a judge that ${label} blocks under a blocking onFailure`, () => {
+    it(`a judge that ${label} blocks under a blocking onFailure`, async () => {
       const realWrite = process.stderr.write;
       process.stderr.write = () => true;
       let out;
       try {
-        out = renderHookResponse(claudeAdapter, payload, CLOSED, judge);
+        out = await renderHookResponse(claudeAdapter, payload, CLOSED, judge);
       } finally {
         process.stderr.write = realWrite;
       }
       assert.equal(out, CLOSED);
     });
 
-  it("a judge that answers still gets its own verdict", () => {
-    const out = renderHookResponse(claudeAdapter, payload, CLOSED, () => ({
-      decision: "allow",
-    }));
+  it("a judge that answers still gets its own verdict", async () => {
+    const out = await renderHookResponse(
+      claudeAdapter,
+      payload,
+      CLOSED,
+      () => ({
+        decision: "allow",
+      }),
+    );
     assert.notEqual(out, CLOSED);
     assert.equal(out.exit_code, 0);
   });
@@ -473,22 +511,29 @@ describe("renderHookResponse: an ask the host cannot honour blocks", () => {
     tool_input: { command: "ls" },
   });
   const answers = {
-    "answers ask": () => ({ decision: "ask", reason: "confirm" }),
-    "answers a malformed decision": () => ({ decision: "denied" }),
+    "answers ask": [
+      () => ({ decision: "ask", reason: "confirm" }),
+      /^confirm/u,
+    ],
+    "answers a malformed decision": [
+      () => ({ decision: "denied" }),
+      /clamped to "ask"/u,
+    ],
+    "resolves ask": [
+      async () => ({ decision: "ask", reason: "confirm" }),
+      /^confirm/u,
+    ],
   };
-  for (const [label, judge] of Object.entries(answers))
-    it(`a judge that ${label} blocks a vetoable Gemini call`, () => {
-      const out = renderHookResponse(geminiAdapter, shell, FAIL, judge);
+  for (const [label, [judge, reason]] of Object.entries(answers))
+    it(`a judge that ${label} blocks a vetoable Gemini call`, async () => {
+      const out = await renderHookResponse(geminiAdapter, shell, FAIL, judge);
       assert.equal(out.exit_code, 2);
       assert.equal(out.enforced, true);
-      assert.match(
-        out.stderr,
-        label === "answers ask" ? /^confirm/u : /clamped to "ask"/u,
-      );
+      assert.match(out.stderr, reason);
     });
 
-  it("leaves a non-vetoable Gemini call's ask as rendered", () => {
-    const out = renderHookResponse(
+  it("leaves a non-vetoable Gemini call's ask as rendered", async () => {
+    const out = await renderHookResponse(
       geminiAdapter,
       JSON.stringify({
         hook_event_name: "BeforeTool",

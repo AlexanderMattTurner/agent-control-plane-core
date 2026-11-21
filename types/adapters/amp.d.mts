@@ -107,6 +107,18 @@ export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
  * only honest because the tier is real.
  */
 export const NATIVE_ASK_TIER: true;
+/**
+ * No rename is modelled: no source shows Amp filing a call under a
+ * name or input other than the model's.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING: import("../control-plane.mjs").PreToolFiling;
+/**
+ * Amp reads only the hook's exit code and no body, so no key in one can change
+ * the outcome.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE: import("../control-plane.mjs").PreToolResponse;
 /** @type {import("../control-plane.mjs").Adapter} */
 export const ampAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;

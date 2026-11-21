@@ -13,9 +13,10 @@ export function assertRegistryConsistent(adapters: Record<string, Adapter>): voi
  * reason to silently fall back to a default agent (which would run the wrong
  * translator against the payloads and mis-render every verdict).
  *
- * `options` are the launcher's settings for that adapter (Codex:
- * `{ version }`). Passing options to an adapter that takes none throws, so a
- * setting the launcher believes it applied cannot be dropped in silence.
+ * `options` are the launcher's settings for that adapter, named by its
+ * {@link LAUNCHER_OPTIONS} row. Options for an adapter that takes none throw
+ * here, and an option a configurable adapter does not read throws in its
+ * factory, so a setting the launcher believes it applied is never dropped.
  * @param {string} id agent id (a {@link AGENT_IDS} member)
  * @param {Record<string, unknown>} [options]
  * @returns {Adapter}
@@ -37,4 +38,11 @@ export const ADAPTERS: Readonly<Record<string, Adapter>>;
  * @type {readonly string[]}
  */
 export const AGENT_IDS: readonly string[];
+/**
+ * The launcher option names each agent's adapter reads, for EVERY agent id (an
+ * empty list when it reads none). A launcher builds the options for any agent
+ * from this instead of naming the agents that take a version.
+ * @type {Readonly<Record<string, readonly string[]>>}
+ */
+export const LAUNCHER_OPTIONS: Readonly<Record<string, readonly string[]>>;
 export type Adapter = import("./control-plane.mjs").Adapter;

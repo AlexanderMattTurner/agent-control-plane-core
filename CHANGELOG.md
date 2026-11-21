@@ -12,9 +12,35 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.15.5] - 2026-11-11
+
 ### Fixed
 
+- CI improvements for security scanning: unshallow repository inside check-existing-security-pr.sh and check out full history in the weekly security scan workflow.
+
+## [0.15.4] - 2026-11-10
+
+### Fixed
+
+- Fixed release workflow to correctly push release documentation with TEMPLATE_SYNC_TOKEN_ORG authentication.
+
+## [0.15.2] - 2026-11-07
+
+### Added
+
+- `schema/control-plane/v1/agents.json`: one generated row per agent with its block exit code and reason stream, whether a block needs a reason, whether it has an ask tier, the hook entry's default response when the hook breaks, its hook coverage, and the verdict fields an allow cannot carry. A hook wrapper or monitor in another language reads these facts here, without keeping its own per-agent copy.
+- `LAUNCHER_OPTIONS` in `agent-control-plane-core/registry`: the options `adapterFor` reads for each agent id. `createCodexAdapter` (and so `adapterFor`) now throws on an option it does not read (a misspelled `verison` used to be dropped silently).
+
+### Changed
+
+- **Breaking:** `/contract` no longer exports `MODEL_CALL_KINDS` or `ARGUMENT_KEY_PREFIX`; `fileModelCall` and `isFilingRule` carry the same rules. It now exports `isPlainObject`. `runAdapterConformance` no longer requires `PRE_TOOL_FILING` and `PRE_TOOL_RESPONSE` to be frozen or their key lists sorted (`agents.json` still publishes them sorted).
+- **Breaking:** `renderHookResponse` returns a promise, and a judge passed to it or to `runHookEntry` may answer with one, so a judge can ask a remote monitor. A rejected judge is treated like one that throws: its call goes to `ask`. `ACP_HOOK_TIMEOUT_MS` also answers a judge that is still waiting, and with no deadline set the entry gives its failure response when a judge's promise never settles, instead of exiting 13 with no response.
+
+### Fixed
+
+- Codex: a `PermissionRequest` deny always carries a message, advisory renders included, as every other Codex deny body does. Codex substitutes its own text for an empty one, so this changes the wording the model sees, not whether the call runs.
 - The hook entries render through `renderEscalated`. On Gemini, a judge's `ask` (or a malformed verdict, which clamps to `ask`) on a vetoable call now exits 2 and blocks; it used to exit 0 and run the call.
+- Release process now properly handles mktemp errors and ensures trap handlers are correctly pinned before installation.
 
 ## [0.11.0] - 2026-10-27
 

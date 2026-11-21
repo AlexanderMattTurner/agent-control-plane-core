@@ -36,15 +36,17 @@ export function parse(native: any, { version }?: {
  * on an enforceable deny. On a pre-v0.135 Codex (`this_call_vetoable` false) the
  * body still renders but exit stays 0 and `enforced` is false — advisory only.
  *
- * The two kinds use DIFFERENT native shapes, because Codex does: a pre-tool
- * decision rides `hookSpecificOutput.permissionDecision`, a post-tool one the
- * top-level `decision`/`reason` pair (`permissionDecision` is accepted but inert
- * on PostToolUse, so emitting it there would read as a block that never bites).
+ * Each native event gets its OWN shape, because Codex parses each strictly: a
+ * PreToolUse decision rides `hookSpecificOutput.permissionDecision`, a
+ * PermissionRequest one `hookSpecificOutput.decision.behavior`, and a
+ * post-tool one the top-level `decision`/`reason` pair.
  *
  * `soleGate` (default `false`) is the same dangerous, explicit opt-in as the
- * Claude adapter: when `true` AND the verdict is `allow`, the render emits the
- * real `permissionDecision: "allow"` instead of abstaining. It has no meaning
- * post-tool — there is no approval left to grant — so it is ignored there.
+ * Claude adapter, and acts only on PermissionRequest: there an `allow` renders
+ * `behavior: "allow"`, which grants the approval (except, from 0.166, when the
+ * hook is environment-sourced). PreToolUse has no allow that
+ * approves anything (Codex accepts `"allow"` only beside `updatedInput`, as a
+ * rewrite), and post-tool there is no approval left to grant.
  * @param {Verdict} verdict
  * @param {ToolCallEvent} event
  * @param {{ soleGate?: boolean }} [options]
@@ -58,11 +60,12 @@ export function render(verdict: Verdict, event: ToolCallEvent, { soleGate }?: {
  * the Codex version the launcher pinned (Codex's hook stdin carries none).
  * Below {@link MIN_ENFORCING_VERSION} every event parses observe-only and a
  * deny renders advisory. With no `version`, `parse` falls back to a payload
- * `version` (see {@link parse}).
+ * `version` (see {@link parse}). An option outside {@link OPTION_NAMES} throws,
+ * so a misspelled setting is never dropped in silence.
  * @param {{ version?: string }} [options]
  * @returns {import("../control-plane.mjs").Adapter}
  */
-export function createCodexAdapter({ version }?: {
+export function createCodexAdapter(options?: {
     version?: string;
 }): import("../control-plane.mjs").Adapter;
 /** @typedef {import("../control-plane.mjs").ToolCallEvent} ToolCallEvent */
@@ -102,11 +105,15 @@ export const INTEGRATION_MODE: "external_hook";
 /** @type {import("../control-plane.mjs").CoverageMap} */
 export const COVERAGE: import("../control-plane.mjs").CoverageMap;
 /**
- * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each kind, so
- * `render` drops them. Codex splits its two content channels by event:
- * `updatedInput` exists only on PreToolUse (the call has not run yet), and
- * `hookSpecificOutput.additionalContext` only on PostToolUse — Codex documents
- * no context field on PreToolUse, where `updatedInput` is the whole surface.
+ * Which {@link VERDICT_CONTENT_FIELDS} have no native channel on each kind's
+ * {@link NATIVE_EVENT_FOR} event, so `render` drops them. PreToolUse takes
+ * `updatedInput` (applied only beside `permissionDecision: "allow"`) and
+ * `additionalContext`; PostToolUse takes `additionalContext` alone ([X8], read
+ * at `rust-v0.166.0` and identical at `rust-v0.135.0`). `PermissionRequest`,
+ * which also parses as `pre_tool`, takes neither: its schema is
+ * `{hookEventName, decision: {behavior, message}}`, and a body carrying
+ * `updatedInput` is ignored (Codex's own approval flow decides), so
+ * {@link render} drops both there.
  *
  * NEITHER kind can rewrite tool output: PostToolUse "can't undo side effects
  * from a tool that already ran", and Codex rejects `updatedMCPToolOutput`, so
@@ -118,6 +125,43 @@ export const COVERAGE: import("../control-plane.mjs").CoverageMap;
  * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
+/**
+ * How Codex's `PreToolUse` hook files a model tool call ([X7], read from
+ * Codex's source at `rust-v0.166.0`). A function tool is filed under its flat
+ * name (namespace + name) with its parsed arguments by default; these
+ * handlers supply their own payload or none:
+ * - `exec_command` → `Bash` with `{command: <cmd>}`; arguments Codex cannot
+ *   parse as `ExecCommandArgs` file nothing, which this table models only for
+ *   a missing or null `cmd` or scalar arguments. Not modelled: other type
+ *   errors, and a positional array, which serde reads (`["ls"]` is `cmd: "ls"`).
+ * - `apply_patch` (a freeform tool) → `apply_patch` with its raw patch text as
+ *   `command`.
+ * - `spawn_agent` in the `multi_agent_v1` namespace → `spawn_agent`.
+ * - `write_stdin`, code mode's `wait`, and code mode's freeform `exec` → no hook.
+ *   These rules assume the named tool owns the name; a client-defined tool
+ *   called `wait` with code mode off takes the default payload.
+ *   The default payload is function-only, so a freeform extension tool files
+ *   nothing too — the mini-language's rule for an unlisted freeform call.
+ * NOT MODELLED: Codex files an MCP call as `mcp__<namespace>__<tool>`, with
+ * `_` trimmed from the namespace's end and the tool's start (`mcp.rs`
+ * `hook_tool_name`), which can differ from the flat name — a rule keyed by
+ * one name cannot express that.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING: import("../control-plane.mjs").PreToolFiling;
+/**
+ * Codex's `PreToolUse` output parser ([X8], `rust-v0.166.0`) deserializes the
+ * body into `deny_unknown_fields` structs at both levels: these seven top-level
+ * keys (`PreToolUseCommandOutputWire` with its flattened universal fields), and
+ * these five in `hookSpecificOutput`. Any other key fails the whole body: the
+ * run is marked failed, no block is set, and the call RUNS. A known key can
+ * still void the body by its value or combination (`continue: false`, any
+ * `stopReason`, `suppressOutput: true`, `decision: "approve"`, `updatedInput`
+ * without `permissionDecision: "allow"`), which this declaration does not
+ * describe.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE: import("../control-plane.mjs").PreToolResponse;
 /** Minimum Codex version whose hook can actually veto a tool call. */
 export const MIN_ENFORCING_VERSION: readonly number[];
 /**
@@ -140,6 +184,8 @@ export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
  * naming a key the host discards.
  */
 export const NATIVE_ASK_TIER: false;
+/** The launcher option names {@link createCodexAdapter} reads. */
+export const OPTION_NAMES: readonly string[];
 /**
  * The Codex adapter with no launcher-pinned version. Real Codex sends no
  * version, so every event it sends parses observe-only here. A deployment that

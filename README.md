@@ -182,6 +182,59 @@ on a non-blocking pipe. The entries ship as `acp-claude-hook`, `acp-codex-hook`,
 set `ACP_CODEX_VERSION` to the Codex version your launcher pins (or call
 `createCodexAdapter({ version })`); without it, Codex calls parse advisory.
 
+A judge may return its verdict or a promise of one, so a judge can ask a
+remote monitor before it answers. `renderHookResponse` returns a promise.
+`adapterFor(id, options)` takes the options its `LAUNCHER_OPTIONS[id]` row
+names, so a launcher passes a pinned version to whichever agents read one
+without naming them.
+
+A consumer that cannot import these modules (a bash hook wrapper, a Python
+monitor) reads `schema/control-plane/v1/agents.json` instead. It is generated
+from the adapters, with one row per agent: its block exit code and reason
+stream, whether a block needs a reason, whether it has an ask tier, the entry's
+default response when the hook breaks, its hook coverage, the verdict
+fields an allow cannot carry on each kind's main native event (Codex's
+`PermissionRequest`, which also parses as `pre_tool`, carries none), and two
+pre-tool facts:
+
+- `pre_tool_response`: the keys the host reads on an exit-0 pre-tool answer,
+  as two sorted lists: `top_level_keys` for the body's top level and
+  `hook_specific_output_keys` for `hookSpecificOutput`. Each has a bit saying
+  what any other key there does, `unread_top_level_key_fails_open` and
+  `unread_key_fails_open`: `true` means the host discards the whole body and
+  runs the call (Codex, at both levels), `false` means the key is ignored,
+  `null` means unknown. The conformance harness fails an adapter whose pre-tool
+  render emits a key outside either list.
+- `pre_tool_filing`: how the pre-tool hook files a model's tool call, so a
+  monitor can match the model's calls against the hook's. It is keyed by model
+  tool name: the call's `name`, prefixed with its `namespace` with no
+  separator, unless the namespace is empty or Codex's default `functions`
+  (`flatToolName` in `/contract`). Each value is one of:
+  - `null`: no pre-tool hook fires for this call.
+  - `{"tool_name": T, "input": I}`: the hook files `tool_name` T, and builds
+    `tool_input` from I. I is either `"$"`, meaning the call's whole arguments
+    value, or an object whose values are each `"$"` or `"$.<key>"`, meaning
+    that top-level argument. `<key>` is one literal key, non-empty and with no
+    `.`. If a `"$.<key>"` does not resolve (the arguments are not an object,
+    lack the key, or hold `null` there), the hook files nothing.
+
+  A function call the map does not list is filed with the model's own name and
+  arguments. A freeform (custom) call the map does not list files nothing; of
+  the shipped hosts only Codex makes them. The map describes calls the host
+  dispatches: Codex files nothing for a call it rejects first, e.g. a name it
+  has no tool for, a call kind the tool does not take, or arguments a handler
+  refuses before its hook (an `apply_patch` patch that does not parse, an
+  `exec_command` with a non-string `workdir`). On Codex the arguments value is a function call's
+  `arguments` parsed as JSON (an empty or all-whitespace string reads as `{}`,
+  unparseable text stays the raw string), or a freeform call's raw `input`
+  string. `fileModelCall` in `/contract` is the reference implementation; it
+  takes the call's kind, `"function"` or `"freeform"`. The map does not model
+  Codex's MCP names: Codex files an MCP call as `mcp__<namespace>__<tool>`,
+  which can differ from the flat name.
+
+Read the file from the installed package, so it always matches the adapters
+that version ships.
+
 Each entry fails the way its host expects when the hook itself breaks: claude,
 codex and gemini run the call, and amp asks. Set `ACP_FAIL_CLOSED=1` to block
 instead, on every host. The entry then exits 2 with the reason on stderr when
