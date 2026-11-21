@@ -368,6 +368,15 @@ research could not independently verify the _exact_ JSON field names in the
 v0.117–v0.135 window, only that enforcement-shaped events existed. Surfacing
 this for the maintainer's call, not changing the pinned version in this doc.
 
+Version source: Codex's documented PreToolUse stdin (`session_id`,
+`transcript_path`, `cwd`, `hook_event_name`, `model`, `permission_mode`,
+`turn_id`, `tool_name`, `tool_use_id`, `tool_input`) has no `version` field. So
+the launcher that pins the Codex binary supplies the version:
+`createCodexAdapter({ version })`, or `ACP_CODEX_VERSION` for
+`bin/codex-hook.mjs`. Without one, every call parses observe-only and a deny
+renders advisory. A payload `version` is read only as a fallback when the
+launcher gives none.
+
 Content channels: Codex documents `updatedInput` on PreToolUse and
 `hookSpecificOutput.additionalContext` on PostToolUse — no output-rewrite field
 on either ("can't undo side effects from a tool that already ran";

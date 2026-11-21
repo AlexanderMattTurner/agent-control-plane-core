@@ -5,13 +5,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   codexAdapter,
+  createCodexAdapter,
   canEnforce,
   COVERAGE,
-  DEFAULT_DENY_REASON,
   MIN_ENFORCING_VERSION,
 } from "../src/adapters/codex.mjs";
 import { runAdapterConformance } from "../src/conformance.mjs";
+import { capturedAdapter } from "../.github/scripts/live-capture/assert-captured.mjs";
 import {
+  DEFAULT_DENY_REASON,
   CallClass,
   classifyCallClass,
   CoverageStatus,
@@ -26,7 +28,7 @@ const fixtures = JSON.parse(
 describe("codex adapter conformance", () => {
   it("parse/render golden across PreToolUse, PermissionRequest, and the version gate", () => {
     const summary = runAdapterConformance({
-      adapter: codexAdapter,
+      adapter: capturedAdapter("codex"),
       fixtures,
       assert,
     });
@@ -43,7 +45,7 @@ describe("codex adapter conformance", () => {
   });
 });
 
-describe("codex adapter: allow = abstain by default, soleGate opt-in", () => {
+describe("codex adapter: a pre-tool allow abstains; Codex has no bare allow", () => {
   const event = codexAdapter.parse({
     hook_event_name: "PreToolUse",
     version: "0.135.0",
@@ -51,28 +53,23 @@ describe("codex adapter: allow = abstain by default, soleGate opt-in", () => {
     tool_input: { command: "ls" },
   });
 
-  it("default render never emits permissionDecision on allow", () => {
-    const out = codexAdapter.render({ decision: "allow" }, event);
-    assert.ok(!("permissionDecision" in out.stdout.hookSpecificOutput));
-    assert.equal(out.enforced, false);
-    assert.equal(out.exit_code, 0);
-  });
-
-  it("soleGate: false (explicit) still abstains", () => {
-    const out = codexAdapter.render({ decision: "allow" }, event, {
-      soleGate: false,
+  // Codex rejects `permissionDecision: "allow"` without `updatedInput`
+  // ("unsupported permissionDecision:allow", output_parser.rs at both
+  // rust-v0.135.0 and rust-v0.166.0): the run fails and the call runs under
+  // Codex's own approval anyway. So no soleGate setting may emit one.
+  for (const [label, options] of [
+    ["by default", undefined],
+    ["with soleGate: false", { soleGate: false }],
+    ["with soleGate: true", { soleGate: true }],
+  ])
+    it(`renders a bare allow as {hookEventName} alone ${label}`, () => {
+      const out = codexAdapter.render({ decision: "allow" }, event, options);
+      assert.deepEqual(out.stdout, {
+        hookSpecificOutput: { hookEventName: "PreToolUse" },
+      });
+      assert.equal(out.enforced, false);
+      assert.equal(out.exit_code, 0);
     });
-    assert.ok(!("permissionDecision" in out.stdout.hookSpecificOutput));
-  });
-
-  it("soleGate: true emits the real permissionDecision: allow", () => {
-    const out = codexAdapter.render({ decision: "allow" }, event, {
-      soleGate: true,
-    });
-    assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "allow");
-    assert.equal(out.enforced, false);
-    assert.equal(out.exit_code, 0);
-  });
 
   it("soleGate: true does not change deny rendering", () => {
     const denyDefault = codexAdapter.render(
@@ -86,24 +83,212 @@ describe("codex adapter: allow = abstain by default, soleGate opt-in", () => {
     );
     assert.deepEqual(denyDefault, denySoleGate);
   });
+});
 
-  it("soleGate: true on a non-vetoable (pre-v0.135) event still abstains from enforcement", () => {
-    const preEnforcing = codexAdapter.parse({
-      hook_event_name: "PreToolUse",
-      version: "0.134.9",
+describe("codex render: PreToolUse bodies Codex 0.166 applies", () => {
+  const event = codexAdapter.parse({
+    hook_event_name: "PreToolUse",
+    version: "0.166.0",
+    tool_name: "Bash",
+    tool_input: { command: "rm -rf build" },
+  });
+
+  for (const [label, verdict, hookSpecificOutput] of [
+    [
+      "a mutation on a default allow pairs updatedInput with allow",
+      { decision: "allow", mutated_input: { command: "rm -rf ./build" } },
+      {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        updatedInput: { command: "rm -rf ./build" },
+      },
+    ],
+    [
+      "context on an allow rides additionalContext",
+      { decision: "allow", additional_context: "build is generated" },
+      { hookEventName: "PreToolUse", additionalContext: "build is generated" },
+    ],
+    [
+      "a mutation with context carries both",
+      {
+        decision: "allow",
+        mutated_input: { command: "rm -rf ./build" },
+        additional_context: "c",
+      },
+      {
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        updatedInput: { command: "rm -rf ./build" },
+        additionalContext: "c",
+      },
+    ],
+    [
+      "a deny's body drops updatedInput, which Codex rejects without allow",
+      {
+        decision: "deny",
+        reason: "no",
+        mutated_input: { command: "true" },
+        additional_context: "c",
+      },
+      {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: "no",
+        additionalContext: "c",
+      },
+    ],
+  ])
+    it(label, () => {
+      assert.deepEqual(codexAdapter.render(verdict, event).stdout, {
+        hookSpecificOutput,
+      });
+    });
+});
+
+describe("codex render: an advisory PreToolUse deny still carries a reason", () => {
+  // Codex voids a deny body with an empty reason, context and all, whether or
+  // not this adapter could confirm the host enforces it.
+  for (const [label, version] of [
+    ["with no version", undefined],
+    ["below v0.135", "0.134.9"],
+  ])
+    it(`fills the default reason so additionalContext survives ${label}`, () => {
+      const advisory = codexAdapter.parse({
+        hook_event_name: "PreToolUse",
+        version,
+        tool_name: "Bash",
+        tool_input: { command: "rm -rf build" },
+      });
+      const out = codexAdapter.render(
+        { decision: "deny", additional_context: "c" },
+        advisory,
+      );
+      assert.equal(out.enforced, false);
+      assert.equal(out.exit_code, 0);
+      assert.deepEqual(out.stdout, {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: DEFAULT_DENY_REASON,
+          additionalContext: "c",
+        },
+      });
+    });
+});
+
+describe("codex render: an advisory PostToolUse block still carries a reason", () => {
+  // `parse_post_tool_use` voids `decision: "block"` with an empty reason, and
+  // a sync handler's additionalContext with it.
+  it("fills the default reason so additionalContext survives", () => {
+    const advisory = codexAdapter.parse({
+      hook_event_name: "PostToolUse",
       tool_name: "Bash",
       tool_input: { command: "ls" },
+      tool_response: "ok",
     });
-    const out = codexAdapter.render({ decision: "allow" }, preEnforcing, {
-      soleGate: true,
-    });
-    assert.equal(out.stdout.hookSpecificOutput.permissionDecision, "allow");
+    const out = codexAdapter.render(
+      { decision: "deny", additional_context: "c" },
+      advisory,
+    );
     assert.equal(out.enforced, false);
-    assert.equal(out.exit_code, 0);
+    assert.deepEqual(out.stdout, {
+      decision: "block",
+      reason: DEFAULT_DENY_REASON,
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse",
+        additionalContext: "c",
+      },
+    });
   });
 });
 
-describe("codex adapter: enforced deny always carries a non-empty reason (Codex fails open otherwise)", () => {
+describe("codex render: PermissionRequest answers in its own schema", () => {
+  const request = (version) =>
+    codexAdapter.parse({
+      hook_event_name: "PermissionRequest",
+      version,
+      tool_name: "Bash",
+      tool_input: { command: "curl example.com" },
+    });
+  const enforcing = request("0.166.0");
+  const advisory = request("0.134.9");
+  const content = {
+    mutated_input: { command: "true" },
+    additional_context: "c",
+  };
+  const deny = (message) => ({ behavior: "deny", message });
+
+  for (const [label, event, verdict, options, decision, exitCode] of [
+    [
+      "a deny carries the reason as message",
+      enforcing,
+      { decision: "deny", reason: "no network", ...content },
+      undefined,
+      deny("no network"),
+      2,
+    ],
+    [
+      "a deny with no reason carries the default message",
+      enforcing,
+      { decision: "deny" },
+      undefined,
+      deny(DEFAULT_DENY_REASON),
+      2,
+    ],
+    [
+      "an advisory deny below v0.135 carries the default message",
+      advisory,
+      { decision: "deny" },
+      undefined,
+      deny(DEFAULT_DENY_REASON),
+      0,
+    ],
+    [
+      "an ask is a deny",
+      enforcing,
+      { decision: "ask", reason: "confirm" },
+      undefined,
+      deny("confirm"),
+      2,
+    ],
+    [
+      "an allow abstains by default",
+      enforcing,
+      { decision: "allow", ...content },
+      undefined,
+      undefined,
+      0,
+    ],
+    [
+      "an allow under soleGate grants the approval",
+      enforcing,
+      { decision: "allow", ...content },
+      { soleGate: true },
+      { behavior: "allow" },
+      0,
+    ],
+    [
+      "an allow under soleGate below v0.135 still grants the approval",
+      advisory,
+      { decision: "allow" },
+      { soleGate: true },
+      { behavior: "allow" },
+      0,
+    ],
+  ])
+    it(label, () => {
+      const out = codexAdapter.render(verdict, event, options);
+      assert.deepEqual(out.stdout, {
+        hookSpecificOutput: {
+          hookEventName: "PermissionRequest",
+          ...(decision === undefined ? {} : { decision }),
+        },
+      });
+      assert.equal(out.exit_code, exitCode);
+    });
+});
+
+describe("codex adapter: a deny always carries a non-empty reason (Codex fails open otherwise)", () => {
   const event = codexAdapter.parse({
     hook_event_name: "PreToolUse",
     version: "0.135.0",
@@ -137,18 +322,46 @@ describe("codex adapter: enforced deny always carries a non-empty reason (Codex 
       "destructive delete",
     );
   });
+});
 
-  it("does not inject a reason on a non-enforced (advisory) deny", () => {
-    const preEnforcing = codexAdapter.parse({
-      hook_event_name: "PreToolUse",
-      version: "0.134.9",
-      tool_name: "Bash",
-      tool_input: { command: "rm -rf /" },
-    });
-    const out = codexAdapter.render({ decision: "deny" }, preEnforcing);
-    assert.equal(out.enforced, false);
-    assert.equal(out.exit_code, 0);
-    assert.ok(!("permissionDecisionReason" in out.stdout.hookSpecificOutput));
+describe("codex: the launcher pins the version, because Codex's stdin has none", () => {
+  const call = {
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "ls" },
+  };
+
+  it("a launcher version at or above v0.135 enforces a payload with no version", () => {
+    const adapter = createCodexAdapter({ version: "0.151.0" });
+    const event = adapter.parse(call);
+    assert.equal(event.this_call_vetoable, true);
+    assert.equal(event.meta.integration_mode, "external_hook");
+  });
+
+  it("the shipped adapter, given no version anywhere, stays advisory", () => {
+    const event = codexAdapter.parse(call);
+    assert.equal(event.this_call_vetoable, false);
+    assert.equal(event.meta.integration_mode, "observe_only");
+  });
+
+  it("the launcher version wins over a payload version, in both directions", () => {
+    const pinnedOld = createCodexAdapter({ version: "0.134.0" });
+    assert.equal(
+      pinnedOld.parse({ ...call, version: "0.151.0" }).this_call_vetoable,
+      false,
+    );
+    const pinnedNew = createCodexAdapter({ version: "0.151.0" });
+    assert.equal(
+      pinnedNew.parse({ ...call, version: "0.134.0" }).this_call_vetoable,
+      true,
+    );
+  });
+
+  it("with no launcher version, a payload version is the fallback", () => {
+    assert.equal(
+      codexAdapter.parse({ ...call, version: "0.151.0" }).this_call_vetoable,
+      true,
+    );
   });
 });
 
@@ -238,7 +451,7 @@ describe("codex: a subagent's call takes the SUBAGENT row, not the BUILTIN one",
   // agent_type=default / agent_id=<the one SubagentStart announced> on its
   // PreToolUse payload, with agent_type absent on the main thread's — so the
   // field discriminates, and the SUBAGENT row is PARTIAL (the hook fires, under
-  // the same Bash-only limit as the BUILTIN row) rather than UNKNOWN.
+  // the same limits as the BUILTIN row) rather than UNKNOWN.
   const shellCall = {
     hook_event_name: "PreToolUse",
     version: "0.151.0",
@@ -266,7 +479,7 @@ describe("codex: a subagent's call takes the SUBAGENT row, not the BUILTIN one",
         ...extra,
         tool_name: "mcp__github__create_issue",
       });
-      assert.equal(event.this_call_vetoable, false);
+      assert.equal(event.this_call_vetoable, true);
     }
   });
 });
@@ -340,19 +553,15 @@ describe("codex: PostToolUse parses post_tool and blocks on the post-tool schema
     assert.equal(out.exit_code, 0);
   });
 
-  // The COVERAGE rows describe which calls reach PreToolUse. A PostToolUse
-  // payload is proof the post-tool hook fired for THIS call, so the pre-tool MCP
-  // row must not answer for it — the pre-tool half is the positive marker that
-  // the row is still live where it applies.
-  it("an MCP tool is vetoable post-tool though COVERAGE[mcp] is uncovered", () => {
+  // Codex runs PreToolUse for an MCP call at every enforcing version, so a deny
+  // there is a block Codex performs and the render must report it enforced.
+  it("an MCP tool is vetoable pre-tool and post-tool", () => {
     const mcp = { ...postCall, tool_name: "mcp__github__create_issue" };
-    assert.equal(COVERAGE[CallClass.MCP], CoverageStatus.UNCOVERED);
+    assert.equal(COVERAGE[CallClass.MCP], CoverageStatus.PARTIAL);
     assert.equal(codexAdapter.parse(mcp).this_call_vetoable, true);
-    assert.equal(
-      codexAdapter.parse({ ...mcp, hook_event_name: "PreToolUse" })
-        .this_call_vetoable,
-      false,
-    );
+    const pre = codexAdapter.parse({ ...mcp, hook_event_name: "PreToolUse" });
+    assert.equal(pre.this_call_vetoable, true);
+    assert.equal(codexAdapter.render({ decision: "deny" }, pre).enforced, true);
   });
 });
 

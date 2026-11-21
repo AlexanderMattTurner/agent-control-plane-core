@@ -117,6 +117,34 @@ export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
  * @type {Readonly<Record<string, string>>}
  */
 export const GEMINI_TOOL_ALIASES: Readonly<Record<string, string>>;
+/**
+ * Gemini CLI has NO ask tier: its hook vocabulary is `decision: "allow"` /
+ * `decision: "deny"` plus the exit-2 System Block, and nothing there suspends a
+ * call for a human. {@link applyAdvisoryDeny} therefore renders `ask` as the
+ * advisory `decision: "deny"`, byte-identical to a deny this call cannot veto.
+ * A consumer that must not let an ask through has to escalate it to a deny
+ * here, because an un-escalated ask lets Gemini run the tool.
+ */
+export const NATIVE_ASK_TIER: false;
+/**
+ * No rename is modelled. Gemini CLI hands `BeforeTool` the invocation's tool
+ * name beside an `originalRequestName`, so an aliased call may be filed under
+ * a name the model did not use; that is unverified, so not published.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING: import("../control-plane.mjs").PreToolFiling;
+/**
+ * Gemini CLI keeps `hookSpecificOutput` as a `Record<string, unknown>` and its
+ * `BeforeTool` path reads only `tool_input` from it, by `in` lookup, so any
+ * other key is ignored (`packages/core/src/hooks/types.ts`
+ * `BeforeToolHookOutput`; both firing paths, `core/coreToolHookTriggers.ts`
+ * and `scheduler/hook-utils.ts` `evaluateBeforeToolHook`, read at gemini-cli
+ * `62bab5b2`). The top level is the `HookOutput` interface's seven keys, read
+ * from an unchecked `JSON.parse` cast (`hooks/hookRunner.ts`), so an unknown
+ * top-level key is ignored too.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE: import("../control-plane.mjs").PreToolResponse;
 /** @type {import("../control-plane.mjs").Adapter} */
 export const geminiAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;

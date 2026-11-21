@@ -32,7 +32,7 @@ removes.
   declaration of what that agent's transport cannot carry. `parse` turns that
   agent's raw hook payload into a `ToolCallEvent`; `render` turns your `Verdict`
   back into the **real** native signal that agent enforces (the right JSON body,
-  exit code, or thrown error — not just a print).
+  exit code and stderr reason — not just a print).
 
 You write your logic **once** against the normalized types. Adding support for a
 new agent is a new adapter (~one file + fixtures), not a rewrite of your tool.
@@ -85,13 +85,15 @@ pnpm add agent-control-plane-core
 // Verdict — a normalized guardrail decision.
 {
   decision: "allow" | "deny" | "ask",
-  mutated_input?: object,           // replacement tool input
+  mutated_input?: object,           // replacement tool input (pre_tool)
+  mutated_output?: unknown,         // replacement tool output the model sees (post_tool)
   additional_context?: string,      // extra context to splice into the agent's stream
   reason?: string,                  // shown on deny/ask
 }
 ```
 
-An **Adapter** is `{ AGENT, COVERAGE, UNRENDERED_FIELDS, parse, render }`:
+An **Adapter** is
+`{ AGENT, COVERAGE, UNRENDERED_FIELDS, NATIVE_ASK_TIER, parse, render }`:
 
 ```js
 parse(nativeEvent) -> ToolCallEvent      // never throws on unknown input
@@ -110,6 +112,31 @@ UNRENDERED_FIELDS = Object.freeze({
 })
 ```
 
+```js
+// Does this host carry a distinct "ask the human" tier that it honours?
+// true  ⇒ a rendered `ask` suspends the call in front of a person
+//         (Claude Code's permissionDecision: "ask", Amp's exit 1).
+// false ⇒ the host has no such tier, so `render` collapses `ask` onto another
+//         signal (Gemini CLI's advisory decision: "deny") and an un-escalated
+//         ask lets the tool run.
+NATIVE_ASK_TIER = false;
+```
+
+Read `NATIVE_ASK_TIER` instead of keeping a list of which agents to escalate an
+`ask` to a `deny` on: a guardrail that must not let an ask through escalates it
+where the flag is `false`, and leaves it alone where the host does the asking.
+`renderEscalated(adapter, verdict, event, { soleGate })` applies that rule: it
+re-renders as a `deny` any non-allow verdict that would render unenforced on a
+vetoable call, except an `ask` on a host whose flag is `true`. A non-allow
+verdict on a payload that names no event at all blocks through the host's exit
+code and stderr, since `render` has no channel for it, unless the event parsed
+observe-only (a Codex below its enforcing version), which cannot veto.
+It describes the HOST, not the verdict — `ask` renders as `enforced: false`
+everywhere — and it names the pre-tool gate, since a tool that already ran has
+nothing left to suspend. Conformance probes your real `render` against it, so a
+`true` whose ask renders as your abstaining allow fails, and so does a `false`
+whose ask renders as anything but your own advisory deny.
+
 `readonlySet([])` is the row for a kind that carries all three;
 `UNRENDERED_ON_UNKNOWN` is the row for one that carries none. Both come from
 `agent-control-plane-core/contract`. Build every row with `readonlySet` — a
@@ -124,9 +151,10 @@ the render does not carry.
 
 ```js
 import { claudeAdapter } from "agent-control-plane-core/claude";
+import { readStdin, emit } from "agent-control-plane-core/runtime";
 
 // 1. Normalize the agent's raw hook payload.
-const event = claudeAdapter.parse(rawHookJson);
+const event = claudeAdapter.parse(JSON.parse(await readStdin()));
 
 // 2. Your guardrail decides, using only the normalized types.
 const verdict =
@@ -134,9 +162,93 @@ const verdict =
     ? { decision: "deny", reason: "destructive command blocked" }
     : { decision: "allow" };
 
-// 3. Render back to the agent's native response.
-process.stdout.write(JSON.stringify(claudeAdapter.render(verdict, event)));
+// 3. Send the native response: the stdout body, the block reason on stderr,
+//    and the exit code (2 on this deny), which is what makes Claude Code block.
+emit(claudeAdapter.render(verdict, event));
 ```
+
+`render` returns the whole native response, not a body to print. Writing
+`JSON.stringify(render(...))` to stdout exits 0, so the host never blocks.
+
+`agent-control-plane-core/runtime` publishes the rest of the plumbing the four
+hook entries share. `runHookEntry(adapter, judge)` is a whole entry: each
+`bin/<host>-hook.mjs` is that one call. `renderHookResponse` runs parse → judge
+→ `renderEscalated`, so a judge's `ask` on a host with no ask tier blocks a
+vetoable call instead of running it. It returns the failure response THAT host
+expects when the payload does not parse. `emit`
+drains the whole body before it exits, so a large deny body is never truncated
+on a non-blocking pipe. The entries ship as `acp-claude-hook`, `acp-codex-hook`,
+`acp-amp-hook` and `acp-gemini-hook`. Codex's hook stdin carries no version, so
+set `ACP_CODEX_VERSION` to the Codex version your launcher pins (or call
+`createCodexAdapter({ version })`); without it, Codex calls parse advisory.
+
+A judge may return its verdict or a promise of one, so a judge can ask a
+remote monitor before it answers. `renderHookResponse` returns a promise.
+`adapterFor(id, options)` takes the options its `LAUNCHER_OPTIONS[id]` row
+names, so a launcher passes a pinned version to whichever agents read one
+without naming them.
+
+A consumer that cannot import these modules (a bash hook wrapper, a Python
+monitor) reads `schema/control-plane/v1/agents.json` instead. It is generated
+from the adapters, with one row per agent: its block exit code and reason
+stream, whether a block needs a reason, whether it has an ask tier, the entry's
+default response when the hook breaks, its hook coverage, the verdict
+fields an allow cannot carry on each kind's main native event (Codex's
+`PermissionRequest`, which also parses as `pre_tool`, carries none), and two
+pre-tool facts:
+
+- `pre_tool_response`: the keys the host reads on an exit-0 pre-tool answer,
+  as two sorted lists: `top_level_keys` for the body's top level and
+  `hook_specific_output_keys` for `hookSpecificOutput`. Each has a bit saying
+  what any other key there does, `unread_top_level_key_fails_open` and
+  `unread_key_fails_open`: `true` means the host discards the whole body and
+  runs the call (Codex, at both levels), `false` means the key is ignored,
+  `null` means unknown. The conformance harness fails an adapter whose pre-tool
+  render emits a key outside either list.
+- `pre_tool_filing`: how the pre-tool hook files a model's tool call, so a
+  monitor can match the model's calls against the hook's. It is keyed by model
+  tool name: the call's `name`, prefixed with its `namespace` with no
+  separator, unless the namespace is empty or Codex's default `functions`
+  (`flatToolName` in `/contract`). Each value is one of:
+  - `null`: no pre-tool hook fires for this call.
+  - `{"tool_name": T, "input": I}`: the hook files `tool_name` T, and builds
+    `tool_input` from I. I is either `"$"`, meaning the call's whole arguments
+    value, or an object whose values are each `"$"` or `"$.<key>"`, meaning
+    that top-level argument. `<key>` is one literal key, non-empty and with no
+    `.`. If a `"$.<key>"` does not resolve (the arguments are not an object,
+    lack the key, or hold `null` there), the hook files nothing.
+
+  A function call the map does not list is filed with the model's own name and
+  arguments. A freeform (custom) call the map does not list files nothing; of
+  the shipped hosts only Codex makes them. The map describes calls the host
+  dispatches: Codex files nothing for a call it rejects first, e.g. a name it
+  has no tool for, a call kind the tool does not take, or arguments a handler
+  refuses before its hook (an `apply_patch` patch that does not parse, an
+  `exec_command` with a non-string `workdir`). On Codex the arguments value is a function call's
+  `arguments` parsed as JSON (an empty or all-whitespace string reads as `{}`,
+  unparseable text stays the raw string), or a freeform call's raw `input`
+  string. `fileModelCall` in `/contract` is the reference implementation; it
+  takes the call's kind, `"function"` or `"freeform"`. The map does not model
+  Codex's MCP names: Codex files an MCP call as `mcp__<namespace>__<tool>`,
+  which can differ from the flat name.
+
+Read the file from the installed package, so it always matches the adapters
+that version ships.
+
+Each entry fails the way its host expects when the hook itself breaks: claude,
+codex and gemini run the call, and amp asks. Set `ACP_FAIL_CLOSED=1` to block
+instead, on every host. The entry then exits 2 with the reason on stderr when
+the payload does not parse, or when the judge throws or answers no decision.
+Register a fail-closed entry on tool-call events only. On a Stop event, exit 2
+means "keep working".
+
+A host that kills a hook on its timeout runs the call. Set
+`ACP_HOOK_TIMEOUT_MS` below the host's hook timeout, and the entry gives its
+failure response at that deadline instead. A judge that blocks the event loop
+past the deadline still loses to the host's timeout. Nothing in the entry can
+answer for a process that never starts (no `node`, a module that fails to
+load). Claude Code covers that case with `"onFailure": "block"` on the hook
+entry. Codex has no such option, so it still runs the call.
 
 The core contract and every adapter (`claude`, `codex`, `amp`, `gemini`) are
 also on the default entry:
@@ -202,8 +314,48 @@ The harness pins both directions and rejects a vacuous suite:
    fixture event, so an adapter that collapses the objection onto "run it" fails
    even with no non-vetoable fixture of its own. `observe_only` renders are
    exempt: that transport has no pre-emption channel to differ in.
+6. Your `NATIVE_ASK_TIER` declaration matches what `render` does with an `ask`,
+   probed on every pre-tool fixture event (both directions, described above).
 
 See `src/fixtures/claude.json` and `src/fixtures/codex.json` for the format.
+
+## Validating from another language
+
+A guardrail that is not JavaScript cannot import `ToolCallEvent`, so it
+hand-writes the field names it reads. It then drifts in the quietest direction:
+the contract renames a field, the hand-written reader sees `undefined`, and it
+takes its no-value branch instead of failing. The package ships the same
+contract as JSON Schema (draft 2020-12), so that reader validates against the
+seam instead of against its own copy.
+
+```python
+import json, pathlib, jsonschema  # a Python guardrail reading the event
+base = pathlib.Path("node_modules/agent-control-plane-core/schema/control-plane/v1")
+schema = json.loads((base / "tool-call-event.schema.json").read_text())
+jsonschema.validate(event, schema)  # raises on a field the contract does not model
+```
+
+`tool-input-keys.json` sits beside them and publishes the input field a judge
+should read per canonical tool (`Bash` → `command`, `Read` → `file_path`), so a
+consumer looks that up rather than hard-coding it. It is plain data, not a
+schema: a validator refuses an unknown keyword under its default options, so a
+document carrying that map inside itself would not compile for the consumer who
+installed it.
+
+The event document also refuses two claims a producer must not make, each one a
+veto the host will never perform: a `this_call_vetoable` `unknown` event, and a
+`this_call_vetoable` event on an `observe_only` transport.
+
+`pnpm gen:schema` generates the files from `src/control-plane.mjs`, and
+`test/json-schema.test.mjs` byte-compares the result, so a stale document reds
+the suite. The same suite validates every adapter's live output against the
+published bytes, so a renamed contract field reds too. A JavaScript caller
+builds the documents in memory from `agent-control-plane-core/json-schema`
+instead of reading the files.
+
+Read the schema from the installed package rather than pinning a copy by hand. A
+document is one release's rendering of the wire version, and an added optional
+field (backward-compatible, below) appears in the next release's document.
 
 ## Versioning
 
@@ -218,8 +370,9 @@ and bumps the version.
 ```bash
 ./setup.sh          # install deps + git hooks
 pnpm test           # node --test
-pnpm test:coverage  # c8, 100% lines/branches/functions per file
+pnpm test:coverage  # c8, the per-file floor .c8rc.json sets
 pnpm check          # tsc --noEmit (JSDoc types)
+pnpm gen:schema     # regenerate schema/ from the contract
 pnpm lint           # eslint
 pnpm build          # emit .d.mts declarations into types/
 ```

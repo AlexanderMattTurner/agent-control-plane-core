@@ -16,7 +16,7 @@ classifies exactly the canonical `CALL_CLASSES`; a fixture case tagged with a
 `call_class` whose status doesn't permit a veto (uncovered/unknown — an ❓ is
 treated as ❌ via `coverageAllowsVeto`) MUST parse `this_call_vetoable: false`;
 and each adapter's `parse` derives vetoability from its own row, so an MCP-sourced
-call on a host whose MCP cell is not ✅ (Codex ❌, Gemini ❓) parses non-vetoable.
+call on a host whose MCP cell does not permit a veto (Gemini ❓) parses non-vetoable.
 The subagent cell is live on hosts that stamp `agent_type` (Claude Code, Codex);
 the resumed cell stays advisory-only in code, because no host marks a lone tool
 event as belonging to a resumed session — the tables below remain the SSOT for
@@ -77,12 +77,12 @@ this row is declarative, since `classifyCallClass` never returns `resumed`, so
 no call is judged by it — and it stops being a judgement call at all once a
 probe supplies both a signal and a citation.
 
-| Call class                    | Claude Code     | Codex CLI             | Amp               | opencode                     | Gemini CLI               |
-| ----------------------------- | --------------- | --------------------- | ----------------- | ---------------------------- | ------------------------ |
-| **Builtin tool**              | ✅ [C1]         | ⚠️ Bash only [X1][X2] | ✅ [A1]           | ✅ [O1]                      | ✅ (v0.26+) [G1]         |
-| **MCP-server tool**           | ✅ [C2]         | ❌ [X1][X2]           | ✅ [A2]           | ❌ #2319 [O2]                | ✅ likely, med-conf [G2] |
-| **Subagent-spawned tool**     | ✅ [C3]         | ⚠️ Bash only [X3]     | ✅ (context) [A3] | ❓ [O3]                      | ⚠️ load-bug [G3]         |
-| **Resumed/continued session** | ✅ struct. [C4] | ⚠️ Bash only [X4]     | ✅ struct. [A4]   | ⚠️ builtin only struct. [O4] | ❓ [G4]                  |
+| Call class                    | Claude Code     | Codex CLI          | Amp               | opencode                     | Gemini CLI               |
+| ----------------------------- | --------------- | ------------------ | ----------------- | ---------------------------- | ------------------------ |
+| **Builtin tool**              | ✅ [C1]         | ⚠️ not stdin [X1]  | ✅ [A1]           | ✅ [O1]                      | ✅ (v0.26+) [G1]         |
+| **MCP-server tool**           | ✅ [C2]         | ⚠️ [X2]            | ✅ [A2]           | ❌ #2319 [O2]                | ✅ likely, med-conf [G2] |
+| **Subagent-spawned tool**     | ✅ [C3]         | ⚠️ as builtin [X3] | ✅ (context) [A3] | ❓ [O3]                      | ⚠️ load-bug [G3]         |
+| **Resumed/continued session** | ✅ struct. [C4] | ⚠️ as builtin [X4] | ✅ struct. [A4]   | ⚠️ builtin only struct. [O4] | ❓ [G4]                  |
 
 ### Per-cell reasons + citations
 
@@ -107,18 +107,25 @@ probe supplies both a signal and a citation.
 Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
 `src/adapters/codex.mjs`)
 
-- **[X1] builtin ⚠️ Bash only** — `PreToolUse` "intercepts the shell (Bash) tool
-  only — by design." `apply_patch`, Read/Edit/Write, and web fetch do **not**
-  fire it, so a hook-only layer never sees a Codex file edit. Medium confidence
-  (third-party reference, corroborated below).
-  [ACP Codex hooks reference](https://agenticcontrolplane.com/blog/codex-cli-hooks-reference);
-  [OpenAI Codex hooks docs](https://developers.openai.com/codex/hooks).
-- **[X2] MCP ❌** — MCP tool calls are explicitly outside `PreToolUse` coverage.
-  Same sources as [X1]. This is a confirmed un-vetoable class today.
-- **[X3] subagent ⚠️ Bash only (probe-confirmed)** — no source documented this
+- **[X1] builtin ⚠️ not stdin** — read from Codex's source at `rust-v0.135.0`,
+  the enforcement floor, and unchanged through `rust-v0.163.0`. The tool
+  registry runs `PreToolUse` for every function tool by default
+  ([`registry.rs`](https://github.com/openai/codex/blob/rust-v0.135.0/codex-rs/core/src/tools/registry.rs)), and the shell (`exec_command`) and
+  `apply_patch` handlers each supply their own payload. Two gaps remain.
+  `write_stdin`, which types into a process an earlier call started, returns no
+  payload, because Codex treats it as part of that earlier command
+  ([`write_stdin.rs`](https://github.com/openai/codex/blob/rust-v0.135.0/codex-rs/core/src/tools/handlers/unified_exec/write_stdin.rs)). So a model
+  that starts an interactive shell can send it commands the hook never sees. A
+  tool OpenAI runs on its own side, such as web search, never reaches a local
+  hook. An earlier third-party reference said `PreToolUse` saw Bash only; the
+  source says otherwise at every enforcing version.
+- **[X2] MCP ⚠️** — the MCP handler supplies a `PreToolUse` payload with the
+  call's resolved arguments ([`mcp.rs`](https://github.com/openai/codex/blob/rust-v0.135.0/codex-rs/core/src/tools/handlers/mcp.rs)), so an MCP call
+  is vetoable. PARTIAL, not ✅, because no live probe has driven one yet.
+- **[X3] subagent ⚠️ as builtin (probe-confirmed)** — no source documented this
   either way, so it was ❓ until an item-⑤ probe ran it. The probe drove a real
   subagent and reports `subagent_pretooluse=covered`: `PreToolUse` fires for a
-  subagent's shell call, under the same Bash-only limit as [X1] ⇒ PARTIAL, not
+  subagent's shell call, under the same limits as [X1] ⇒ PARTIAL, not
   ❓. The probe also settled the RUNTIME question the docs answered wrongly:
   a subagent's `PreToolUse` payload carries `agent_id` and `agent_type`
   (`agent_type=default`, `agent_id` equal to the one `SubagentStart` announced),
@@ -127,7 +134,7 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   [openai/codex#16226](https://github.com/openai/codex/issues/16226) (still open,
   asking for exactly these fields) are both stale on this point; the measurement
   wins. Probe runs `33346707822`, `33347870937` on `claude/sbx-codex-support-gtknyl`.
-- **[X4] resumed ⚠️ Bash only (probe-confirmed)** — same probe:
+- **[X4] resumed ⚠️ as builtin (probe-confirmed)** — same probe:
   `resumed_pretooluse=covered`, so a `codex exec resume` session re-arms the hook
   surface and its new calls fire `PreToolUse` ⇒ PARTIAL. Its SESSION does
   announce itself — `session_start_sources=startup,resume,startup` across the
@@ -148,9 +155,83 @@ Code, version-gated — shipped adapter pins `MIN_ENFORCING_VERSION [0,135]` in
   included, and honours `decision: "block"` (exit 2 blocks further processing)
   but cannot rewrite the output. So `src/adapters/codex.mjs` applies COVERAGE to
   a pre-tool event only — a `PostToolUse` payload in hand is proof the post-tool
-  hook fired for that call, and judging it by the pre-tool MCP ❌ would degrade a
-  block Codex honours into a notify.
+  hook fired for that call.
   [OpenAI Codex hooks docs](https://developers.openai.com/codex/hooks).
+- **[X7] what `PreToolUse` files for a model call** — read from Codex's source
+  at `rust-v0.166.0`. The registry's default payload files a function tool
+  under its flat name (namespace + name, `flat_tool_name` in
+  [`tools/mod.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/mod.rs))
+  with its parsed arguments, and renames `spawn_agent` in the `multi_agent_v1`
+  namespace to `spawn_agent` (`function_hook_tool_name` in
+  [`registry.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/registry.rs)).
+  `exec_command` files `Bash` with `{command: cmd}`, or nothing when its
+  arguments do not parse
+  ([`exec_command.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs)).
+  `apply_patch` files its raw patch as `{command}`
+  ([`apply_patch.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/apply_patch.rs)).
+  `write_stdin` and code mode's `wait` return no payload
+  ([`wait_handler.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/code_mode/wait_handler.rs)),
+  and code mode's `exec` is a freeform tool that the default, function-only
+  payload skips
+  ([`execute_handler.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/code_mode/execute_handler.rs)).
+  Extension tools can be freeform too (`matches_kind` in
+  [`extension_tools.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/extension_tools.rs)),
+  and take the same default payload, so an unlisted freeform call files nothing.
+  An MCP call is filed as `mcp__<namespace>__<tool>`, with `_` trimmed from
+  the namespace's end and the tool's start (`hook_tool_name` in
+  [`mcp.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/mcp.rs)),
+  which can differ from the flat name.
+  The flat name drops the namespace when it is empty or the default
+  `functions`, which Codex stamps on every un-namespaced call
+  (`is_default_namespace` in
+  [`tool_name.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/protocol/src/tool_name.rs),
+  `build_tool_call` in
+  [`router.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/router.rs)).
+  No hook fires for a call the registry rejects before its hook: an unknown
+  name, a payload kind the tool does not take (`matches_kind`), a failing
+  `environments_for_input` (for `apply_patch` it parses the patch), or a
+  failing `pre_tool_use_cwd` (for `exec_command` it parses `workdir`, so a
+  non-string `workdir` files nothing)
+  ([`registry.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/registry.rs)).
+  Empty or all-whitespace function arguments are filed as `{}`
+  (`function_hook_tool_input`, same file).
+  `PRE_TOOL_FILING` in `src/adapters/codex.mjs` carries all of these except the
+  MCP rule.
+- **[X8] what Codex reads from a `PreToolUse` answer** — `rust-v0.166.0`.
+  `hookSpecificOutput` deserializes into `PreToolUseHookSpecificOutputWire`, a
+  `deny_unknown_fields` struct of `hookEventName`, `permissionDecision`,
+  `permissionDecisionReason`, `updatedInput` and `additionalContext`
+  ([`schema.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/schema.rs)).
+  On exit 0, a body that fails to deserialize marks the run failed and sets no
+  block, so the call runs
+  ([`pre_tool_use.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/events/pre_tool_use.rs)).
+  On exit 2 Codex reads only stderr. The top level is strict too:
+  `PreToolUseCommandOutputWire` is `deny_unknown_fields` over `continue`,
+  `stopReason`, `suppressOutput`, `systemMessage`, `decision`, `reason` and
+  `hookSpecificOutput` (same `schema.rs`); `PRE_TOOL_RESPONSE` lists both levels.
+  Valid keys can still void the body by value or combination
+  (`unsupported_pre_tool_use_universal`, `_legacy_decision` and
+  `_hook_specific_output` in
+  [`output_parser.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/engine/output_parser.rs)):
+  - `continue: false`, any `stopReason`, `suppressOutput: true`, or top-level
+    `decision: "approve"`;
+  - top-level `reason` without `decision`, or `decision: "block"` with an empty
+    reason;
+  - `permissionDecisionReason` without `permissionDecision`;
+  - `permissionDecision: "allow"` without `updatedInput`;
+  - `updatedInput` without `"allow"`;
+  - any `"ask"`;
+  - `"deny"` with an empty reason.
+
+  So `"allow"` is a rewrite, never an approval. For a sync handler,
+  `additionalContext` reaches the model only when the body is valid; from
+  `rust-v0.166.0`, an async handler's context is applied regardless. `PermissionRequest` answers in its own
+  strict schema, `{hookEventName, decision: {behavior, message}}`; a body
+  carrying `updatedInput`, `updatedPermissions` or `interrupt: true` is ignored
+  and Codex's own approval flow decides. `behavior: "allow"` grants the
+  approval, except, from `rust-v0.166.0`, from an environment-sourced hook
+  ([`permission_request.rs`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/events/permission_request.rs)).
+  Everything else here, apart from the async-handler context rule, is the same at `rust-v0.135.0`, the enforcement floor.
 
 **Amp** (`external_hook`; per-tool permission engine, decision = delegate binary
 exit code — already shipped adapter)
@@ -246,8 +327,9 @@ false`. Subagents get their own `Agent` (own gate) but "only spawn under
 event never arrives), and a monitor MUST degrade `deny → notify`:**
 
 - opencode **MCP-server tool** calls — #2319 (event never parsed).
-- Codex **MCP-server tool** calls **and non-Bash builtins** (`apply_patch`,
-  Read/Edit/Write, web fetch) — hook fires for Bash only.
+- Codex **`write_stdin`** calls, which type into a process an earlier call
+  started, and tools OpenAI runs on its own side — no `PreToolUse` fires for
+  either ([X1]).
 - Gemini CLI **any call when the host is < v0.26.0** — no hook surface exists.
 - Goose **any call under Auto mode**; OpenHands calls made via
   `execute_tool()` or shielded by a `readOnlyHint` — for the in-process hosts,
@@ -323,9 +405,7 @@ is built to close.
 
 **Confidence / provenance notes.** Claude Code, Amp, opencode-#2319, Gemini
 version-gate, and both in-process hosts rest on primary docs / issue trackers /
-source reads (the last two via `schema-fit.md`). The **Codex Bash-only /
-MCP-excluded** coverage claim is corroborated by a third-party reference and
-OpenAI's own hooks docs but was **not** reproduced against a live Codex here —
-treat as medium confidence and the first thing a probe should verify, since it
-drives the largest confirmed un-vetoable surface in the matrix. Every ❓ is
+source reads (the last two via `schema-fit.md`). The Codex
+builtin and MCP rows rest on a read of Codex's own source at its enforcement
+floor; no live probe has driven an MCP or `apply_patch` call yet. Every ❓ is
 undocumented as of this writing, not inferred.

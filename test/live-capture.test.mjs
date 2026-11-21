@@ -301,7 +301,10 @@ describe("assertCaptured accepts a real emission, rejects a broken one", () => {
   });
 
   it("throws on an unknown agent and on unparseable JSON", () => {
-    assert.throws(() => assertCaptured("nope", "{}"), /unknown agent nope/);
+    assert.throws(
+      () => assertCaptured("nope", "{}"),
+      /no adapter for agent id "nope"/,
+    );
     assert.throws(() => assertCaptured("claude", "not json {{{"));
   });
 });

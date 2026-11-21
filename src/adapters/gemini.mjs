@@ -43,7 +43,7 @@ import {
   MODELED_TOOL_INPUT_KEYS,
   makeEvent,
   normalizeVerdict,
-  nativeResponse,
+  gatedResponse,
   UNRENDERED_ON_UNKNOWN,
   readonlySet,
   baseMeta,
@@ -348,6 +348,50 @@ export function parse(native) {
 }
 
 /**
+ * Gemini CLI has NO ask tier: its hook vocabulary is `decision: "allow"` /
+ * `decision: "deny"` plus the exit-2 System Block, and nothing there suspends a
+ * call for a human. {@link applyAdvisoryDeny} therefore renders `ask` as the
+ * advisory `decision: "deny"`, byte-identical to a deny this call cannot veto.
+ * A consumer that must not let an ask through has to escalate it to a deny
+ * here, because an un-escalated ask lets Gemini run the tool.
+ */
+export const NATIVE_ASK_TIER = false;
+
+/**
+ * No rename is modelled. Gemini CLI hands `BeforeTool` the invocation's tool
+ * name beside an `originalRequestName`, so an aliased call may be filed under
+ * a name the model did not use; that is unverified, so not published.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING = Object.freeze({});
+
+/**
+ * Gemini CLI keeps `hookSpecificOutput` as a `Record<string, unknown>` and its
+ * `BeforeTool` path reads only `tool_input` from it, by `in` lookup, so any
+ * other key is ignored (`packages/core/src/hooks/types.ts`
+ * `BeforeToolHookOutput`; both firing paths, `core/coreToolHookTriggers.ts`
+ * and `scheduler/hook-utils.ts` `evaluateBeforeToolHook`, read at gemini-cli
+ * `62bab5b2`). The top level is the `HookOutput` interface's seven keys, read
+ * from an unchecked `JSON.parse` cast (`hooks/hookRunner.ts`), so an unknown
+ * top-level key is ignored too.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE = Object.freeze({
+  hook_specific_output_keys: Object.freeze(["tool_input"]),
+  unread_key_fails_open: false,
+  top_level_keys: Object.freeze([
+    "continue",
+    "decision",
+    "hookSpecificOutput",
+    "reason",
+    "stopReason",
+    "suppressOutput",
+    "systemMessage",
+  ]),
+  unread_top_level_key_fails_open: false,
+});
+
+/**
  * Render into Gemini CLI's native external-hook transport. An enforceable deny
  * renders as exit 2 (the System Block on BeforeTool; documented on BeforeAgent
  * as "same as decision: deny" — it aborts the turn); everything else exits 0
@@ -364,31 +408,23 @@ export function render(verdict, event, { soleGate = false } = {}) {
   const vd = normalizeVerdict(verdict);
   const enforced = vd.decision === Decision.DENY && event.this_call_vetoable;
 
-  // Enforced deny is a System Block: exit 2, reason carried on STDERR (Gemini
-  // reads its block rationale from stderr, not the ignored stdout body). Carry it
-  // on NativeResponse.stderr so `emit` writes it to fd 2 — a genuine block is
-  // never surfaced to the user/model with no explanation.
-  // No stdout body at all on this path, so EVERY content field is dropped here,
-  // whatever UNRENDERED_FIELDS says for the kind — that map describes the allow
-  // path. Nothing is lost that a blocked call could still use: the tool never
-  // runs, so only `additional_context` had anywhere to go.
-  if (enforced)
-    return nativeResponse({
-      transport: INTEGRATION_MODE,
-      exit_code: 2,
-      enforced: true,
-      ...(vd.reason !== undefined ? { stderr: vd.reason } : {}),
-    });
-
-  const body =
-    event.event === EventKind.PROMPT_SUBMIT
-      ? promptSubmitBody(vd)
-      : decisionBody(vd, event.event, soleGate);
-  return nativeResponse({
+  // An enforced deny is a System Block: `gatedResponse` writes the exit code
+  // and the stderr reason from the BLOCK_TRANSPORT row, and there is no stdout
+  // body, so EVERY content field is dropped whatever UNRENDERED_FIELDS says —
+  // that map describes the allow path. The tool never runs, so only
+  // `additional_context` had anywhere to go.
+  let body;
+  if (!enforced)
+    body =
+      event.event === EventKind.PROMPT_SUBMIT
+        ? promptSubmitBody(vd)
+        : decisionBody(vd, event.event, soleGate);
+  return gatedResponse(AGENT, {
     transport: INTEGRATION_MODE,
-    exit_code: 0,
-    enforced: false,
-    ...(body === undefined ? {} : { stdout: body }),
+    unblocked_exit_code: 0,
+    enforced,
+    stdout: body,
+    reason: vd.reason,
   });
 }
 
@@ -426,7 +462,10 @@ function applyAdvisoryDeny(out, vd) {
 function decisionBody(vd, kind, soleGate) {
   /** @type {Record<string, unknown>} */
   const out = {};
-  if (!applyAdvisoryDeny(out, vd) && soleGate) out.decision = "allow";
+  // An UNKNOWN kind has no established decision channel, and Gemini acts on a
+  // `decision` it does see (AfterAgent's deny forces a retry), so it gets none.
+  if (kind !== EventKind.UNKNOWN && !applyAdvisoryDeny(out, vd) && soleGate)
+    out.decision = "allow";
   if (kind === EventKind.PRE_TOOL && vd.mutated_input !== undefined)
     out.hookSpecificOutput = { tool_input: vd.mutated_input };
   // `systemMessage` is documented on the TOOL events. An UNKNOWN kind is an
@@ -470,7 +509,10 @@ export const geminiAdapter = {
   INTEGRATION_MODE,
   COVERAGE,
   UNRENDERED_FIELDS,
+  NATIVE_ASK_TIER,
   NATIVE_EVENT_FOR,
+  PRE_TOOL_FILING,
+  PRE_TOOL_RESPONSE,
   parse,
   render,
 };

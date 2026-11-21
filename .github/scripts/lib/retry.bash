@@ -28,8 +28,8 @@ retry_cmd() {
     return 2
   }
   shift 2
-  # retry-loop-ok: this IS the shared retry primitive every other hand-rolled
-  # loop in this tree is asked to call instead of re-implementing.
+  # retry-loop-ok: this loop IS the repo's one retry primitive every other
+  # caller is asked to delegate to — it has no helper of its own to call.
   while [[ "$attempt" -le "$max" ]]; do
     "$@" && return 0
     if [[ "$attempt" -lt "$max" ]]; then

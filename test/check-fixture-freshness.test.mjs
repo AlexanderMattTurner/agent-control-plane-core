@@ -8,13 +8,14 @@ import {
   isNewer,
   checkFreshness,
   reportFreshness,
+  driftTable,
 } from "../.github/scripts/check-fixture-freshness.mjs";
 
 // The fixture-freshness check is the deterministic, secret-free tier of
 // live-conformance. These tests pin its version math and drift logic with a
 // stubbed registry (no network), and assert the shipped SSOT stays well-formed.
 
-describe("reportFreshness gate: drift decides the exit code (the CI break)", () => {
+describe("reportFreshness reports drift as a finding, never as an exit code", () => {
   const capture = () => {
     const lines = [];
     return { write: (s) => lines.push(s), lines };
@@ -29,18 +30,18 @@ describe("reportFreshness gate: drift decides the exit code (the CI break)", () 
     ...over,
   });
 
-  it("returns 0 and writes no drift banner when nothing drifted", () => {
+  it("returns false and writes no re-capture notice when nothing drifted", () => {
     const out = capture();
     const err = capture();
     assert.equal(
       reportFreshness([row(), row({ agent: "codex" })], out, err),
-      0,
+      false,
     );
     assert.equal(err.lines.length, 0);
     assert.ok(out.lines.every((l) => l.startsWith("[ok]")));
   });
 
-  it("returns 1 and writes the re-capture banner when ANY adapter drifted", () => {
+  it("returns true and writes the re-capture notice when ANY adapter drifted", () => {
     const out = capture();
     const err = capture();
     assert.equal(
@@ -49,18 +50,34 @@ describe("reportFreshness gate: drift decides the exit code (the CI break)", () 
         out,
         err,
       ),
-      1,
+      true,
     );
     assert.match(err.lines.join(""), /Re-capture its fixtures/);
     assert.ok(out.lines.some((l) => l.startsWith("[DRIFT]")));
   });
 
-  it("treats a rolling release as fresh (does not fail the gate)", () => {
+  it("treats a rolling release as fresh", () => {
     const out = capture();
     const err = capture();
-    assert.equal(reportFreshness([row({ rolling: true })], out, err), 0);
+    assert.equal(reportFreshness([row({ rolling: true })], out, err), false);
     assert.equal(err.lines.length, 0);
     assert.ok(out.lines[0].startsWith("[rolling]"));
+  });
+
+  // The drift issue's body and the job summary are the same rendering, so a
+  // row the table hides is a drift nobody is told about.
+  it("driftTable marks the drifted row and only that row", () => {
+    const table = driftTable([
+      row(),
+      row({ agent: "codex", drifted: true, latest: "0.140.0" }),
+      row({ agent: "amp", rolling: true, latest: null }),
+    ]);
+    const cells = table.split("\n").slice(2);
+    assert.deepEqual(
+      cells.map((line) => line.split("|").at(-2).trim()),
+      ["ok", "**DRIFT**", "rolling"],
+    );
+    assert.match(cells[2], /n\/a \(rolling release\)/);
   });
 });
 

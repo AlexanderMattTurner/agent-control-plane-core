@@ -370,10 +370,10 @@ describe("gemini parse: never throws, preserves unmodelled fields", () => {
     const out = geminiAdapter.render({ decision: "deny", reason: "r" }, event);
     assert.equal(out.enforced, false);
     assert.equal(out.exit_code, 0);
-    // The objection still reaches the operator — only the false claim of
-    // enforcement is dropped. stderr is the System Block channel, so an
-    // un-enforced deny takes the advisory decision body instead.
+    // No decision body either: Gemini acts on a `decision` it sees on an event
+    // this adapter does not model (AfterAgent's deny forces a retry), so the
+    // render writes nothing the host would act on.
     assert.equal(out.stderr, undefined);
-    assert.deepEqual(out.stdout, { decision: "deny", reason: "r" });
+    assert.equal(out.stdout, undefined);
   });
 });

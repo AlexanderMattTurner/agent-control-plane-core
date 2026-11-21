@@ -19,7 +19,7 @@
 
 export * from "./control-plane.mjs";
 export { claudeAdapter, HookEvent } from "./adapters/claude.mjs";
-export { codexAdapter } from "./adapters/codex.mjs";
+export { codexAdapter, createCodexAdapter } from "./adapters/codex.mjs";
 export { ampAdapter } from "./adapters/amp.mjs";
 export {
   geminiAdapter,

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Verdict",
+  "description": "A normalized guardrail decision (control-plane/v1).",
+  "type": "object",
+  "required": [
+    "decision"
+  ],
+  "properties": {
+    "decision": {
+      "enum": [
+        "allow",
+        "deny",
+        "ask"
+      ]
+    },
+    "mutated_input": {
+      "type": "object",
+      "description": "Replacement tool input (pre_tool). A data channel, carried verbatim."
+    },
+    "mutated_output": {
+      "description": "Replacement tool output (post_tool): a string or the tool's structured output, verbatim. Any JSON value."
+    },
+    "additional_context": {
+      "type": "string",
+      "description": "Extra context to splice into the agent's stream."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Human-readable rationale, shown on deny and ask."
+    }
+  },
+  "additionalProperties": false
+}

@@ -7,7 +7,8 @@
  * agent shells out with stdin JSON and reads a deny body / exit code back.
  *
  * Deny signal (PreToolUse): `hookSpecificOutput.permissionDecision = "deny"`
- * AND exit 2. this_call_vetoable is true, but per the doctrine that is a
+ * AND exit 2. Exit 2 discards stdout, so an enforced deny repeats its reason on
+ * STDERR, which is where the host reads a block rationale. this_call_vetoable is true, but per the doctrine that is a
  * useful FIRST filter, never the boundary — the Verdict stays advisory to the
  * sandbox.
  */
@@ -25,7 +26,7 @@ import {
   lookup,
   makeEvent,
   normalizeVerdict,
-  nativeResponse,
+  gatedResponse,
   UNRENDERED_ON_UNKNOWN,
   readonlySet,
   baseMeta,
@@ -112,6 +113,52 @@ export const UNRENDERED_FIELDS = Object.freeze({
   [EventKind.PROMPT_SUBMIT]: CONTEXT_ONLY,
   [EventKind.SESSION_START]: CONTEXT_ONLY,
   [EventKind.UNKNOWN]: UNRENDERED_ON_UNKNOWN,
+});
+
+/**
+ * Claude Code honours a distinct ask tier: `hookSpecificOutput.permissionDecision
+ * = "ask"` suspends the call and puts it in front of the user, and {@link render}
+ * emits exactly that (see {@link gatingBody}). So a consumer must NOT escalate an
+ * `ask` to a `deny` here — the human already sees it. `render` still reports the
+ * ask as `enforced: false`, because this guardrail did not block the call; the
+ * host did, pending an answer.
+ */
+export const NATIVE_ASK_TIER = true;
+
+/**
+ * No rename is modelled: no source shows Claude Code filing a call under a
+ * name or input other than the model's.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING = Object.freeze({});
+
+/**
+ * The top-level and `hookSpecificOutput` keys Claude Code's hooks reference
+ * documents for `PreToolUse` (https://code.claude.com/docs/en/hooks). Whether
+ * an unread key fails open, at either level, is NOT established: the reference
+ * says an exit-0 body that fails schema validation lets the call go ahead, but
+ * not whether an extra key fails it, and the host's source is not public.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE = Object.freeze({
+  hook_specific_output_keys: Object.freeze([
+    "additionalContext",
+    "hookEventName",
+    "permissionDecision",
+    "permissionDecisionReason",
+    "updatedInput",
+  ]),
+  unread_key_fails_open: null,
+  top_level_keys: Object.freeze([
+    "continue",
+    "decision",
+    "hookSpecificOutput",
+    "reason",
+    "stopReason",
+    "suppressOutput",
+    "systemMessage",
+  ]),
+  unread_top_level_key_fails_open: null,
 });
 
 /** Claude Code native hook event names (the `hook_event_name` field). */
@@ -221,7 +268,8 @@ export function parse(native) {
  * Render into Claude Code's native external-hook transport: a
  * `hookSpecificOutput` JSON body on stdout plus the exit code that carries the
  * decision (deny ⇒ exit 2). A deny only counts as `enforced` when the event's
- * `this_call_vetoable` holds.
+ * `this_call_vetoable` holds, and an enforced deny also carries its `reason` on
+ * `NativeResponse.stderr` (see below).
  *
  * `soleGate` (default `false`) is a dangerous, explicit opt-in: when `true` AND
  * the verdict is `allow`, the render emits Claude Code's REAL
@@ -248,11 +296,15 @@ export function render(verdict, event, { soleGate = false } = {}) {
       ? gatingBody(hookEventName, vd, soleGate)
       : nonGatingBody(hookEventName, kind, vd);
 
-  return nativeResponse({
+  // Claude Code parses hook stdout as JSON only on exit 0: on an exit-2 block it
+  // discards the body and reads STDERR, which `gatedResponse` fills from the
+  // BLOCK_TRANSPORT row.
+  return gatedResponse(AGENT, {
     transport: INTEGRATION_MODE,
-    exit_code: enforced ? 2 : 0,
+    unblocked_exit_code: 0,
     enforced,
     stdout,
+    reason: vd.reason,
   });
 }
 
@@ -305,7 +357,10 @@ function nonGatingBody(hookEventName, kind, vd) {
     hookSpecificOutput.additionalContext = vd.additional_context;
   /** @type {Record<string, unknown>} */
   const out = { hookSpecificOutput };
-  if (vd.decision !== Decision.ALLOW) {
+  // Not on an UNKNOWN kind either: Claude Code honours `decision: "block"` on
+  // events this adapter does not model (on Stop it keeps the agent running),
+  // so writing it there acts on the host while the render reports no block.
+  if (kind !== EventKind.UNKNOWN && vd.decision !== Decision.ALLOW) {
     out.decision = "block";
     if (vd.reason !== undefined) out.reason = vd.reason;
   }
@@ -318,7 +373,10 @@ export const claudeAdapter = {
   INTEGRATION_MODE,
   COVERAGE,
   UNRENDERED_FIELDS,
+  NATIVE_ASK_TIER,
   NATIVE_EVENT_FOR,
+  PRE_TOOL_FILING,
+  PRE_TOOL_RESPONSE,
   parse,
   render,
 };

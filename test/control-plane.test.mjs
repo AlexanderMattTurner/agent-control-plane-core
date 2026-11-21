@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -6,6 +7,10 @@ import {
   EventKind,
   Decision,
   IntegrationMode,
+  VETO_IMPOSSIBLE,
+  BLOCK_TRANSPORT,
+  DEFAULT_DENY_REASON,
+  gatedResponse,
   CallClass,
   CALL_CLASSES,
   CoverageStatus,
@@ -17,6 +22,7 @@ import {
   canonicalTool,
   lookup,
   assertAliasTargetsModeled,
+  assertGatedKinds,
   makeEvent,
   normalizeVerdict,
   sanitizeVerdict,
@@ -25,10 +31,16 @@ import {
   asObject,
   asString,
   asStringOrNull,
+  fileModelCall,
+  flatToolName,
+  FILING_RULE_GRAMMAR,
 } from "../src/control-plane.mjs";
+import { toolCallEventSchema } from "../src/json-schema.mjs";
 import { claudeAdapter } from "../src/adapters/claude.mjs";
-import { codexAdapter } from "../src/adapters/codex.mjs";
+import { codexAdapter, createCodexAdapter } from "../src/adapters/codex.mjs";
+import { AGENT_IDS } from "../src/registry.mjs";
 import { ampAdapter } from "../src/adapters/amp.mjs";
+import { geminiAdapter } from "../src/adapters/gemini.mjs";
 
 describe("control-plane contract is frozen and versioned", () => {
   it("pins the schema version (a bump must be deliberate)", () => {
@@ -140,6 +152,32 @@ describe("tool identity: canonicalTool normalizes aliases, passes through the re
       /tool alias target .* is not a modeled tool/,
     );
   });
+
+  // Driven per MEMBER off the contract's own frozen set rather than a
+  // hand-pasted list: a kind that stops being gateable reds here. UNKNOWN is
+  // the one kind outside it — an event the adapter could not name has no host
+  // response to gate, so declaring it gated is the fail-open `makeEvent`
+  // refuses one step later.
+  for (const kind of Object.values(EventKind))
+    it(`assertGatedKinds ${kind === EventKind.UNKNOWN ? "rejects" : "accepts"} ${kind}`, () => {
+      if (kind === EventKind.UNKNOWN)
+        assert.throws(
+          () => assertGatedKinds([kind], "test"),
+          /test adapter: "unknown" is not a gateable event kind/u,
+        );
+      else assert.doesNotThrow(() => assertGatedKinds([kind], "test"));
+    });
+
+  it("assertGatedKinds names the offender inside a longer list", () => {
+    assert.throws(
+      () =>
+        assertGatedKinds(
+          [EventKind.PRE_TOOL, EventKind.UNKNOWN, EventKind.POST_TOOL],
+          "amp",
+        ),
+      /amp adapter: "unknown"/u,
+    );
+  });
 });
 
 describe("lookup: own-property map access ignores prototype keys", () => {
@@ -199,8 +237,32 @@ describe("makeEvent fails loud on an internally-malformed event", () => {
     // adapter computing the flag its own way cannot reach the wire either.
     assert.throws(
       () => makeEvent({ ...base, event: EventKind.UNKNOWN }),
-      /vetoable UNKNOWN event/,
+      /vetoable event whose event is "unknown"/,
     );
+  });
+
+  it("throws on a vetoable OBSERVE_ONLY event, the rule the JSON schema states", () => {
+    // An observe-only transport reads a transcript and cannot pre-empt a call,
+    // so a veto reported on one is the same false block by another route.
+    assert.throws(
+      () =>
+        makeEvent({
+          ...base,
+          event: EventKind.PRE_TOOL,
+          meta: {
+            ...base.meta,
+            integration_mode: IntegrationMode.OBSERVE_ONLY,
+          },
+        }),
+      /vetoable event whose meta\.integration_mode is "observe_only"/,
+    );
+  });
+
+  it("every VETO_IMPOSSIBLE entry is one the JSON schema states", () => {
+    // makeEvent and the schema read the same list, so each entry must surface
+    // as one if/then rule in the published document.
+    assert.equal(toolCallEventSchema().allOf.length, VETO_IMPOSSIBLE.length);
+    assert.ok(VETO_IMPOSSIBLE.length >= 2);
   });
 
   it("throws on an unmodeled event kind", () => {
@@ -294,7 +356,7 @@ describe("classifyCallClass detects MCP, defaults undetectable to builtin", () =
 
   // MCP wins over the subagent signal: an MCP call made from inside a subagent
   // still goes out through the host's MCP surface, which is the axis most often
-  // left un-gated (Codex ❌, Gemini ❓).
+  // left un-gated (opencode ❌, Gemini ❓).
   it("an MCP-named tool from a subagent classifies mcp, not subagent", () => {
     assert.equal(
       classifyCallClass("mcp__github__create_issue", {
@@ -574,9 +636,12 @@ describe("forward-compat: unknown events/fields pass through", () => {
     assert.equal(event.this_call_vetoable, false);
     assert.equal(out.exit_code, 0);
     assert.equal(out.enforced, false);
-    // The objection still reaches the operator.
-    assert.equal(out.stdout.decision, "block");
-    assert.equal(out.stdout.reason, "r");
+    // No `decision` either: Claude Code honours `decision: "block"` on events
+    // the adapter does not model (on Stop it keeps the agent running), so a
+    // decision here would act on the host while the render reports no block.
+    assert.deepEqual(out.stdout, {
+      hookSpecificOutput: { hookEventName: "PreCompact" },
+    });
   });
 
   it("codex falls back to PreToolUse when the native event name is empty", () => {
@@ -599,4 +664,255 @@ describe("forward-compat: unknown events/fields pass through", () => {
       assert.doesNotThrow(() => ampAdapter.parse(bad));
     }
   });
+});
+
+// ─── The enforced block's reason stream, one rule across every shipped adapter.
+describe("every shipped adapter: an enforced deny carries its reason on stderr", () => {
+  // A vetoable pre-tool event per host. Codex's stdin carries no version, so
+  // its adapter is the one a launcher pins at an enforcing version.
+  const enforcing = [
+    [
+      claudeAdapter,
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "x" },
+      },
+    ],
+    [
+      createCodexAdapter({ version: "0.151.0" }),
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "x" },
+      },
+    ],
+    [ampAdapter, { tool: "Bash", input: { command: "x" } }],
+    [
+      geminiAdapter,
+      {
+        hook_event_name: "BeforeTool",
+        tool_name: "run_shell_command",
+        tool_input: { command: "x" },
+      },
+    ],
+  ];
+  // Every host here reads the reason from stderr on exit 2, and Codex drops a
+  // block whose reason is empty. Before the shared row, Codex wrote none at all
+  // and the other three wrote none for a reasonless deny.
+  const reasons = [
+    [undefined, DEFAULT_DENY_REASON],
+    ["", DEFAULT_DENY_REASON],
+    ["   ", DEFAULT_DENY_REASON],
+    ["destructive delete", "destructive delete"],
+  ];
+  for (const [adapter, native] of enforcing)
+    for (const [reason, expected] of reasons)
+      it(`${adapter.AGENT}: reason ${JSON.stringify(reason)} → stderr ${JSON.stringify(expected)}`, () => {
+        const event = adapter.parse(native);
+        assert.equal(event.this_call_vetoable, true);
+        const out = adapter.render(
+          reason === undefined
+            ? { decision: "deny" }
+            : { decision: "deny", reason },
+          event,
+        );
+        assert.equal(out.enforced, true);
+        assert.equal(out.exit_code, BLOCK_TRANSPORT[adapter.AGENT].exit_code);
+        assert.equal(out.stderr, expected);
+      });
+
+  // Positive marker beside the rule: an allow blocks nothing, so it writes no
+  // reason stream on any host.
+  for (const [adapter, native] of enforcing)
+    it(`${adapter.AGENT}: an allow writes no stderr`, () => {
+      const out = adapter.render({ decision: "allow" }, adapter.parse(native));
+      assert.equal("stderr" in out, false);
+    });
+});
+
+describe("gatedResponse and BLOCK_TRANSPORT", () => {
+  it("has a row for every agent the registry ships", () => {
+    assert.deepEqual(
+      Object.keys(BLOCK_TRANSPORT).sort(),
+      [...AGENT_IDS].sort(),
+    );
+  });
+
+  it("throws for an agent with no row instead of rendering an exit-less block", () => {
+    assert.throws(
+      () =>
+        gatedResponse("nope", {
+          transport: "external_hook",
+          enforced: true,
+          unblocked_exit_code: 0,
+        }),
+      /no BLOCK_TRANSPORT row for agent "nope"/,
+    );
+  });
+
+  it("an unenforced render keeps the caller's exit code and writes no reason", () => {
+    assert.deepEqual(
+      gatedResponse("amp", {
+        transport: "external_hook",
+        enforced: false,
+        unblocked_exit_code: 1,
+        reason: "r",
+      }),
+      { transport: "external_hook", exit_code: 1, enforced: false },
+    );
+  });
+});
+
+describe("flatToolName keys a call the way Codex's flat_tool_name does", () => {
+  for (const [namespace, name, expected] of [
+    [undefined, "exec_command", "exec_command"],
+    [null, "exec_command", "exec_command"],
+    ["", "exec_command", "exec_command"],
+    ["functions", "exec_command", "exec_command"],
+    ["multi_agent_v1", "spawn_agent", "multi_agent_v1spawn_agent"],
+    ["mcp__srv__", "read", "mcp__srv__read"],
+  ])
+    it(`${JSON.stringify(namespace)} + ${name} → ${expected}`, () => {
+      assert.equal(flatToolName(namespace, name), expected);
+    });
+});
+
+describe("fileModelCall reads the PreToolFiling mini-language", () => {
+  // The JSON `agents.json` publishes, not the in-process export: what a
+  // consumer without a JS runtime applies is the parsed file, so that is what
+  // the reading is checked against.
+  const published = JSON.parse(
+    readFileSync(
+      new URL("../schema/control-plane/v1/agents.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const codexFiling = published.codex.pre_tool_filing;
+  const patch = "*** Begin Patch\n*** Add File: a.txt\n+hi\n*** End Patch\n";
+
+  for (const [kind, name, args, expected] of [
+    [
+      "function",
+      "exec_command",
+      { cmd: "ls -la", tty: true, yield_time_ms: 500 },
+      { tool_name: "Bash", tool_input: { command: "ls -la" } },
+    ],
+    ["function", "exec_command", { tty: true }, null],
+    ["function", "exec_command", { cmd: null }, null],
+    ["function", "exec_command", "ls", null],
+    ["function", "exec_command", null, null],
+    [
+      "freeform",
+      "apply_patch",
+      patch,
+      { tool_name: "apply_patch", tool_input: { command: patch } },
+    ],
+    [
+      "function",
+      "multi_agent_v1spawn_agent",
+      { message: "go" },
+      { tool_name: "spawn_agent", tool_input: { message: "go" } },
+    ],
+    ["function", "write_stdin", { session_id: 1, chars: "y\n" }, null],
+    ["function", "wait", { cell_id: "c1" }, null],
+    ["freeform", "exec", "console.log(1)", null],
+    [
+      "function",
+      "view_image",
+      { path: "/a.png" },
+      { tool_name: "view_image", tool_input: { path: "/a.png" } },
+    ],
+    ["freeform", "ext_freeform_tool", "raw text", null],
+    [
+      "function",
+      "constructor",
+      { a: 1 },
+      { tool_name: "constructor", tool_input: { a: 1 } },
+    ],
+  ])
+    it(`codex files ${kind} ${name}(${JSON.stringify(args)}) as ${JSON.stringify(expected)}`, () => {
+      assert.deepEqual(fileModelCall(codexFiling, kind, name, args), expected);
+    });
+
+  it("files every function call as asked on an agent with no renames", () => {
+    for (const id of ["claude", "amp", "gemini"])
+      assert.deepEqual(
+        fileModelCall(published[id].pre_tool_filing, "function", "Bash", {
+          command: "ls",
+        }),
+        { tool_name: "Bash", tool_input: { command: "ls" } },
+      );
+  });
+
+  it("reads a $.<key> as one literal key and keeps a falsy non-null value", () => {
+    const filing = { t: { tool_name: "T", input: { v: "$.a" } } };
+    assert.deepEqual(
+      fileModelCall(filing, "function", "t", { a: 0, "a.b": 1 }),
+      { tool_name: "T", tool_input: { v: 0 } },
+    );
+  });
+
+  it("resolves no $.<key> against array arguments", () => {
+    // The mini-language's own reading; Codex's serde reads a positional array
+    // into ExecCommandArgs, which the codex table does not model.
+    const filing = { t: { tool_name: "T", input: { v: "$.0" } } };
+    assert.equal(fileModelCall(filing, "function", "t", ["ls"]), null);
+  });
+
+  it("does not resolve a $.<key> through the prototype", () => {
+    const filing = { t: { tool_name: "T", input: { v: "$.toString" } } };
+    assert.equal(fileModelCall(filing, "function", "t", {}), null);
+  });
+
+  it("keeps an input key named __proto__ as an own key", () => {
+    const filing = JSON.parse(
+      '{"t":{"tool_name":"T","input":{"__proto__":"$.a"}}}',
+    );
+    const filed = fileModelCall(filing, "function", "t", { a: { x: 1 } });
+    assert.equal(JSON.stringify(filed?.tool_input), '{"__proto__":{"x":1}}');
+    assert.equal(Object.getPrototypeOf(filed?.tool_input), Object.prototype);
+  });
+
+  it("mixes $ and $.<key> references in one input", () => {
+    const filing = { t: { tool_name: "T", input: { all: "$", one: "$.a" } } };
+    assert.deepEqual(fileModelCall(filing, "function", "t", { a: 1, b: 2 }), {
+      tool_name: "T",
+      tool_input: { all: { a: 1, b: 2 }, one: 1 },
+    });
+  });
+
+  it("throws on a call kind other than function or freeform", () => {
+    assert.throws(
+      () => fileModelCall({}, "custom", "t", {}),
+      /^Error: control-plane: model call kind "custom" is neither "function" nor "freeform"$/,
+    );
+  });
+
+  for (const [label, rule] of [
+    ["a string input other than $", { tool_name: "T", input: "$.cmd" }],
+    [
+      "a reference outside the language",
+      { tool_name: "T", input: { v: "cmd" } },
+    ],
+    ["an empty key reference", { tool_name: "T", input: { v: "$." } }],
+    ["a dotted key reference", { tool_name: "T", input: { v: "$.a.b" } }],
+    ["a non-string reference", { tool_name: "T", input: { v: 1 } }],
+    ["an array input", { tool_name: "T", input: ["$"] }],
+    ["a null input", { tool_name: "T", input: null }],
+    ["a missing tool_name", { input: "$" }],
+    ["an empty tool_name", { tool_name: "", input: "$" }],
+    ["a non-string tool_name", { tool_name: 1, input: "$" }],
+    ["an extra member", { tool_name: "T", input: "$", x: 1 }],
+    ["a non-object rule", "T"],
+    ["an array rule", ["T", "$"]],
+  ])
+    it(`throws on ${label}`, () => {
+      assert.throws(
+        () => fileModelCall({ t: rule }, "function", "t", { cmd: "x" }),
+        (error) =>
+          error.message ===
+          `control-plane: filing rule for "t" is ${JSON.stringify(rule)}, not ${FILING_RULE_GRAMMAR}`,
+      );
+    });
 });

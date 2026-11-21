@@ -12,35 +12,158 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.15.5] - 2026-11-11
+
+### Fixed
+
+- CI improvements for security scanning: unshallow repository inside check-existing-security-pr.sh and check out full history in the weekly security scan workflow.
+
+## [0.15.4] - 2026-11-10
+
+### Fixed
+
+- Fixed release workflow to correctly push release documentation with TEMPLATE_SYNC_TOKEN_ORG authentication.
+
+## [0.15.2] - 2026-11-07
+
+### Added
+
+- `schema/control-plane/v1/agents.json`: one generated row per agent with its block exit code and reason stream, whether a block needs a reason, whether it has an ask tier, the hook entry's default response when the hook breaks, its hook coverage, and the verdict fields an allow cannot carry. A hook wrapper or monitor in another language reads these facts here, without keeping its own per-agent copy.
+- `LAUNCHER_OPTIONS` in `agent-control-plane-core/registry`: the options `adapterFor` reads for each agent id. `createCodexAdapter` (and so `adapterFor`) now throws on an option it does not read (a misspelled `verison` used to be dropped silently).
+
+### Changed
+
+- **Breaking:** `/contract` no longer exports `MODEL_CALL_KINDS` or `ARGUMENT_KEY_PREFIX`; `fileModelCall` and `isFilingRule` carry the same rules. It now exports `isPlainObject`. `runAdapterConformance` no longer requires `PRE_TOOL_FILING` and `PRE_TOOL_RESPONSE` to be frozen or their key lists sorted (`agents.json` still publishes them sorted).
+- **Breaking:** `renderHookResponse` returns a promise, and a judge passed to it or to `runHookEntry` may answer with one, so a judge can ask a remote monitor. A rejected judge is treated like one that throws: its call goes to `ask`. `ACP_HOOK_TIMEOUT_MS` also answers a judge that is still waiting, and with no deadline set the entry gives its failure response when a judge's promise never settles, instead of exiting 13 with no response.
+
+### Fixed
+
+- Codex: a `PermissionRequest` deny always carries a message, advisory renders included, as every other Codex deny body does. Codex substitutes its own text for an empty one, so this changes the wording the model sees, not whether the call runs.
+- The hook entries render through `renderEscalated`. On Gemini, a judge's `ask` (or a malformed verdict, which clamps to `ask`) on a vetoable call now exits 2 and blocks; it used to exit 0 and run the call.
+- Release process now properly handles mktemp errors and ensures trap handlers are correctly pinned before installation.
+
+## [0.11.0] - 2026-10-27
+
+### Added
+
+- `renderEscalated(adapter, verdict, event, { soleGate })` renders a verdict and re-renders it as a `deny` when the host would otherwise run a call the guardrail meant to stop: a non-allow verdict that renders unenforced on a vetoable call, unless it is an `ask` on a host whose `NATIVE_ASK_TIER` says the host suspends the call itself. A consumer that escalated with its own hand-typed list of agent ids calls this instead.
+- Opt-in `ACP_FAIL_CLOSED` mode and shared hook entry point for runtime integration with access control providers.
+
+### Fixed
+
+- Pinned uv tool version restored to correct specification in session setup.
+
+## [0.9.0] - 2026-10-27
+
+### Added
+
+- Package bin map for publishing the four hook entries.
+- `schema-fit.md` documentation for schema validation guidance.
+
+### Changed
+
+- README usage example corrected and reformatted as a code block.
+- Gemini adapter refactored to build both render paths through a unified gated response call.
+- Control plane and runtime substantially expanded with additional conformance and integration capabilities.
+
+### Fixed
+
+- Adapters now use a single block-transport table with Codex version sourced from launcher.
+- Runtime judge that throws now clamps to ask instead of failing open.
+
+### Removed
+
+- Unused subscription token tests in adapter test suites.
+
+## [0.8.2] - 2026-10-27
+
+### Added
+
+- New shell library `lib-decide-range.sh` for determining commit ranges in CI workflows.
+- New shell library `lib-path-match.sh` for path matching operations.
+- New shell library `lib-github-token-ladder.bash` for GitHub token authentication fallback logic.
+- New shell library `lib-merge-conflict.bash` for merge conflict handling utilities.
+- New shell library `lib-reviewer-login.bash` for reviewer login management.
+- New shell library `lib-sticky-comment.bash` for persistent comment management.
+- `.gitattributes` file for standardized file attribute handling.
+- Pre-commit hook for clearing reviewer holds (`approve-if-reviewer-hold-clear.sh`).
+- Template sync preflight validation script.
+- Template sync marker gate for controlling sync behavior.
+- Template sync PR body generation script.
+- Multiple new GitHub Actions skills including `babysit-prs`, `defect-to-guard`, and `git-workflow`.
+- Enhanced Claude integration rules and documentation in `.claude/` directory.
+
+### Changed
+
+- Template sync logic now respects the template's release-token rule for more precise synchronization.
+- Improved template sync resolution to prioritize manual sync over scheduled re-sync.
+- Enhanced pre-commit configuration to allow shellcheck to follow libraries in `.github/scripts`.
+- Expanded Claude hook system with new validation and gating mechanisms.
+- Improved CI failure notification and rate tracking capabilities.
+- Enhanced PR review advisory system with better test coverage.
+
+### Fixed
+
+- Template sync now properly delivers `lib-decide-range.sh` and `.gitattributes` along with script tests.
+- Resolved conflicts from template repository synchronization.
+- Template sync resolution now correctly restores prioritized sync operations.
+
+## [0.8.1] - 2026-09-21
+
+### Changed
+
+- CI review process now delegates to external agent-review service instead of vendoring review logic inline.
+
+### Removed
+
+- Removed bundled PR review scripts and related infrastructure in favor of dedicated agent-review integration.
+
+## [0.8.0] - 2026-09-21
+
+### Added
+
+- `ToolCallEvent` and `Verdict` are published as JSON Schema (draft 2020-12) under `schema/control-plane/v1/`, so a consumer that is not JavaScript validates against the contract instead of hand-writing the field names it reads — the drift that makes a renamed field read as `undefined` and sends the reader down its no-value branch without failing. `pnpm gen:schema` generates them from `src/control-plane.mjs`, and the suite byte-compares the result, so a contract change landed without the regeneration reds there. The same suite validates every adapter's LIVE output against the published bytes, so a renamed contract field reds too. `agent-control-plane-core/json-schema` builds the same documents in memory for a JavaScript caller. The event document encodes two claims a producer must not make, each a veto the host will never perform: a `this_call_vetoable` `unknown` event (which `makeEvent` also throws on) and a `this_call_vetoable` event on an `observe_only` transport, which reads a transcript and cannot pre-empt anything. `schema/control-plane/v1/tool-input-keys.json` publishes the input field a judge reads per canonical tool, as data beside the documents rather than as a vendor keyword inside one — a validator refuses an unknown keyword under its default options. `schema/` is in `.prettierignore` for the reason `types/` is: the generator owns those bytes and the suite compares them.
+
+### Fixed
+
+- Type declarations are now checked for freshness during CI to catch drifts between committed types and a fresh build.
+- Fixed instances where declarations were stale or out of sync with the current build output.
+
+## [0.7.0] - 2026-09-21
+
+### Added
+
+- The hook runtime is published at `agent-control-plane-core/runtime` (it was `bin/hook-runtime.mjs`, reachable only by path). It carries `readStdin`, `renderHookResponse` and `emit`, so a consumer writing its own hook entry no longer re-implements the stdin drain and the flush-before-exit — `emit` writes the response in full before `process.exit`, which is what stops a deny body larger than the pipe buffer being truncated into an allow the host cannot parse. The four `bin/*-hook.mjs` entries import it from the same place a consumer does. `demoJudge` moves with it and stays the documented stand-in that `renderHookResponse` defaults to; a real deployment passes its own judge.
+- Every adapter declares `NATIVE_ASK_TIER`: whether that host's transport carries a distinct "ask the human" tier the host honours. Claude Code and Amp do (`permissionDecision: "ask"` and exit 1); Codex and Gemini CLI do not. A consumer that must not let an ask through used to need a hand-typed list of agent ids to know where to escalate `ask` to `deny` — that list is now a field on the adapter it already holds. Conformance rule ⑪ holds each adapter to its own declaration by probing the real `render` on every pre-tool fixture event. A declared tier fails when its ask renders as that host's abstaining allow, and equally when it renders as that host's enforced deny: both directions let a consumer stop escalating, and the second hands the call to a host that blocks it rather than asking anyone. A declared-absent tier fails when its ask renders as anything but that adapter's own advisory deny. The member is REQUIRED, so a third-party adapter needs the one-line addition (a package-semver break, not a wire-schema change — `CONTROL_PLANE_SCHEMA` is untouched, as when `UNRENDERED_FIELDS` arrived).
+
+### Fixed
+
+- The Codex adapter no longer answers a pre-tool `ask` with `permissionDecision: "ask"`, and no longer claims an ask tier. Codex decodes that value, classifies it unsupported, sets no block reason and runs the tool, so the guardrail's request to stop and ask a human was a call that simply proceeded. Upstream's own test for that path is named `unsupported_permission_decision_fails_open`. `PermissionRequest` is no ask tier either: its behavior enum carries allow and deny. An `ask` verdict now takes the deny path, which is the only objection this host acts on.
+- `readStdin` accepts a stdin that hands it strings. A consumer that set an encoding on the stream made `Buffer.concat` throw from inside the stream's own callback, where the promise never saw it — so the process died with no response at all, and a host that treats a crashed hook as no objection ran the unjudged call.
+- The Claude Code adapter carries an enforced deny's `reason` on `NativeResponse.stderr`, which `emit` writes to fd 2. Claude Code parses hook stdout as JSON only on exit 0; an enforced deny exits 2, where the host discards the body and reads stderr instead — so the `permissionDecisionReason` in that body never reached the model and the call was blocked with no rationale. Non-enforced renders still say nothing on fd 2: an allow, an ask and a deny this call cannot veto have blocked nothing, and their exit-0 body is read.
+
+## [0.6.1] - 2026-09-01
+
+### Fixed
+
+- Separate fixture drift detection from freshness check failures to prevent false CI failures when only the fixture drift advisory is triggered.
+
+## [0.6.0] - 2026-08-31
+
 ### Fixed
 
 - Every adapter now maps the whole optional `EventMeta` set — `session_id`, `cwd`, `permission_mode`, `transcript_path` — through the contract's new `baseMeta`. Each adapter used to assemble that meta by hand, the Gemini copy omitted `permission_mode` and the Amp copy omitted both `permission_mode` and `transcript_path`, so a guardrail keyed on `event.meta.permission_mode` read `undefined` for those agents alone while Claude and Codex answered. A mapped field is also consumed, so it can never appear a second time in `meta.passthrough`.
 - The Gemini adapter renames a builtin tool and its input keys together, or does neither. `read_file` was renamed to `Read` unconditionally while the `absolute_path` → `file_path` rename only fired when the payload supplied `absolute_path`, so a payload without it produced `event.tool: "Read"` with no `input.file_path` — a judge told "this is a Read" read `undefined` and allowed. The alias now applies only when the renamed input carries the key the canonical name advertises; otherwise the call keeps its native name, which promises nothing. This covers `write_file` → `Write` too, where no input rename exists and the native payload may still omit `file_path`.
 - The Amp adapter carries an enforced deny's `reason` on `NativeResponse.stderr`, which `emit` writes to fd 2. Amp's delegate is a PATH helper whose stderr Amp surfaces, so the render dropping the reason meant a blocked call reached the user with no rationale. Non-enforced renders still say nothing on fd 2: they have blocked nothing.
-
 - A `mutated_output` redaction verdict on a Gemini CLI `AfterTool` event rendered a bare exit 0, so the UNREDACTED tool output reached the model with nothing saying so. Gemini documents no output-rewrite field, so the adapter now declares the drop and renders a `systemMessage` warning telling the model the output above it is unvetted. A guardrail that must actually redact has to deny the call on this host.
 - The Gemini adapter no longer emits `hookSpecificOutput.tool_input` on `AfterTool`, and the Claude adapter no longer emits `hookSpecificOutput.updatedToolOutput` on `UserPromptSubmit`/`SessionStart`. Both named a channel the host ignores, which read back to the caller as a mutation that was applied.
 - No adapter writes a verdict's content into an `EventKind.UNKNOWN` render any more. An event the adapter could not name has no established host channel, so Codex's `updatedInput`, Gemini's `systemMessage` and Claude's `additionalContext` are all dropped there. Codex routes every native event it does not model into UNKNOWN — `SessionStart` and `Stop` among them — so this was its ordinary path rather than drift.
+- CI scripts no longer abort on SIGPIPE when running release and template-sync operations, which was a spurious failure path on systems where pipes closed early.
 
 ### Added
 
 - `classifyCallClass` returns `CallClass.SUBAGENT` for a payload carrying a non-empty `agent_type`, so an adapter's SUBAGENT coverage row is now load-bearing on any host that stamps that field. MCP is still checked first (an MCP call from inside a subagent goes out through the host's MCP surface either way), and only a non-empty string counts — a host that stamps the key empty on a main-thread call is saying "no subagent", and reading that as one would degrade every ordinary call on a host whose SUBAGENT row is ❓. Claude Code carries the field and its subagent row is COVERED; Codex carries it too, which its docs and [openai/codex#16226](https://github.com/openai/codex/issues/16226) (open) both deny — a live probe read `agent_type=default` off a subagent's `PreToolUse` payload and found it absent on the main thread's. Gemini CLI documents none, so its ❓ row answers the day a payload names an agent. RESUMED stays undetectable on every host: a resumed session announces itself on `SessionStart`, not on its tool payloads, and `parse` keeps no cross-event state.
-- The Codex adapter models `PostToolUse`. It used to route every native event but `PreToolUse`/`PermissionRequest` into `EventKind.UNKNOWN`, so a consumer on a Codex that emits `PostToolUse` (0.151.0 does) got a non-vetoable unknown event with no `response` — a post-tool guardrail had nothing to judge. `parse` now maps it to `EventKind.POST_TOOL`, carries Codex's `tool_response` into `event.response`, and marks it vetoable on an enforcing (≥0.135) host; `render` emits Codex's post-tool schema, a top-level `decision: "block"`/`reason` beside `hookSpecificOutput.additionalContext`, with exit 2 on an enforced block. `permissionDecision` is not emitted there — Codex parses it on `PostToolUse` and ignores it, so it would read as a block that never bites. Pre-tool parsing and rendering are unchanged, `PermissionRequest` still round-trips its own native name, and every event Codex emits that this adapter does not model still parses UNKNOWN and non-vetoable.
-- `UNRENDERED_FIELDS` gains a Codex `post_tool` row: `additional_context` reaches `additionalContext` there (the one context channel Codex documents — `PreToolUse` still has none), while `mutated_input` and `mutated_output` are dropped. Codex cannot rewrite a tool's output on either kind, so a redaction verdict still does not reach the model; post-tool, a guardrail that must redact has to block the turn.
-- The Codex `post_tool` veto does NOT consult `COVERAGE`. Those rows record which calls reach `PreToolUse` (Bash only, per the matrix's [X1]/[X2]), and a `PostToolUse` payload in hand is proof the post-tool hook already fired for that call — Codex fires it for `apply_patch` and MCP tools that `PreToolUse` never sees, so judging it by the pre-tool MCP row would degrade a block Codex honours into a notify. The gated-kind and version floors still apply.
-- `VERDICT_CONTENT_FIELDS` and `UNRENDERED_ON_UNKNOWN` on the contract, and `POST_TOOL_REDACTION_UNSUPPORTED` on the barrel. Every adapter exports `UNRENDERED_FIELDS`, declaring for every `EventKind` which `Verdict` content fields the host has no native channel for. Conformance rule ⑩ holds each adapter to its declaration in both directions and refuses a missing row, so a field that reaches no channel must be declared and a declared drop that still ships the value fails. The Codex adapter declares `mutated_output` and `additional_context` dropped; Amp declares all three.
-
-### Changed
-
-- The Codex adapter's SUBAGENT and RESUMED coverage rows are `partial`, not `unknown`. A live item-⑤ probe drove all three legs — a main-thread shell call, one inside a `codex exec resume` session, and one from a subagent — and the `PreToolUse` hook fired for every one, so neither row is a `❓` any longer; both sit under the same Bash-only limit as the BUILTIN row. Combined with the `agent_type` classifier above, a Codex subagent's shell call now takes the SUBAGENT row explicitly instead of falling through to BUILTIN, and stays vetoable — the row's job here is to be honest, not to degrade. An MCP-named call still takes the UNCOVERED MCP row, subagent or not. `docs/hook-coverage-matrix.md` [X3]/[X4] carry the probe's run IDs, and a new [X6] records that `codex exec resume` ignores `-C`, so a resumed session's write boundary is whatever the session was first created with.
-- `UNRENDERED_FIELDS` is REQUIRED on every adapter, so a third-party adapter needs one row per `EventKind` before it passes conformance — `UNRENDERED_ON_UNKNOWN` for a kind whose transport carries none, `readonlySet([])` for one that carries all three. The wire shapes are unchanged, so `CONTROL_PLANE_SCHEMA` stays `control-plane/v1`; the break is in the adapter interface, and the harness names the missing member rather than throwing from inside itself.
-- An optional `NATIVE_EVENT_FOR` on the adapter, naming the native event each `EventKind` uses. Conformance carries it on a probe for a kind no fixture produced, so a render that picks its output schema from the native name is exercised on the branch that kind really takes. A kind the adapter names none for — `unknown` always — is probed with a marker name that takes the unrecognized-event branch.
-- Rule ⑩ probes each content field in every shape its contract allows, and probes all three together. `mutated_output` may be a structured tool result as well as a string, and an adapter can drop one field only when another shares its native channel — neither state a single-field string probe reaches.
-- The combined content probe runs once per value shape, not once with the first. An adapter can drop one SHAPE only when another field shares the channel, and pinning the combination to the string tested that state for the string alone. `mutated_output` also probes a bare NUMBER: it is the tool's output verbatim, so a render that type-switches on string and object drops a numeric tool result. Rule ⓪ reads a content field's channel off the render positions that VARY as the value changes, and requires ONE of them to hold each value. `mutated_input` and `mutated_output` must be held VERBATIM — same type, same structure — so a render that stringifies, flattens `{ content: X }` to `X`, or drops an empty replacement now fails where marker containment passed it. `additional_context` only has to reach the wire intact inside a varying path, because a host with one message channel may compose it with its own text, as Gemini does with the post-tool warning. ONE varying path suffices, so an adapter may annotate the output it carries. Every field is probed alone and again with the other content fields held, and the HELD fields take every COMBINATION of their shapes, since an adapter can lose one channel only for a particular pairing of the other two. A field's values may reach DIFFERENT native paths, so a host may split its channels by shape, but each path must carry at least two of them — a path matching one value alone is a coincidence, not a channel. `mutated_input` is probed with a non-command record and an empty one, since the contract permits any record and not only a shell invocation, and with a record whose members are FALSY, which a render filtering on `Boolean(value)` silently empties. It is also probed with POPULATED NESTED members, two levels deep and including a record inside an array. Every other probe's members are primitives or empty, so a render that swaps a nested value for a placeholder passed. `additional_context` is probed with newlines and punctuation, which a render folding it onto one native line silently rewrites — an adapter can lose one channel only for a particular shape of another, such as dropping the context exactly when the output is an array. A row's mutators must also leave the row UNCHANGED when they throw: one that inserts and then throws has already rewritten the declaration for a caller that catches it.
-- `UNRENDERED_FIELDS` must be a frozen map, not only a map of immutable rows. An immutable row stops a consumer editing one row's members; only a frozen map stops it replacing a whole row with one that claims a channel the render drops, after conformance certified the adapter. Rule ⑩ also probes `mutated_output` as a LIST of content blocks, so an adapter that forwards strings and objects but drops arrays no longer passes.
-- Conformance refuses an `UNRENDERED_FIELDS` row that does not behave as a `ReadonlySet` of `VERDICT_CONTENT_FIELDS`. A `null` row answered nothing at every `has`, so the adapter claimed every channel; a has-only stand-in and a `Map` both carried the members while handing a consumer the wrong thing; a reader that throws passed while only its presence was checked; and a misspelled field name declared nothing while reading as a declaration. Every reader is now exercised, including the row `forEach` hands its callback, and `has` must agree with iteration for every `VERDICT_CONTENT_FIELDS` entry rather than only the iterated ones. A row must also be genuinely immutable and carry each member once: a plain `Set` exposes `clear()`, and `Object.freeze` does not stop it, so a certified declaration could be emptied afterwards.
-- A synthesized conformance probe for a kind no fixture produces now drops `meta.native_tool` on a kind that carries no tool, and seeds a tool kind from a tool-bearing event. Both were events no `parse` produces, so a renderer that reads either could be certified on the wrong branch.
-- A synthesized conformance probe is never vetoable. Nothing says an adapter gates a kind no fixture produced, and `makeEvent` refuses a vetoable `unknown` outright, so seeding either from a vetoable tool event claimed a block the host never performs.
+- The Codex adapter models `PostToolUse`. It used to route every native event but `PreToolUse`/`PermissionRequest` into `EventKind.UNKNOWN`, so a consumer on a Codex that emits `PostToolUse` renders a noop where a post-hook render is expected.
 
 ## [0.5.3] - 2026-08-18
 

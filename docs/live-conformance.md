@@ -37,11 +37,26 @@ signal to **re-capture against that version and re-run adapter conformance**. Th
 job is **advisory** — schedule/dispatch only, never `pull_request`:
 
 - It compares against a **moving** `latest`, so gating a PR on it would turn the
-  PR red for a version bump unrelated to its diff. A red run means "a newer CLI
-  shipped, go re-verify," not "this repo is broken."
+  PR red for a version bump unrelated to its diff.
 - The SSOT's own well-formedness _is_ gated on every PR, by
   `test/check-fixture-freshness.test.mjs` under the normal Node tests (the drift
   math, the rolling-release branch, and the shape of the shipped config).
+
+**Drift and breakage are different signals, and the job keeps them apart.**
+
+- **Drift exits 0.** An actively developed CLI publishes continuously, so drift
+  is the normal state between re-captures. It reaches you as a single tracking
+  issue that the scheduled run opens, rewrites and closes on its own
+  (`.github/scripts/fixture-drift-issue.js`), plus the same table in the job
+  summary. The issue carries no `ci-failure` label: nothing failed.
+- **A red run means the check could not run** — a broken checkout, a dead npm
+  registry, a malformed SSOT. That is a real failure with no PR to surface it,
+  so `Fixture freshness` sits on `ci-failure-notify.yaml`'s `workflows:` list
+  with no opt-out marker, and a red run files the usual `ci-failure` issue.
+
+Folding the two together is what the earlier shape got wrong: with drift exiting
+non-zero, a registry outage and a routine CLI release were the same red, and
+nothing downstream could tell them apart.
 
 `versioning: "rolling"` adapters (Amp — no semver release story) are reported
 informationally and never marked drifted; comparing a rolling release against a
@@ -78,7 +93,10 @@ matrix is `fail-fast: false`, so one agent's failure doesn't cancel the others.
    up to 5 times** because a model turn may not call the tool first try;
 4. asserts the captured payload still parses (`assert-captured.mjs`:
    `adapter.parse` yields a well-formed `ToolCallEvent`; an empty capture "the
-   hook never fired" and a drifted shape both fail loud).
+   hook never fired" and a drifted shape both fail loud). Codex's payload has no
+   version field, so its adapter is pinned at `captured_version`, the same
+   version step 1 installed. The conformance suites parse the golden fixtures
+   through that same adapter.
 
 **What is and isn't verified.** Steps 2 and 4 — the config generation and the
 payload assertion — are **deterministic and unit-tested** (`test/live-capture.test.mjs`,
@@ -116,7 +134,7 @@ a main-thread shell call, the same call inside a resumed session
 the hook. All three came back covered
 (`baseline_builtin_pretooluse=covered`, `resumed_pretooluse=covered`,
 `subagent_pretooluse=covered`), so neither row is `❓` any longer; both are
-PARTIAL, under the same Bash-only limit as the builtin row.
+PARTIAL, under the same limits as the builtin row.
 
 Three findings the probe settled that the docs had wrong:
 

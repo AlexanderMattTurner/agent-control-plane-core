@@ -14,10 +14,24 @@
 // live, LLM-driven capture that would PROVE a match needs per-agent credentials
 // and is the follow-up documented in `docs/live-conformance.md`.
 //
+// EXIT CODE — drift exits 0. A drifted adapter is a finding this check made, not
+// a failure of the check, and the two must stay separable: the caller routes a
+// non-zero exit to the CI-failure notifier, so folding drift into it means a
+// broken checkout, a dead npm registry and a routine CLI release all arrive as
+// the same signal. Non-zero here means "this check could not run" — an
+// uncaught throw from the registry fetch, a malformed SSOT, a missing config.
+// Drift travels instead as `drifted` on `$GITHUB_OUTPUT` plus the table this
+// writes to `$GITHUB_STEP_SUMMARY`, which the workflow turns into an issue.
+//
 // Self-contained (node builtins + fetch): no in-repo imports, so a trusted copy
 // runs standalone in CI.
 
-import { readFileSync, realpathSync } from "node:fs";
+import {
+  appendFileSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import semver from "semver";
@@ -107,16 +121,17 @@ export async function checkFreshness(config, fetchLatest) {
 }
 
 /**
- * Report freshness results and decide the process exit code: 1 when ANY adapter
- * drifted (a newer CLI shipped), else 0. The write/exit boundary is separated
- * from `checkFreshness`'s version math so the GATE — the thing that actually
- * breaks CI and forces a re-capture — is unit-testable without a subprocess or
- * the network. Writers are injected so a test can capture the stdout log and the
- * stderr drift banner.
- * @param {{ agent: string, package: string, captured: string, latest: string, drifted: boolean, rolling: boolean }[]} results
+ * Log one line per adapter and say whether ANY of them drifted. The reporting is
+ * separated from `checkFreshness`'s version math so it is unit-testable without
+ * a subprocess or the network, and writers are injected so a test can capture
+ * the stdout log and the stderr re-capture notice.
+ *
+ * The return value is the FINDING, not an exit code: drift exits 0 (see the
+ * header). A caller that needs to act on drift reads this boolean.
+ * @param {{ agent: string, package: string, captured: string, latest: string|null, drifted: boolean, rolling: boolean }[]} results
  * @param {{ write: (s: string) => void }} [out]
  * @param {{ write: (s: string) => void }} [err]
- * @returns {number} process exit code (0 fresh, 1 drifted)
+ * @returns {boolean} true when at least one adapter drifted
  */
 export function reportFreshness(
   results,
@@ -136,9 +151,28 @@ export function reportFreshness(
     err.write(
       "\nA newer CLI has shipped for a drifted adapter. Re-capture its fixtures against the latest version and re-run adapter conformance. See docs/live-conformance.md.\n",
     );
-    return 1;
   }
-  return 0;
+  return drift;
+}
+
+/**
+ * The freshness results as a Markdown table, used for BOTH the job summary and
+ * the body of the drift issue — one rendering, so the two can never disagree
+ * about which adapters drifted.
+ * @param {{ agent: string, package: string, captured: string, latest: string|null, drifted: boolean, rolling: boolean }[]} results
+ * @returns {string}
+ */
+export function driftTable(results) {
+  const rows = results.map((r) => {
+    const status = r.rolling ? "rolling" : r.drifted ? "**DRIFT**" : "ok";
+    const latest = r.rolling ? "n/a (rolling release)" : r.latest;
+    return `| ${r.agent} | \`${r.package}\` | ${r.captured} | ${latest} | ${status} |`;
+  });
+  return [
+    "| adapter | package | known-good | latest | status |",
+    "| --- | --- | --- | --- | --- |",
+    ...rows,
+  ].join("\n");
 }
 
 // CLI entry — runs only when executed directly, not when imported by tests.
@@ -151,5 +185,18 @@ const invoked = process.argv[1] && realpathSync(process.argv[1]);
 if (invoked === fileURLToPath(import.meta.url)) {
   const config = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
   const results = await checkFreshness(config, npmLatest);
-  process.exit(reportFreshness(results));
+  const drifted = reportFreshness(results);
+  const table = driftTable(results);
+  // Both files are Actions-provided append targets; outside Actions neither is
+  // set and the check is a plain stdout report. No try/catch: an unwritable
+  // path is a broken runner, which is exactly what a non-zero exit must report.
+  if (process.env.GITHUB_STEP_SUMMARY)
+    appendFileSync(
+      process.env.GITHUB_STEP_SUMMARY,
+      `## Fixture freshness\n\n${table}\n`,
+    );
+  if (process.env.GITHUB_OUTPUT)
+    appendFileSync(process.env.GITHUB_OUTPUT, `drifted=${drifted}\n`);
+  if (process.env.DRIFT_TABLE_PATH)
+    writeFileSync(process.env.DRIFT_TABLE_PATH, `${table}\n`);
 }

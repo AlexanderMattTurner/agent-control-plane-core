@@ -4,6 +4,30 @@
  */
 export function parse(native: any): ToolCallEvent;
 /**
+ * Totality check: every `decision` in `decisions` must have a row in `table`
+ * and every row both vetoable columns. A decision added to the contract with
+ * no matching row breaks loudly instead of silently defaulting to exit 0.
+ * Called at import against {@link Decision} and {@link EXIT_CODE_BY_DECISION};
+ * exported so a test can drive both branches.
+ * @param {readonly string[]} decisions
+ * @param {Readonly<Record<string, Readonly<Record<string, number>>>>} table
+ */
+export function assertExitCodeTableTotal(decisions: readonly string[], table: Readonly<Record<string, Readonly<Record<string, number>>>>): void;
+/**
+ * Look up the exit code for `decision`/`vetoable` in `table`. Throws instead of
+ * returning `undefined`: the alternative is `exit_code: undefined`, which
+ * `process.exit` renders as 0 — the exact silent allow this table exists to
+ * eliminate. Unreachable from {@link render} on the real
+ * {@link EXIT_CODE_BY_DECISION} while {@link assertExitCodeTableTotal} holds at
+ * load; exported so a test can drive both branches against a synthetic,
+ * deliberately incomplete table.
+ * @param {Readonly<Record<string, Readonly<Record<string, number>>>>} table
+ * @param {string} decision
+ * @param {boolean} vetoable
+ * @returns {number}
+ */
+export function exitCodeFor(table: Readonly<Record<string, Readonly<Record<string, number>>>>, decision: string, vetoable: boolean): number;
+/**
  * Render into Amp's pure exit-code transport: the decision is the exit code,
  * with no stdout body. An ENFORCED deny also carries its `reason` on
  * `NativeResponse.stderr`, which `emit` writes to fd 2: the delegate is a PATH
@@ -72,6 +96,29 @@ export const NATIVE_EVENT_FOR: Record<string, string | undefined>;
  * @type {Record<string, ReadonlySet<string>|undefined>}
  */
 export const UNRENDERED_FIELDS: Record<string, ReadonlySet<string> | undefined>;
+/**
+ * Amp honours a distinct ask tier: exit 1 is its "ask the user", a code Amp
+ * treats as neither the allow (0) nor the reject (2). Source: Amp's own notes,
+ * "`0` allows the tool call, `1` makes Amp ask, and `2` rejects the tool call"
+ * (https://ampcode.com/notes/permissions). No live probe has measured it, and
+ * no source says what exit 1 does in a headless run. {@link render} emits it
+ * for every `ask`, so a consumer must NOT escalate an `ask` to a `deny` here.
+ * The table below leans on the same tier for the non-vetoable deny, which is
+ * only honest because the tier is real.
+ */
+export const NATIVE_ASK_TIER: true;
+/**
+ * No rename is modelled: no source shows Amp filing a call under a
+ * name or input other than the model's.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING: import("../control-plane.mjs").PreToolFiling;
+/**
+ * Amp reads only the hook's exit code and no body, so no key in one can change
+ * the outcome.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE: import("../control-plane.mjs").PreToolResponse;
 /** @type {import("../control-plane.mjs").Adapter} */
 export const ampAdapter: import("../control-plane.mjs").Adapter;
 export type ToolCallEvent = import("../control-plane.mjs").ToolCallEvent;

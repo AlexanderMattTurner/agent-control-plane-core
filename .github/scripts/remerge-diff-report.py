@@ -78,12 +78,16 @@ _INTRO = (
 
 
 def _git(*args: str) -> str:
-    # -C "." names the repository explicitly (the process's own cwd, which is
-    # always the checkout this script runs against) — an unclassified verb
-    # behind *args can't otherwise be proven read-only, so an in-process caller
-    # with a different cwd would silently act on the wrong tree.
+    # cwd-git-ok: explicitly names the process's own working directory (the
+    # repo this script is invoked against, in CI or in a test's scratch repo)
+    # instead of leaving it implicit, so an in-process caller elsewhere can
+    # never silently inherit a stale one.
     return subprocess.run(
-        ["git", "-C", ".", *args], capture_output=True, text=True, check=True
+        ["git", *args],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=os.getcwd(),
     ).stdout
 
 
@@ -169,10 +173,11 @@ def _mechanical_tree(parent1: str, parent2: str) -> str:
     """The mechanical 3-way merge of two parents as a tree oid (conflicted paths
     keep their conflict markers embedded)."""
     res = subprocess.run(
-        ["git", "-C", ".", "merge-tree", "--write-tree", parent1, parent2],
+        ["git", "merge-tree", "--write-tree", parent1, parent2],
         capture_output=True,
         text=True,
         check=False,
+        cwd=os.getcwd(),
     )
     tree = res.stdout.split("\n", 1)[0]
     # Exit 1 is git's conflicted-but-written verdict. Anything else — or no tree

@@ -1,25 +1,11 @@
 name: Review-findings merge gate
 
-# The merge queue's leg of the review-findings gate. The queue evaluates the
-# required-check set on its own ephemeral sha, so the same predicate
-# (review-findings-gate.sh — see review-findings-gate.yaml for the full model)
-# must report there too; this job's own result is that report.
-#
-# This is a separate file from review-findings-gate.yaml ON PURPOSE, and it must
-# NEVER gain a PR-event trigger: the required check's job sitting in a workflow
-# that also fires on PR events would be reported `skipped` on every PR-event run,
-# and GitHub counts a `skipped` check run as satisfying a required check — so a
-# stray PR event (any label, any review comment) would overwrite a red gate on
-# the head with a passing skipped instance. merge_group-only triggers are what
-# make that impossible.
-#
-# This job is also where the required-check CONTEXT NAME lives: sync-required-checks
-# reads the `# required-check: true` marker below and registers this job's `name:`
-# in the ruleset, and review-findings-gate.sh posts its PR-head commit statuses
-# under that same context. This repository has no merge queue enabled, so the job
-# itself does not fire today and the PR-head post is the only reporting surface;
-# the leg is correct the moment a queue is turned on.
-
+# The merge-queue leg of review-findings-gate.yaml, and the job whose name
+# registers "Review findings resolved" as a required check. It must never gain a
+# PR-event trigger: a `skipped` run of this job on a PR head would satisfy the
+# required check over a red status. agent-review's review-findings-gate.yaml
+# header documents this job's shape; merge-group-gate.sh evaluates every PR in
+# the queued batch and exits non-zero on any red one.
 on:
   merge_group:
 
@@ -28,39 +14,31 @@ permissions: {}
 jobs:
   merge_gate:
     name: Review findings resolved # required-check: true
-    # The job name is the required-check context sync-required-checks registers,
-    # and review-findings-gate.sh posts its PR-head statuses under the SAME
-    # name — one context, two reporting surfaces (queue sha here, PR head sha
-    # from review-findings-gate.yaml's evaluate job and the periodic reconciler
-    # in claude-reviewer-hold-clear.yaml).
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      contents: read # sparse-checkout the trusted gate script
-      pull-requests: read # read the PR's reviews and threads
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GH_REPO: ${{ github.repository }}
+      contents: read # read the severity config
+      pull-requests: read # read each PR's reviews and threads
     steps:
-      - name: Checkout the trusted gate script (default branch)
+      - name: Check out the severity config (default branch)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
-          sparse-checkout: |
-            .github/scripts
-            config
+          sparse-checkout: config/review-severities.json
           sparse-checkout-cone-mode: false
-      - name: Evaluate the gate for the queued PR
-        env:
-          # refs/heads/gh-readonly-queue/<base>/pr-<N>-<sha> — the queue names
-          # the PR it is testing in the ephemeral ref.
-          MG_REF: ${{ github.event.merge_group.head_ref }}
+      - name: Check out the gate at the pinned agent-review sha
         run: |
-          if [[ ! "$MG_REF" =~ /pr-([0-9]+)- ]]; then
-            echo "cannot parse a PR number from merge-group ref '${MG_REF}'" >&2
-            exit 1
-          fi
-          PR="${BASH_REMATCH[1]}"
-          export PR
-          bash .github/scripts/review-findings-gate.sh
+          git clone --no-tags https://github.com/AlexanderMattTurner/agent-review.git "$RUNNER_TEMP/r"
+          git -C "$RUNNER_TEMP/r" checkout --detach 667f5f240c84496a55b09763a03c94927878733b
+      - name: Evaluate the gate for every PR in the batch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          MG_REF: ${{ github.event.merge_group.head_ref }}
+          MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          # The base BRANCH: under batching merge_group.base_sha is the previous entry.
+          MG_BASE_REF: ${{ github.event.merge_group.base_ref }}
+          GATE_CONTEXT: Review findings resolved
+          SEVERITY_CONFIG: ${{ github.workspace }}/config/review-severities.json
+        run: bash "$RUNNER_TEMP/r/.github/reviewer/merge-group-gate.sh"

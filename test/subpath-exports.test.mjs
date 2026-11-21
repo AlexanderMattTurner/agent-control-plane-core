@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 // Namespace import, not a named one: on a node without `registerHooks` a named
 // import of it is a link-time SyntaxError that takes the whole file down before
@@ -68,6 +68,17 @@ function resolvedDuring(subject) {
   return JSON.parse(out);
 }
 
+describe("bin map", () => {
+  it("names every shipped bin/*-hook.mjs entry, and nothing else", () => {
+    const shipped = readdirSync(new URL("bin/", ROOT))
+      .filter((name) => name.endsWith("-hook.mjs"))
+      .map((name) => `./bin/${name}`)
+      .sort();
+    assert.ok(shipped.length > 0);
+    assert.deepEqual(Object.values(manifest.bin ?? {}).sort(), shipped);
+  });
+});
+
 describe("subpath exports", () => {
   it("declares a subpath for every entry the manifest names", () => {
     assert.ok(
@@ -99,7 +110,9 @@ describe("subpath exports", () => {
   it("/contract reaches no adapter, registry or conformance module", () => {
     const reached = resolvedDuring("./src/control-plane.mjs");
     const forbidden = reached.filter((url) =>
-      /^src\/(adapters\/|registry\.mjs|conformance\.mjs|index\.mjs)/u.test(url),
+      /^src\/(adapters\/|registry\.mjs|conformance\.mjs|index\.mjs|runtime\.mjs)/u.test(
+        url,
+      ),
     );
     assert.deepEqual(
       forbidden,
@@ -118,6 +131,20 @@ describe("subpath exports", () => {
       reached.some((url) => url.startsWith("src/adapters/")),
       `the barrel must reach an adapter; recorded ${reached.join(", ")}`,
     );
+  });
+
+  // The reason /runtime exists: a consumer writing its own hook entry imports
+  // these instead of re-implementing the stdin drain and the flush-before-exit
+  // that stops a large deny body being truncated on a non-blocking pipe.
+  // Dropping one is a build break in every such consumer.
+  it("/runtime publishes the hook entry's plumbing", async () => {
+    const runtime = await import("../src/runtime.mjs");
+    for (const name of ["readStdin", "renderHookResponse", "emit"])
+      assert.equal(
+        typeof runtime[name],
+        "function",
+        `/runtime no longer exports ${name}`,
+      );
   });
 
   it("/contract carries the enums a host renders a verdict from", async () => {

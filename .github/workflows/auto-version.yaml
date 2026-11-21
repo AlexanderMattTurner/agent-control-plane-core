@@ -11,10 +11,12 @@ name: Auto version bump and publish
 # "private": true, so the template repo never publishes itself. A downstream
 # repo opts in by dropping `private` and setting a real, publishable name.
 #
-# Versioned-app workflow: only adopt this in a repo that is published to npm.
-# Repos that are not npm packages (e.g. a website like TurnTrout.com) should
-# exclude it via the template-sync EXCLUDE_PATHS list — see
-# .github/workflows/template-sync.yaml.
+# Versioned-app workflow: only adopt this in a repo that is published to npm and
+# has no publisher of its own. It is listed in the template-sync opt-in-paths, so
+# the sync never introduces it — a repo that does not have this file keeps not
+# having it, and deleting it is how you opt back out. Two publishers on one
+# default branch race the same semver bump and the loser fails with an
+# unrecognizable npm E404 on an already-published version.
 
 on:
   push:
@@ -31,27 +33,41 @@ permissions:
   # Lets version-bump.sh open a release-docs PR when a branch ruleset rejects
   # its direct push to main (see the step below).
   pull-requests: write
+  # Lets version-bump.sh dispatch the required-check workflows on that PR's
+  # branch: a GITHUB_TOKEN-opened PR starts no pull_request run of its own.
+  actions: write
 
 jobs:
   version-and-publish:
     name: Bump version and publish to npm
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
         # Credentials stay persisted: version-bump.sh pushes the release-docs
-        # commit and the vX.Y.Z tag with them as github-actions[bot]. The
-        # workflow's `contents: write` authorizes that bot to push to the default
-        # branch and tags of its own repo — do NOT swap in a cross-account PAT
-        # (e.g. TEMPLATE_SYNC_TOKEN, minted for a different owner), which the
-        # remote rejects with a 403 and silently strands every release: npm is
-        # published but the docs commit and tag never land, so the next run
-        # re-reads the climbing npm version and bumps again.
+        # commit and the vX.Y.Z tag with them.
+        #
+        # Which token to use:
+        #   - Unprotected default branch: GITHUB_TOKEN's `contents: write`
+        #     authorizes github-actions[bot] to push to the branch and tags of
+        #     its own repo, so the fallback rung suffices.
+        #   - Default branch protected by a ruleset with required status checks:
+        #     GITHUB_TOKEN's push is rejected with GH013, which strands the
+        #     release — npm publishes but the tag and docs commit never land, so
+        #     the next run re-reads the climbed npm version and bumps again.
+        #     TEMPLATE_SYNC_TOKEN_ORG is the org-wide PAT registered as a bypass
+        #     actor on those rulesets, so its push lands (subfont and
+        #     agent-glovebox release with the same PAT).
+        #
+        # The PAT must belong to this repo's own owner: a PAT minted for a
+        # different owner is rejected 403 and strands the release the same way.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 # zizmor: ignore[artipacked]
         with:
           # Need full history so `git describe`/`git log` can find the last tag.
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # token-fallback-ok: on a fork there is no org PAT and no protected
+          # default branch, so GITHUB_TOKEN is correct there rather than degraded.
+          token: ${{ secrets.TEMPLATE_SYNC_TOKEN_ORG || secrets.GITHUB_TOKEN }}
 
       - name: Setup base environment
         uses: ./.github/actions/setup-base-env
@@ -60,14 +76,14 @@ jobs:
           # a recent npm) and point it at the npm registry so provenance works.
           node-version: 24
           registry-url: https://registry.npmjs.org
-          # uv, so .hooks/pre-push can run pre-commit over the release-docs
-          # commit this job pushes. Without it the push is refused, the commit
-          # never reaches main, and every release loses its CHANGELOG section.
+          # uv, so .hooks/pre-push can run pre-commit over the `docs: release`
+          # commit this job pushes. Without it the hook refuses that push and the
+          # release publishes to npm with its CHANGELOG section stranded.
           setup-python: true
 
       - name: Bump version and publish if commits warrant a release
-        # The changelog-prose call walks the anthropic-ladder.bash credential
-        # ladder: subscription tokens first, the metered ANTHROPIC_API_KEY last.
+        # The changelog-prose call walks the claude-oauth-ladder.bash
+        # subscription tokens; there is no metered API-key rung.
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN_FALLBACK: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK }}
@@ -76,15 +92,14 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_4 }}
           CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_5 }}
           CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_FALLBACK_6 }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # Only the release-docs PR fallback uses this. A GITHUB_TOKEN-opened PR
-          # cannot trigger other pull_request workflows (GitHub's loop guard), so
-          # its required checks would never report and auto-merge would never
-          # fire — TEMPLATE_SYNC_TOKEN_ORG is the org PAT already used elsewhere
-          # in this repo for exactly that reason (see template-sync.yaml). It is
-          # safe here because the fallback only opens a PR from a new branch; it
-          # never pushes to main directly (that stays on GITHUB_TOKEN above).
+          # starts no pull_request workflow (GitHub's loop guard), so
+          # version-bump.sh dispatches the required-check workflows on its branch
+          # instead. TEMPLATE_SYNC_TOKEN_ORG is the own-owner PAT the checkout
+          # above already pushes with.
           # token-fallback-ok: deliberate — the fallback only opens a PR from a
           # new branch, never pushes to main (see the comment above).
           GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN_ORG || secrets.GITHUB_TOKEN }}
+          # A PAT-opened PR starts its own runs, so version-bump.sh dispatches only for this.
+          RELEASE_PR_OPENED_BY_GITHUB_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN_ORG == '' }}
         run: bash .github/scripts/version-bump.sh

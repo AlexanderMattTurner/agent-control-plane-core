@@ -5,11 +5,15 @@ import {
   IntegrationMode,
   MODELED_TOOL_INPUT_KEYS,
   TOOL_ALIASES,
+  BLOCK_TRANSPORT,
   canonicalTool,
   coverageAllowsVeto,
   isCoverageStatus,
   lookup,
   VERDICT_CONTENT_FIELDS,
+  FILING_RULE_GRAMMAR,
+  isFilingRule,
+  isPlainObject,
 } from "./control-plane.mjs";
 
 /**
@@ -21,6 +25,22 @@ const UNENFORCEABLE_DENY_PROBE = Object.freeze({
   reason: "conformance probe: unenforceable deny",
 });
 const ABSTAINING_ALLOW_PROBE = Object.freeze({ decision: Decision.ALLOW });
+
+/**
+ * The two probe verdicts rule ⑪ renders against the same event, to read whether
+ * this host's transport carries an ask tier of its own. They share one `reason`
+ * on purpose: the rule compares the two RENDERS, and a reason that differed
+ * would make them differ for a reason that is not the decision.
+ */
+const ASK_TIER_REASON = "conformance probe: ask tier";
+const ASK_TIER_ASK_PROBE = Object.freeze({
+  decision: Decision.ASK,
+  reason: ASK_TIER_REASON,
+});
+const ASK_TIER_DENY_PROBE = Object.freeze({
+  decision: Decision.DENY,
+  reason: ASK_TIER_REASON,
+});
 
 /**
  * The payload rule ⑨ drifts an adapter with. No host emits that event name, so
@@ -202,17 +222,23 @@ const CONTENT_PROBE_VALUES = Object.freeze({
   ]),
 });
 
-// A field added to VERDICT_CONTENT_FIELDS with no probe value would be dropped
-// by normalizeVerdict and then reported as "reaches no native channel" against
-// every adapter, naming the adapter for the harness's own omission.
-if (
-  VERDICT_CONTENT_FIELDS.some(
-    (field) => (lookup(CONTENT_PROBE_VALUES, field) ?? []).length < 2,
-  )
-)
-  throw new Error(
-    `conformance: CONTENT_PROBE_VALUES needs two or more values for each of ${VERDICT_CONTENT_FIELDS.join(", ")}`,
-  );
+/**
+ * A field added to VERDICT_CONTENT_FIELDS with no probe value would be dropped
+ * by normalizeVerdict and then reported as "reaches no native channel" against
+ * every adapter, naming the adapter for the harness's own omission. Called at
+ * import against the live {@link CONTENT_PROBE_VALUES}; exported so a test can
+ * drive both branches.
+ * @param {readonly string[]} fields
+ * @param {Record<string, readonly unknown[]>} values
+ */
+export function assertContentProbeValuesComplete(fields, values) {
+  if (fields.some((field) => (lookup(values, field) ?? []).length < 2))
+    throw new Error(
+      `conformance: CONTENT_PROBE_VALUES needs two or more values for each of ${fields.join(", ")}`,
+    );
+}
+
+assertContentProbeValuesComplete(VERDICT_CONTENT_FIELDS, CONTENT_PROBE_VALUES);
 
 /**
  * Rule ⑩'s first half: the adapter declares a row for EVERY {@link EventKind}.
@@ -381,14 +407,20 @@ function assertRowReads(agent, kind, row, assert) {
  * @param {Set<string>} seen fields observed to REACH a wire
  */
 function assertEveryKindRenders(adapter, byKind, assert, seen) {
-  for (const kind of Object.values(EventKind))
+  for (const kind of Object.values(EventKind)) {
+    // A parsed event under another native name is not the event the row
+    // describes, so the probe synthesizes the native one instead.
+    const parsed = lookup(byKind, kind);
     assertContentChannels(
       adapter,
-      lookup(byKind, kind) ?? coherentEvent(adapter, byKind, kind),
+      parsed !== undefined && onKindsNativeEvent(adapter, parsed)
+        ? parsed
+        : coherentEvent(adapter, byKind, kind),
       `every-kind probe '${kind}'`,
       assert,
       seen,
     );
+  }
 }
 
 /**
@@ -455,6 +487,78 @@ function coherentEvent(adapter, byKind, kind) {
 }
 
 /**
+ * Rule ⑪, for one pre-tool event: the adapter's `NATIVE_ASK_TIER` declaration
+ * agrees with what `render` does with an `ask`.
+ *
+ * The declaration is what lets a consumer stop keeping a hand-typed list of
+ * which hosts honour an ask. A consumer that must not let an ask through
+ * escalates it to a deny on a host with no ask tier — and applying that
+ * uniformly turns every ask into a deny on the hosts that DO have one. So the
+ * declaration has to be checked against the render rather than believed.
+ *
+ * Probed on a NON-vetoable variant of the event, for rule ⑧'s reason and one
+ * more: it makes the deny comparison below an ADVISORY deny, which is the
+ * signal a host with no ask tier has left to spend on an ask.
+ *
+ * What a render can show, and what it cannot. Whether a host suspends the call
+ * for a human lives in the HOST, so no probe reads it off a render. What a probe
+ * does read is each direction's tell:
+ *
+ * - Declared `true`, rendered as the abstaining ALLOW: the consumer is told the
+ *   human will see this call, and the transport carries nothing that says so —
+ *   the tool just runs. That is the lie this rule exists to catch.
+ * - Declared `false`, rendered as something the adapter's own advisory deny is
+ *   not: the render invents a third signal on a transport the declaration says
+ *   has only two, so one of the two is wrong.
+ *
+ * An OBSERVE_ONLY render is exempt, as in rule ⑧: that transport has no
+ * pre-emption channel at all, so its ask, deny and allow coincide by
+ * construction and demanding a distinct ask would demand a fiction.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {import("./control-plane.mjs").ToolCallEvent} event a non-vetoable pre-tool event
+ * @param {import("./control-plane.mjs").ToolCallEvent} vetoable the fixture's own pre-tool event, whose veto the block half needs
+ * @param {string} caseName
+ * @param {any} assert
+ */
+function assertAskTier(adapter, event, vetoable, caseName, assert) {
+  const asked = adapter.render(ASK_TIER_ASK_PROBE, event);
+  assert.equal(
+    asked.enforced,
+    false,
+    `an ask rendered as an enforced block: ${caseName}`,
+  );
+  if (asked.transport === IntegrationMode.OBSERVE_ONLY) return;
+  if (adapter.NATIVE_ASK_TIER) {
+    assert.notDeepEqual(
+      asked,
+      adapter.render(ABSTAINING_ALLOW_PROBE, event),
+      `${adapter.AGENT}: NATIVE_ASK_TIER is true, but an ask renders exactly as this host's abstaining allow — nothing in the transport asks anyone: ${caseName}`,
+    );
+    // The other way to declare an ask tier this host has not got: render the ask
+    // as the host's BLOCK. It differs from the allow, so the half above passes,
+    // and the consumer it tells to stop escalating then hands a call to a host
+    // that denies it outright rather than suspending it for a human. Probed on
+    // the vetoable event, because a block is the one signal a non-vetoable
+    // render cannot carry.
+    if (vetoable.this_call_vetoable) {
+      const blocked = adapter.render(ASK_TIER_DENY_PROBE, vetoable);
+      if (blocked.enforced)
+        assert.notDeepEqual(
+          adapter.render(ASK_TIER_ASK_PROBE, vetoable),
+          blocked,
+          `${adapter.AGENT}: NATIVE_ASK_TIER is true, but an ask renders exactly as this host's enforced deny — the call is blocked, not suspended: ${caseName}`,
+        );
+    }
+    return;
+  }
+  assert.deepEqual(
+    asked,
+    adapter.render(ASK_TIER_DENY_PROBE, event),
+    `${adapter.AGENT}: NATIVE_ASK_TIER is false, but an ask renders differently from this host's advisory deny — the render carries an ask signal the declaration says the host has not got: ${caseName}`,
+  );
+}
+
+/**
  * Rule ⑩, for one parsed event: every {@link VERDICT_CONTENT_FIELDS} entry
  * either reaches this host's wire or is DECLARED unreachable in the adapter's
  * `UNRENDERED_FIELDS`, and the render agrees with the declaration both ways.
@@ -480,6 +584,10 @@ function coherentEvent(adapter, byKind, kind) {
  * (kind, decision) would state that, and is not worth its weight while the only
  * field a blocked call can still want is `additional_context`.
  *
+ * SCOPE — a row describes its kind's `NATIVE_EVENT_FOR` event, so an event of
+ * that kind under another native name (Codex's `PermissionRequest`, which
+ * parses as `pre_tool` and carries no content) is not held to it.
+ *
  * Reaching the wire is checked as SERIALIZATION, so the rule proves a field is
  * carried, not that the key it is carried in is one the host reads. Nothing
  * machine-readable describes a host's schema, so that half stays with the
@@ -491,6 +599,7 @@ function coherentEvent(adapter, byKind, kind) {
  * @param {Set<string>} seen fields observed to REACH a wire, for the non-vacuity check
  */
 function assertContentChannels(adapter, event, caseName, assert, seen) {
+  if (!onKindsNativeEvent(adapter, event)) return;
   const declared = lookup(adapter.UNRENDERED_FIELDS, event.event);
 
   // Every value of a field is rendered and the renders compared to EACH OTHER.
@@ -513,8 +622,13 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
   // nowhere to hide.
   /** @param {string} field @param {Record<string, unknown>} held @param {string} shape */
   const carries = (field, held, shape) => {
-    const values = lookup(CONTENT_PROBE_VALUES, field) ?? [];
-    if (values.length < 2) return;
+    // `field` is always a VERDICT_CONTENT_FIELDS member (the only caller below
+    // iterates it), and assertContentProbeValuesComplete guarantees at import
+    // that every such member has two or more entries here — so neither a
+    // missing row nor a short one can reach this point.
+    const values = /** @type {readonly unknown[]} */ (
+      lookup(CONTENT_PROBE_VALUES, field)
+    );
     const renders = values.map((value) =>
       adapter.render(
         { decision: Decision.ALLOW, ...held, [field]: value },
@@ -523,6 +637,8 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
     );
     const paths = divergences(renders);
     const where = `'${caseName}' (${adapter.AGENT}), ${field} ${shape}`;
+    for (const rendered of renders)
+      assertPreToolKeysRead(adapter, event, rendered, where, assert);
     if (declared?.has(field)) {
       assert.deepEqual(
         paths,
@@ -592,7 +708,11 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
     const held = others.reduce(
       (combinations, name) =>
         combinations.flatMap((carried) =>
-          (lookup(CONTENT_PROBE_VALUES, name) ?? []).map((value) => ({
+          // Same guarantee as `carries` above: `name` is a VERDICT_CONTENT_FIELDS
+          // member, so the row is always present.
+          /** @type {readonly unknown[]} */ (
+            lookup(CONTENT_PROBE_VALUES, name)
+          ).map((value) => ({
             ...carried,
             [name]: value,
           })),
@@ -605,6 +725,127 @@ function assertContentChannels(adapter, event, caseName, assert, seen) {
         carried,
         `with the other fields, combination ${index + 1}`,
       );
+  }
+}
+
+/**
+ * Whether `event` arrived as the native event `NATIVE_EVENT_FOR` names for its
+ * kind (always, when the adapter names none for that kind) — the event a
+ * kind-keyed declaration describes.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {import("./control-plane.mjs").ToolCallEvent} event
+ * @returns {boolean}
+ */
+function onKindsNativeEvent(adapter, event) {
+  const native = lookup(adapter.NATIVE_EVENT_FOR ?? {}, event.event);
+  return native === undefined || event.meta.native_event === native;
+}
+
+/**
+ * The two levels of a pre-tool body `PRE_TOOL_RESPONSE` declares, each as the
+ * key-list member, its fail-open member, and where in the body it applies.
+ */
+const PRE_TOOL_RESPONSE_LEVELS = Object.freeze([
+  Object.freeze({
+    keys: "top_level_keys",
+    failsOpen: "unread_top_level_key_fails_open",
+    where: "the body",
+    /** @param {any} body */
+    pick: (body) => body,
+  }),
+  Object.freeze({
+    keys: "hook_specific_output_keys",
+    failsOpen: "unread_key_fails_open",
+    where: "hookSpecificOutput",
+    /** @param {any} body */
+    pick: (body) => body?.hookSpecificOutput,
+  }),
+]);
+
+/**
+ * Rule ⑫, for one render: on the host's native pre-tool event, every key the
+ * render puts at the body's top level or in `hookSpecificOutput` is one the
+ * adapter's `PRE_TOOL_RESPONSE` says the host reads there. On Codex any other
+ * key, at either level, voids the whole body and the call RUNS, so an unread
+ * key is a silent fail-open, not a harmless extra. Scoped to the native name
+ * `NATIVE_EVENT_FOR` gives the pre-tool kind (any pre-tool event when it gives
+ * none): Codex's `PermissionRequest` also parses as pre-tool but answers in a
+ * different schema this declaration does not describe.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {import("./control-plane.mjs").ToolCallEvent} event
+ * @param {import("./control-plane.mjs").NativeResponse} rendered
+ * @param {string} label
+ * @param {any} assert
+ * @returns {boolean} whether the render was on the pre-tool event and checked
+ */
+function assertPreToolKeysRead(adapter, event, rendered, label, assert) {
+  if (event.event !== EventKind.PRE_TOOL || !onKindsNativeEvent(adapter, event))
+    return false;
+  // `?.`: a broken render under rule ⑩'s probes may not be an object at all,
+  // and that rule, not this one, is what names it. No body reads as an empty one.
+  const body = rendered?.stdout;
+  for (const level of PRE_TOOL_RESPONSE_LEVELS) {
+    const found = level.pick(body);
+    const part = found === undefined ? {} : found;
+    assert.ok(
+      isPlainObject(part),
+      `${adapter.AGENT}: in a pre-tool render, ${level.where} is ${JSON.stringify(part)}, not an object: ${label}`,
+    );
+    const read = new Set(
+      /** @type {readonly string[]} */ (
+        lookup(adapter.PRE_TOOL_RESPONSE, level.keys)
+      ),
+    );
+    const unread = Object.keys(/** @type {object} */ (part)).filter(
+      (key) => !read.has(key),
+    );
+    assert.deepEqual(
+      unread,
+      [],
+      `${adapter.AGENT}: a pre-tool render puts ${JSON.stringify(unread)} in ${level.where}, which PRE_TOOL_RESPONSE.${level.keys} says this host does not read${lookup(adapter.PRE_TOOL_RESPONSE, level.failsOpen) ? " — the host then voids the body and runs the call" : ""}: ${label}`,
+    );
+  }
+  return true;
+}
+
+/**
+ * Assert an adapter declares a well-formed `PRE_TOOL_FILING` and
+ * `PRE_TOOL_RESPONSE`: every filing rule `null` or in the mini-language
+ * {@link fileModelCall} reads, and each response key list an array of strings
+ * beside a boolean-or-null fail-open bit. `agents.json` publishes both, so a
+ * shape a Python consumer cannot apply is refused here, not discovered there.
+ * @param {import("./control-plane.mjs").Adapter} adapter
+ * @param {any} assert
+ */
+function assertPreToolDeclarationsWellFormed(adapter, assert) {
+  const agent = adapter.AGENT;
+  const filing = adapter.PRE_TOOL_FILING;
+  assert.ok(
+    isPlainObject(filing),
+    `${agent}: adapter declares no PRE_TOOL_FILING — every adapter needs one: {} when its host files every model call as asked`,
+  );
+  for (const [name, rule] of Object.entries(filing))
+    assert.ok(
+      rule === null || isFilingRule(rule),
+      `${agent}: PRE_TOOL_FILING[${JSON.stringify(name)}] is ${JSON.stringify(rule)}, not null or ${FILING_RULE_GRAMMAR}`,
+    );
+  const response = adapter.PRE_TOOL_RESPONSE;
+  assert.ok(
+    isPlainObject(response),
+    `${agent}: adapter declares no PRE_TOOL_RESPONSE — every adapter needs one naming the top-level and hookSpecificOutput keys its host reads on the pre-tool event (empty lists when it reads no body)`,
+  );
+  for (const level of PRE_TOOL_RESPONSE_LEVELS) {
+    const keys = lookup(response, level.keys);
+    assert.ok(
+      Array.isArray(keys) && keys.every((key) => typeof key === "string"),
+      `${agent}: PRE_TOOL_RESPONSE.${level.keys} is not an array of strings`,
+    );
+    assert.ok(
+      [true, false, null].includes(
+        /** @type {any} */ (lookup(response, level.failsOpen)),
+      ),
+      `${agent}: PRE_TOOL_RESPONSE.${level.failsOpen} must be true, false or null`,
+    );
   }
 }
 
@@ -758,6 +999,33 @@ function assertAliasedInput(agent, caseName, event, assert) {
 }
 
 /**
+ * Hold an enforced render to its host's {@link BLOCK_TRANSPORT} row: the row's
+ * exit code, and a non-empty reason on the row's reason stream. An adapter with
+ * no row (one this package does not ship) is held to the reason on `stderr`,
+ * the contract's block-reason channel. A block with no reason reaches the
+ * model with no rationale, and Codex drops it and runs the tool.
+ * @param {string} agent
+ * @param {import("./control-plane.mjs").NativeResponse} rendered
+ * @param {string} label
+ * @param {any} assert
+ */
+function assertBlockTransport(agent, rendered, label, assert) {
+  const row = lookup(BLOCK_TRANSPORT, agent);
+  if (row !== undefined)
+    assert.equal(
+      rendered.exit_code,
+      row.exit_code,
+      `enforced deny exits ${rendered.exit_code}, but ${agent} blocks on exit ${row.exit_code}: ${label}`,
+    );
+  const stream = row?.reason_stream ?? "stderr";
+  const reason = rendered[stream];
+  assert.ok(
+    typeof reason === "string" && reason.trim() !== "",
+    `enforced deny carries no reason on ${stream}: ${label}`,
+  );
+}
+
+/**
  * The control-plane conformance harness.
  *
  * Any adapter — the reference claude one, codex, or a future
@@ -776,7 +1044,8 @@ function assertAliasedInput(agent, caseName, event, assert) {
  *      decision the contract requires every adapter to express.
  *   4. enforcement honesty: an enforceable deny (`rendered.enforced === true`)
  *      MUST carry a real block signal — a non-zero `exit_code` — not just a JSON
- *      body the agent is free to ignore. At least one enforced deny must appear,
+ *      body the agent is free to ignore — plus a non-empty reason on the
+ *      reason stream its {@link BLOCK_TRANSPORT} row names. At least one enforced deny must appear,
  *      so the honesty check is never vacuous.
  *   5. vetoability honesty, BOTH directions. When the parsed event's
  *      `this_call_vetoable` is false, EVERY render for that case must be
@@ -820,13 +1089,28 @@ function assertAliasedInput(agent, caseName, event, assert) {
  *      that DID reach a wire come back as `contentFieldsSeen`; a suite covering
  *      several adapters asserts their union to keep the positive half of the
  *      rule non-vacuous, since no single host has a channel for all three.
+ *  11. ask-tier honesty: the adapter declares whether this host carries a
+ *      distinct "ask the human" tier it honours (`NATIVE_ASK_TIER`), and the
+ *      render is held to that declaration on every pre-tool event. A declared
+ *      tier whose `ask` renders as the host's abstaining allow fails — the
+ *      consumer is told a human will see the call while the tool just runs —
+ *      and so does a declared-absent tier whose `ask` renders as anything but
+ *      the adapter's own advisory deny. A consumer reads the declaration to
+ *      decide where an `ask` must be escalated to a `deny`, so a wrong one
+ *      either lets a call through or denies every asked call on the hosts that
+ *      do ask. OBSERVE_ONLY renders are exempt, as in rule ⑧.
+ *  12. pre-tool key honesty: the adapter declares a well-formed
+ *      `PRE_TOOL_FILING` and `PRE_TOOL_RESPONSE`, and every render on the host's
+ *      native pre-tool event — fixture, rule ⑧ and rule ⑩ probes alike — puts
+ *      in `hookSpecificOutput` only keys `PRE_TOOL_RESPONSE` says the host
+ *      reads. At least one such render must be checked.
  *
  * `assert` is injected (node:assert/strict) so the harness stays test-framework
  * neutral; it throws on the first mismatch. Returns a summary the caller can
  * assert further on.
  *
  * @param {{ adapter: import("./control-plane.mjs").Adapter, fixtures: any, assert: any }} args
- * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number }}
+ * @returns {{ cases: number, renders: number, decisionsSeen: Set<string>, mutationSeen: boolean, contentFieldsSeen: Set<string>, enforcedDenySeen: boolean, vetoableDenySeen: boolean, unknownKindSeen: boolean, coverageClassesChecked: Set<string>, unenforceableDenyChecks: number, askTierChecks: number, preToolKeyChecks: number }}
  */
 export function runAdapterConformance({ adapter, fixtures, assert }) {
   assert.equal(
@@ -837,6 +1121,15 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
 
   assertCoverageWellFormed(adapter, assert);
   assertEveryKindHasARow(adapter, assert);
+  // Named here rather than left to a `TypeError` inside rule ⑪: a third-party
+  // adapter written against the earlier contract has no such member, and its
+  // author is who reads this.
+  assert.equal(
+    typeof adapter.NATIVE_ASK_TIER,
+    "boolean",
+    `${adapter.AGENT}: adapter declares no NATIVE_ASK_TIER — every adapter needs a boolean saying whether this host honours a distinct "ask the human" tier (false when render collapses ask onto another signal)`,
+  );
+  assertPreToolDeclarationsWellFormed(adapter, assert);
 
   /** @type {Set<string>} */
   const decisionsSeen = new Set();
@@ -852,6 +1145,8 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
   const parsedByKind = {};
   let preToolCases = 0;
   let unenforceableDenyChecks = 0;
+  let askTierChecks = 0;
+  let preToolKeyChecks = 0;
   let renders = 0;
 
   for (const testCase of fixtures.cases) {
@@ -906,10 +1201,26 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
         spec.native,
         `render mismatch: ${testCase.name} / ${scenario}`,
       );
+      if (
+        assertPreToolKeysRead(
+          adapter,
+          parsed,
+          rendered,
+          `${testCase.name} / ${scenario}`,
+          assert,
+        )
+      )
+        preToolKeyChecks += 1;
       if (rendered.enforced) {
         assert.ok(
           rendered.exit_code !== 0,
           `enforced deny carries no block signal: ${testCase.name} / ${scenario}`,
+        );
+        assertBlockTransport(
+          adapter.AGENT,
+          rendered,
+          `${testCase.name} / ${scenario}`,
+          assert,
         );
         enforcedDenySeen = true;
       }
@@ -957,7 +1268,15 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
       renders += 1;
     }
 
-    parsedByKind[parsed.event] ??= parsed;
+    // The kind's native event stands for it in the every-kind sweep when one
+    // arrives; another native name is only a seed to synthesize one from.
+    const held = lookup(parsedByKind, parsed.event);
+    if (
+      held === undefined ||
+      (!onKindsNativeEvent(adapter, held) &&
+        onKindsNativeEvent(adapter, parsed))
+    )
+      parsedByKind[parsed.event] = parsed;
     assertContentChannels(
       adapter,
       parsed,
@@ -991,12 +1310,24 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     // An OBSERVE_ONLY render is exempt from the ≠-allow half: that transport has
     // no pre-emption channel at all, so its deny and allow are identical by
     // construction. Demanding a distinct signal there would demand a fiction.
-    if (deniedRender.transport === IntegrationMode.OBSERVE_ONLY) continue;
-    assert.notDeepEqual(
+    assertPreToolKeysRead(
+      adapter,
+      unenforceable,
       deniedRender,
-      adapter.render(ABSTAINING_ALLOW_PROBE, unenforceable),
-      `unenforceable deny renders identically to an abstaining allow — the objection is lost: ${testCase.name}`,
+      `rule ⑧ probe: ${testCase.name}`,
+      assert,
     );
+    if (deniedRender.transport !== IntegrationMode.OBSERVE_ONLY)
+      assert.notDeepEqual(
+        deniedRender,
+        adapter.render(ABSTAINING_ALLOW_PROBE, unenforceable),
+        `unenforceable deny renders identically to an abstaining allow — the objection is lost: ${testCase.name}`,
+      );
+    // Rule ⑪, on the same non-vetoable variant and AFTER rule ⑧: an adapter that
+    // collapses both its deny and its ask onto the host's allow is reported as
+    // the lost objection it is, not as a mis-declared ask tier.
+    assertAskTier(adapter, unenforceable, parsed, testCase.name, assert);
+    askTierChecks += 1;
   }
 
   for (const decision of ["allow", "deny", "ask"]) {
@@ -1055,6 +1386,20 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     preToolCases,
     `rule ⑧ (unenforceable deny ≠ allow) ran on ${unenforceableDenyChecks} of ${preToolCases} pre-tool cases`,
   );
+  // Same reason as the count above: the rule is in the same loop, so a stray
+  // `continue` would skip it silently on the later cases.
+  assert.equal(
+    askTierChecks,
+    preToolCases,
+    `rule ⑪ (ask-tier declaration) ran on ${askTierChecks} of ${preToolCases} pre-tool cases`,
+  );
+
+  // A suite with pre-tool cases must reach the native pre-tool event at least
+  // once, or a NATIVE_EVENT_FOR naming the wrong event would skip every render.
+  assert.ok(
+    preToolCases === 0 || preToolKeyChecks > 0,
+    `rule ⑫ (pre-tool key honesty) checked no fixture render on ${adapter.AGENT}'s native pre-tool event — the suite is vacuous`,
+  );
 
   return {
     cases: fixtures.cases.length,
@@ -1067,5 +1412,7 @@ export function runAdapterConformance({ adapter, fixtures, assert }) {
     unknownKindSeen,
     coverageClassesChecked,
     unenforceableDenyChecks,
+    askTierChecks,
+    preToolKeyChecks,
   };
 }

@@ -23,9 +23,11 @@
  * Dependency-free on purpose, so a fail-closed hook can import it without
  * dragging in eager config-file reads.
  *
- * VERSIONING — this module IS the frozen contract (its own SSOT, no parallel
- * schema file to drift). Adapters and guardrail consumers are built against it
- * in parallel, so its shapes are stable: {@link EventKind}, {@link Decision},
+ * VERSIONING — this module IS the frozen contract and its own SSOT. The JSON
+ * Schema documents under `schema/` are GENERATED from it by `pnpm gen:schema`
+ * and byte-compared in `json-schema.test.mjs`, so they are output rather than a
+ * second contract; never hand-edit one. Adapters and guardrail consumers are
+ * built against this module in parallel, so its shapes are stable: {@link EventKind}, {@link Decision},
  * {@link MODELED_TOOLS}, and {@link TOOL_ALIASES} are frozen, and
  * {@link SCHEMA_VERSION} / {@link CONTROL_PLANE_SCHEMA} are pinned
  * (control-plane.test.mjs asserts the exact values, so any shape change is a
@@ -38,8 +40,9 @@
  * {@link Adapter} interface an integrator implements. A new REQUIRED adapter
  * member breaks every third-party adapter while every event on the wire stays
  * byte-identical, so it is a package-semver break and leaves
- * {@link CONTROL_PLANE_SCHEMA} alone. `UNRENDERED_FIELDS` is one: adding it is
- * a one-line change per adapter, and the conformance harness names the member
+ * {@link CONTROL_PLANE_SCHEMA} alone. `UNRENDERED_FIELDS`, `NATIVE_ASK_TIER`,
+ * `PRE_TOOL_FILING` and `PRE_TOOL_RESPONSE` are such members: adding one is a
+ * one-line change per adapter, and the conformance harness names the member
  * and the migration rather than throwing from inside itself.
  */
 
@@ -395,7 +398,8 @@ export function classifyCallClass(tool, native) {
 /**
  * The result of rendering a {@link Verdict} for a specific agent's transport —
  * the ATTACH mechanism, not the decision. A caller applies whichever channels
- * are present: write `stdout`, exit with `exit_code`, or `throw`.
+ * are present: write `stdout`, write `stderr`, then exit with `exit_code`
+ * (`emit` in `agent-control-plane-core/runtime` does all three).
  * @typedef {object} NativeResponse
  * @property {"external_hook"|"in_process"|"observe_only"} transport
  * @property {number} exit_code process exit code carrying the decision (0 = proceed)
@@ -489,6 +493,166 @@ export function readonlySet(values) {
  */
 export const UNRENDERED_ON_UNKNOWN = readonlySet(VERDICT_CONTENT_FIELDS);
 
+/** The {@link PreToolFiling} input reference to a call's whole arguments value. */
+export const WHOLE_ARGUMENTS = "$";
+
+/**
+ * How a host's pre-tool hook files a model's tool call, keyed by MODEL tool
+ * name, the {@link flatToolName} of the call's `namespace` and `name`. Each
+ * value is one of:
+ * - `null`: no pre-tool hook fires for this call.
+ * - `{ tool_name, input }`: the hook fires with `tool_name`, and `tool_input`
+ *   built from `input` — either `"$"` (the call's whole arguments value), or
+ *   an object whose every value is `"$"` or `"$.<key>"`. `<key>` is one
+ *   literal, non-empty top-level key with no `.` in it. The hook files NOTHING
+ *   when a `"$.<key>"` does not resolve: the arguments are not an object, lack
+ *   the key, or hold `null` there.
+ * A FUNCTION call the map does not list is filed as the model asked: same
+ * name, whole arguments. A FREEFORM (custom) call the map does not list files
+ * nothing. Of the shipped hosts only Codex makes freeform calls ([X7] in
+ * `docs/hook-coverage-matrix.md`).
+ * The map describes a call the host DISPATCHES. Codex files nothing for a call
+ * it rejects first: a name it has no tool for, a call kind the tool does not
+ * take (each listed rule assumes the tool's own kind), or arguments the
+ * handler refuses before its hook (`apply_patch` whose patch does not parse).
+ * On Codex the ARGUMENTS VALUE is a function call's `arguments` parsed as JSON
+ * (an empty or all-whitespace string reads as `{}`, unparseable text stays the
+ * raw string), or a freeform call's raw `input` string.
+ * Plain JSON by design: `agents.json` publishes it so a consumer with no JS
+ * runtime applies it the way {@link fileModelCall} does.
+ * @typedef {Readonly<Record<string, null | Readonly<{ tool_name: string, input: string | Readonly<Record<string, string>> }>>>} PreToolFiling
+ */
+
+/** Codex's default namespace, which it stamps on every un-namespaced call. */
+const DEFAULT_FUNCTION_NAMESPACE = "functions";
+
+/**
+ * The model tool name a {@link PreToolFiling} is keyed by: `name`, prefixed
+ * (no separator) with `namespace` unless that is absent, empty, or Codex's
+ * default `functions` namespace (`flat_tool_name`, `is_default_namespace`;
+ * [X7] in `docs/hook-coverage-matrix.md`).
+ * @param {string | null | undefined} namespace
+ * @param {string} name
+ * @returns {string}
+ */
+export function flatToolName(namespace, name) {
+  if (!namespace || namespace === DEFAULT_FUNCTION_NAMESPACE) return name;
+  return namespace + name;
+}
+
+/**
+ * What a host reads from an exit-0 answer to its pre-tool event (`PreToolUse`,
+ * `BeforeTool`), as two key lists, each empty when the host reads no
+ * body: `hook_specific_output_keys` inside `hookSpecificOutput`, and
+ * `top_level_keys` at the body's top level. Each list has a fail-open bit,
+ * `unread_key_fails_open` and `unread_top_level_key_fails_open`: `true` ⇒ any
+ * other key there voids the whole body and the call RUNS; `false` ⇒ other keys
+ * are ignored; `null` ⇒ not established from the host's source.
+ * @typedef {Readonly<{ hook_specific_output_keys: readonly string[], unread_key_fails_open: boolean | null, top_level_keys: readonly string[], unread_top_level_key_fails_open: boolean | null }>} PreToolResponse
+ */
+
+/**
+ * Whether `value` is a plain object: not null, not an array.
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+export function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A {@link PreToolFiling} reference to one top-level argument; group 1 is the key. */
+const ARGUMENT_REF = /^\$\.([^.]+)$/u;
+
+/** What a {@link PreToolFiling} rule must be, for error messages. */
+export const FILING_RULE_GRAMMAR = `{tool_name: <non-empty string>, input: "${WHOLE_ARGUMENTS}" or an object of "${WHOLE_ARGUMENTS}"/"$.<key>" references (<key>: non-empty, no ".")}`;
+
+/**
+ * Whether `rule` is a non-null {@link PreToolFiling} rule: exactly a non-empty
+ * string `tool_name` and an `input` that is `"$"` or an object of `"$"` /
+ * `"$.<key>"` references. The one grammar both {@link fileModelCall} and the
+ * conformance harness hold a rule to.
+ * @param {unknown} rule
+ * @returns {boolean}
+ */
+export function isFilingRule(rule) {
+  if (!isPlainObject(rule)) return false;
+  const { tool_name, input, ...extra } = rule;
+  const isRef = (/** @type {unknown} */ ref) =>
+    ref === WHOLE_ARGUMENTS ||
+    (typeof ref === "string" && ARGUMENT_REF.test(ref));
+  return (
+    Object.keys(extra).length === 0 &&
+    typeof tool_name === "string" &&
+    tool_name !== "" &&
+    (input === WHOLE_ARGUMENTS ||
+      (isPlainObject(input) && Object.values(input).every(isRef)))
+  );
+}
+
+/**
+ * The call a host's pre-tool hook files for a model call of `kind` to `name`
+ * with arguments value `args`, per that host's {@link PreToolFiling}; `null`
+ * when the hook files none. The reference reading of the mini-language
+ * `agents.json` publishes as `pre_tool_filing`. Throws on a rule outside that
+ * grammar or a kind other than `"function"` or `"freeform"`.
+ * @param {PreToolFiling} filing
+ * @param {"function" | "freeform"} kind whether the model made a function call or a freeform (custom) call
+ * @param {string} name the model tool name, a {@link flatToolName}
+ * @param {unknown} args the call's arguments value
+ * @returns {{ tool_name: string, tool_input: unknown } | null}
+ */
+export function fileModelCall(filing, kind, name, args) {
+  if (kind !== "function" && kind !== "freeform")
+    throw new Error(
+      `control-plane: model call kind ${JSON.stringify(kind)} is neither "function" nor "freeform"`,
+    );
+  if (!Object.hasOwn(filing, name))
+    return kind === "function" ? { tool_name: name, tool_input: args } : null;
+  const rule = filing[name];
+  if (rule === null) return null;
+  if (!isFilingRule(rule))
+    throw new Error(
+      `control-plane: filing rule for ${JSON.stringify(name)} is ${JSON.stringify(rule)}, not ${FILING_RULE_GRAMMAR}`,
+    );
+  if (rule.input === WHOLE_ARGUMENTS)
+    return { tool_name: rule.tool_name, tool_input: args };
+  const entries = Object.entries(rule.input).map(([key, ref]) => {
+    const argument = ARGUMENT_REF.exec(ref)?.[1];
+    if (argument === undefined) return [key, args];
+    // A missing key, a null value, or non-object arguments all fail to resolve.
+    const value = isPlainObject(args) ? lookup(args, argument) : undefined;
+    return [key, value === null ? undefined : value];
+  });
+  if (entries.some(([, value]) => value === undefined)) return null;
+  // fromEntries defines own properties, so an input key `__proto__` stays a
+  // key, as it is in a Python consumer's dict, instead of hitting the setter.
+  return { tool_name: rule.tool_name, tool_input: Object.fromEntries(entries) };
+}
+
+/**
+ * PROBLEM CLASS — an event marked vetoable on a path where the host can never
+ * veto it, so a deny reads downstream as a block that never happened.
+ *
+ * Each entry names a field (`path` into the {@link ToolCallEvent}) whose `value`
+ * makes `this_call_vetoable: true` a false claim. This is the ONE list:
+ * {@link makeEvent} refuses an event that breaks an entry, and the JSON-schema
+ * generator writes one `if`/`then` rule per entry, so the runtime and the
+ * published schema cannot hold different invariants.
+ * @type {ReadonlyArray<{ path: readonly string[], value: string, why: string }>}
+ */
+export const VETO_IMPOSSIBLE = Object.freeze([
+  Object.freeze({
+    path: Object.freeze(["event"]),
+    value: EventKind.UNKNOWN,
+    why: "an unmodelled event has no host response to veto, so reporting one is a false block",
+  }),
+  Object.freeze({
+    path: Object.freeze(["meta", "integration_mode"]),
+    value: IntegrationMode.OBSERVE_ONLY,
+    why: "an observe-only transport reads a transcript and cannot pre-empt a call, so reporting a veto is a false block",
+  }),
+]);
+
 /**
  * The translator for one agent's protocol. `parse` maps a native event to a
  * {@link ToolCallEvent} (never throwing on unmodelled input, stamping the
@@ -501,7 +665,10 @@ export const UNRENDERED_ON_UNKNOWN = readonlySet(VERDICT_CONTENT_FIELDS);
  * @property {(native: any) => ToolCallEvent} parse
  * @property {(verdict: Verdict, event: ToolCallEvent, options?: { soleGate?: boolean }) => NativeResponse} render
  * @property {Record<string, string|undefined>} [NATIVE_EVENT_FOR] the native event name this host uses for each {@link EventKind}, for a conformance probe of a kind no fixture produced. Optional: a kind absent here (`unknown` always, plus any kind this transport does not carry) is probed with a marker name, which takes the adapter's unrecognized-event branch. Never read at runtime — `parse` stamps the real name on `meta.native_event`.
- * @property {Record<string, ReadonlySet<string>|undefined>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. SCOPE — a row describes the ALLOW path only. An enforceable deny may drop more: Gemini's exit-2 System Block returns no stdout at all, so a deny there carries no `additional_context` whatever the row says. Do not read this map to infer what a deny delivers. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
+ * @property {boolean} NATIVE_ASK_TIER whether this host's transport carries a DISTINCT "ask the human" tier that the host honours. `true` ⇒ a rendered `ask` suspends the call in front of a person (Claude Code's `permissionDecision: "ask"`, Amp's exit 1). `false` ⇒ the host has no such tier, so `render` collapses `ask` onto another signal (Gemini CLI writes its advisory `decision: "deny"`) and an un-escalated ask lets the tool run. A consumer that must not let an ask through reads this to decide where to escalate `ask` to `deny`, instead of keeping its own hand-typed list of agent ids. It is about the HOST, not the verdict: `ask` never renders as `enforced` on any adapter, and the tier it names is the PRE-TOOL gate — once a tool has run there is nothing left to suspend, so every host renders a post-tool `ask` as its block. The conformance harness probes the real `render` against it — a `true` whose ask renders as the host's abstaining allow fails, and so does a `false` whose ask differs from its own advisory deny.
+ * @property {PreToolFiling} PRE_TOOL_FILING how this host's pre-tool hook files a model tool call, for a consumer matching the model's calls against the hook's. `{}` when no rename is modelled.
+ * @property {PreToolResponse} PRE_TOOL_RESPONSE the top-level and `hookSpecificOutput` keys this host reads on its pre-tool event, each list with whether an unread key there runs the call. The conformance harness holds every pre-tool render to both lists.
+ * @property {Record<string, ReadonlySet<string>|undefined>} UNRENDERED_FIELDS per-event-kind set of {@link VERDICT_CONTENT_FIELDS} this host has no native channel for, so `render` drops them. EVERY {@link EventKind} carries a row, including one this adapter's `parse` cannot emit — an omission would otherwise read as "every content field reaches a channel here", the reverse of the truth on a transport that carries none. The value type still admits `undefined` so a consumer handles a lookup miss rather than indexing straight into `.has(...)`; the conformance harness refuses a missing row. SCOPE — a row describes the ALLOW path on the kind's `NATIVE_EVENT_FOR` event only; another native event of that kind (Codex's `PermissionRequest`) may drop more. An enforceable deny may drop more: Gemini's exit-2 System Block returns no stdout at all, so a deny there carries no `additional_context` whatever the row says. Do not read this map to infer what a deny delivers. The conformance harness fails an adapter whose renders disagree with its declaration either way, so a stale entry cannot survive.
  */
 
 /**
@@ -533,16 +700,6 @@ export function makeEvent({
     throw new TypeError(
       `control-plane: makeEvent this_call_vetoable must be a boolean, got ${typeof this_call_vetoable}`,
     );
-  // The same fail-open seam, one step further: an event the adapter could not
-  // name is one whose host response nobody established, so a veto reported for
-  // it is a block the render claims and the host never performs. Refused HERE
-  // because every adapter builds its event through this call, so an adapter that
-  // computes the flag without `vetoableFor` cannot reach the wire either.
-  if (event === EventKind.UNKNOWN && this_call_vetoable)
-    throw new Error(
-      "control-plane: makeEvent got a vetoable UNKNOWN event — an unmodelled " +
-        "event has no host response to veto, so reporting one is a false block",
-    );
   /** @type {ToolCallEvent} */
   const evt = {
     schema_version: SCHEMA_VERSION,
@@ -553,6 +710,18 @@ export function makeEvent({
     meta,
   };
   if (response !== undefined) evt.response = response;
+  // Refused HERE because every adapter builds its event through this call, so an
+  // adapter that computes the flag without `vetoableFor` cannot reach the wire.
+  if (this_call_vetoable) {
+    const broken = VETO_IMPOSSIBLE.find(
+      ({ path, value }) =>
+        path.reduce((/** @type {any} */ at, key) => at[key], evt) === value,
+    );
+    if (broken !== undefined)
+      throw new Error(
+        `control-plane: makeEvent got a vetoable event whose ${broken.path.join(".")} is ${JSON.stringify(broken.value)} — ${broken.why}`,
+      );
+  }
   return evt;
 }
 
@@ -823,4 +992,158 @@ export function nativeResponse({
   if (stdout !== undefined) out.stdout = stdout;
   if (stderr !== undefined) out.stderr = stderr;
   return out;
+}
+
+/**
+ * The block reason a render writes when the judge gave none (or an empty one).
+ * Codex drops an enforced deny whose reason is empty and runs the tool, and on
+ * every host the model is refused with no rationale without one.
+ */
+export const DEFAULT_DENY_REASON = "blocked by monitor";
+
+/**
+ * PROBLEM CLASS — an enforced block whose reason never reaches the host, or
+ * whose exit code is not the one the host treats as a block, because each
+ * adapter hand-wired its own stderr and exit code.
+ *
+ * One row per agent, describing that host's ENFORCED block:
+ * - `exit_code`: the exit status the host treats as a block.
+ * - `reason_stream`: the stream the host reads the block reason from on that
+ *   exit. Every host here discards (or never gets) the stdout body on exit 2.
+ * - `reason_required`: the host drops a block whose reason is empty and runs
+ *   the tool, so every body field that carries the reason must be non-empty.
+ *   Unlike the other two fields, this holds for ANY block body the host parses,
+ *   enforced or advisory: Codex voids an empty-reason deny either way.
+ *
+ * {@link gatedResponse} derives each adapter's enforced render from its row,
+ * and the conformance harness holds every enforced render to the same row.
+ * @type {Readonly<Record<string, Readonly<{ exit_code: number, reason_stream: "stderr", reason_required: boolean }>>>}
+ */
+export const BLOCK_TRANSPORT = Object.freeze({
+  claude: Object.freeze({
+    exit_code: 2,
+    reason_stream: "stderr",
+    reason_required: false,
+  }),
+  codex: Object.freeze({
+    exit_code: 2,
+    reason_stream: "stderr",
+    reason_required: true,
+  }),
+  amp: Object.freeze({
+    exit_code: 2,
+    reason_stream: "stderr",
+    reason_required: false,
+  }),
+  gemini: Object.freeze({
+    exit_code: 2,
+    reason_stream: "stderr",
+    reason_required: false,
+  }),
+});
+
+/**
+ * The {@link BLOCK_TRANSPORT} row for `agent`. Throws for an agent with no row:
+ * a missing row would otherwise render an enforced block with no exit code.
+ * @param {string} agent
+ * @returns {Readonly<{ exit_code: number, reason_stream: "stderr", reason_required: boolean }>}
+ */
+export function blockTransportFor(agent) {
+  const row = lookup(BLOCK_TRANSPORT, agent);
+  if (row === undefined)
+    throw new Error(
+      `control-plane: no BLOCK_TRANSPORT row for agent ${JSON.stringify(agent)}`,
+    );
+  return row;
+}
+
+/**
+ * `reason` when it holds visible text, else {@link DEFAULT_DENY_REASON}.
+ * @param {unknown} reason
+ * @returns {string}
+ */
+export function blockReason(reason) {
+  return typeof reason === "string" && reason.trim() !== ""
+    ? reason
+    : DEFAULT_DENY_REASON;
+}
+
+/**
+ * Build an adapter's {@link NativeResponse} from its {@link BLOCK_TRANSPORT}
+ * row. When `enforced`, the exit code is the row's and the reason (or the
+ * default) goes on the row's reason stream. Otherwise `unblocked_exit_code`
+ * stands and no reason stream is written: nothing was blocked, so the host
+ * reads the exit-0 (or ask) body instead.
+ * @param {string} agent
+ * @param {{ transport: string, enforced: boolean, unblocked_exit_code: number, stdout?: unknown, reason?: string }} parts
+ * @returns {NativeResponse}
+ */
+export function gatedResponse(
+  agent,
+  { transport, enforced, unblocked_exit_code, stdout, reason },
+) {
+  if (!enforced)
+    return nativeResponse({
+      transport,
+      exit_code: unblocked_exit_code,
+      enforced,
+      stdout,
+    });
+  const row = blockTransportFor(agent);
+  return nativeResponse({
+    transport,
+    exit_code: row.exit_code,
+    enforced,
+    stdout,
+    [row.reason_stream]: blockReason(reason),
+  });
+}
+
+/**
+ * Render `verdict` on `adapter`'s host, escalating to a `deny` when the host
+ * would otherwise let the call run without the gate it asked for. A non-allow
+ * verdict that renders unenforced on a vetoable call is re-rendered as a deny,
+ * unless it is an `ask` and the host honours its own ask tier
+ * ({@link Adapter} `NATIVE_ASK_TIER`). Nothing changes for an allow, for a call
+ * this guardrail cannot veto (a deny there blocks nothing either), or for a
+ * render the host already enforces. The deny keeps the verdict's other fields.
+ *
+ * A payload that names no event at all (`meta.native_event` empty) is the one
+ * exception: `render` has no channel for it, so a non-allow verdict there takes
+ * the host's {@link BLOCK_TRANSPORT} block, which stops whatever call the hook
+ * was run for. An observe-only parse renders that block unenforced (exit 0),
+ * since its host cannot veto. An event the payload names but no adapter models keeps the rule
+ * above: on Claude Code's Stop, a block would keep the agent running.
+ * @param {Adapter} adapter
+ * @param {Verdict} verdict
+ * @param {ToolCallEvent} event
+ * @param {{ soleGate?: boolean }} [options] passed through to `render`
+ * @returns {NativeResponse}
+ */
+export function renderEscalated(adapter, verdict, event, options = {}) {
+  const { decision, reason } = normalizeVerdict(verdict);
+  // This block is what stops a guardrail's deny on an unreadable payload from
+  // rendering as an empty exit 0, which every host runs.
+  if (event.meta.native_event === "" && decision !== Decision.ALLOW)
+    return gatedResponse(adapter.AGENT, {
+      transport: event.meta.integration_mode,
+      // An observe-only parse (a Codex below its enforcing version) has no
+      // veto, so claiming the block was enforced would report a false block.
+      enforced: event.meta.integration_mode !== IntegrationMode.OBSERVE_ONLY,
+      unblocked_exit_code: 0,
+      reason,
+    });
+  const response = adapter.render(verdict, event, options);
+  if (
+    response.enforced ||
+    decision === Decision.ALLOW ||
+    !event.this_call_vetoable ||
+    (decision === Decision.ASK && adapter.NATIVE_ASK_TIER)
+  )
+    return response;
+  return adapter.render(
+    { ...verdict, decision: Decision.DENY },
+    event,
+    options,
+  );
 }

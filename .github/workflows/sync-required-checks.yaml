@@ -10,8 +10,9 @@ name: Sync required status checks
 #
 # Runs only post-merge on main (and on demand). It mutates branch protection, so
 # it needs a token with `administration: write`; the stock GITHUB_TOKEN cannot
-# edit rulesets. Provide it as the RULESET_SYNC_TOKEN_ORG secret — the job fails loud
-# if it is absent. Not a required check itself (no pull_request trigger).
+# edit rulesets. It reuses the org PAT that template-sync already runs with,
+# TEMPLATE_SYNC_TOKEN_ORG — the job fails loud if it is absent. Not a required
+# check itself (no pull_request trigger).
 on:
   push:
     branches: [main]
@@ -39,7 +40,7 @@ concurrency:
 jobs:
   sync:
     name: Sync ruleset to required-check annotations
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,11 +50,14 @@ jobs:
       - name: Install the apply tool (ci-truth-serum)
         # Pin to the same ci-truth-serum commit the pre-commit hook uses so the
         # lint and the apply step share one parser version.
-        run: python3 -m pip install --user "git+https://github.com/AlexanderMattTurner/ci-truth-serum@01aa20655323f8ce5a5b8554556dd9dbeeedc232"
+        run: |
+          # pin-exempt: PEP 508 `name @ git+URL@sha` pins to an exact commit;
+          # the commit SHA after the trailing @ is the pin, not a missing version.
+          python3 -m pip install --user "ci-truth-serum @ git+https://github.com/AlexanderMattTurner/ci-truth-serum@01aa20655323f8ce5a5b8554556dd9dbeeedc232"
 
       - name: Sync required status checks
         env:
-          GH_TOKEN: ${{ secrets.RULESET_SYNC_TOKEN_ORG }}
+          GH_TOKEN: ${{ secrets.TEMPLATE_SYNC_TOKEN_ORG }}
           REPO: ${{ github.repository }}
           CHECK_ONLY: ${{ inputs.check-only }}
         run: |

@@ -25,7 +25,8 @@ import {
   lookup,
   makeEvent,
   normalizeVerdict,
-  nativeResponse,
+  gatedResponse,
+  blockTransportFor,
   readonlySet,
   VERDICT_CONTENT_FIELDS,
   baseMeta,
@@ -157,6 +158,37 @@ export function parse(native) {
 }
 
 /**
+ * Amp honours a distinct ask tier: exit 1 is its "ask the user", a code Amp
+ * treats as neither the allow (0) nor the reject (2). Source: Amp's own notes,
+ * "`0` allows the tool call, `1` makes Amp ask, and `2` rejects the tool call"
+ * (https://ampcode.com/notes/permissions). No live probe has measured it, and
+ * no source says what exit 1 does in a headless run. {@link render} emits it
+ * for every `ask`, so a consumer must NOT escalate an `ask` to a `deny` here.
+ * The table below leans on the same tier for the non-vetoable deny, which is
+ * only honest because the tier is real.
+ */
+export const NATIVE_ASK_TIER = true;
+
+/**
+ * No rename is modelled: no source shows Amp filing a call under a
+ * name or input other than the model's.
+ * @type {import("../control-plane.mjs").PreToolFiling}
+ */
+export const PRE_TOOL_FILING = Object.freeze({});
+
+/**
+ * Amp reads only the hook's exit code and no body, so no key in one can change
+ * the outcome.
+ * @type {import("../control-plane.mjs").PreToolResponse}
+ */
+export const PRE_TOOL_RESPONSE = Object.freeze({
+  hook_specific_output_keys: Object.freeze([]),
+  unread_key_fails_open: false,
+  top_level_keys: Object.freeze([]),
+  unread_top_level_key_fails_open: false,
+});
+
+/**
  * The EXHAUSTIVE (decision × `this_call_vetoable`) → exit-code table for Amp's
  * pure exit-code transport: 0 allow / 1 ask / 2 reject.
  *
@@ -176,27 +208,60 @@ export function parse(native) {
  */
 const EXIT_CODE_BY_DECISION = Object.freeze({
   [Decision.ALLOW]: Object.freeze({ true: 0, false: 0 }),
-  [Decision.DENY]: Object.freeze({ true: 2, false: 1 }),
+  [Decision.DENY]: Object.freeze({
+    true: blockTransportFor(AGENT).exit_code,
+    false: 1,
+  }),
   [Decision.ASK]: Object.freeze({ true: 1, false: 1 }),
 });
 
 /**
- * Totality check at IMPORT: every {@link Decision} must have a row and every row
- * both vetoable columns. A decision added to the contract breaks this module
- * loudly at load instead of silently defaulting to exit 0.
+ * Totality check: every `decision` in `decisions` must have a row in `table`
+ * and every row both vetoable columns. A decision added to the contract with
+ * no matching row breaks loudly instead of silently defaulting to exit 0.
+ * Called at import against {@link Decision} and {@link EXIT_CODE_BY_DECISION};
+ * exported so a test can drive both branches.
+ * @param {readonly string[]} decisions
+ * @param {Readonly<Record<string, Readonly<Record<string, number>>>>} table
  */
-for (const decision of Object.values(Decision)) {
-  const row = lookup(EXIT_CODE_BY_DECISION, decision);
-  if (row === undefined)
-    throw new Error(
-      `amp adapter: exit-code table has no row for decision ${JSON.stringify(decision)}`,
-    );
-  for (const vetoable of ["true", "false"]) {
-    if (typeof lookup(row, vetoable) === "number") continue;
-    throw new Error(
-      `amp adapter: exit-code table row ${JSON.stringify(decision)} has no this_call_vetoable=${vetoable} column`,
-    );
+export function assertExitCodeTableTotal(decisions, table) {
+  for (const decision of decisions) {
+    const row = lookup(table, decision);
+    if (row === undefined)
+      throw new Error(
+        `amp adapter: exit-code table has no row for decision ${JSON.stringify(decision)}`,
+      );
+    for (const vetoable of ["true", "false"]) {
+      if (typeof lookup(row, vetoable) === "number") continue;
+      throw new Error(
+        `amp adapter: exit-code table row ${JSON.stringify(decision)} has no this_call_vetoable=${vetoable} column`,
+      );
+    }
   }
+}
+
+assertExitCodeTableTotal(Object.values(Decision), EXIT_CODE_BY_DECISION);
+
+/**
+ * Look up the exit code for `decision`/`vetoable` in `table`. Throws instead of
+ * returning `undefined`: the alternative is `exit_code: undefined`, which
+ * `process.exit` renders as 0 — the exact silent allow this table exists to
+ * eliminate. Unreachable from {@link render} on the real
+ * {@link EXIT_CODE_BY_DECISION} while {@link assertExitCodeTableTotal} holds at
+ * load; exported so a test can drive both branches against a synthetic,
+ * deliberately incomplete table.
+ * @param {Readonly<Record<string, Readonly<Record<string, number>>>>} table
+ * @param {string} decision
+ * @param {boolean} vetoable
+ * @returns {number}
+ */
+export function exitCodeFor(table, decision, vetoable) {
+  const exit_code = lookup(lookup(table, decision) ?? {}, String(vetoable));
+  if (exit_code === undefined)
+    throw new Error(
+      `amp adapter: exit-code table has no entry for decision ${JSON.stringify(decision)} / this_call_vetoable ${JSON.stringify(vetoable)}`,
+    );
+  return exit_code;
 }
 
 /**
@@ -225,23 +290,12 @@ export function render(verdict, event) {
       `amp adapter: this_call_vetoable must be a boolean, got ${JSON.stringify(vetoable)}`,
     );
   const enforced = vd.decision === Decision.DENY && vetoable;
-  const exit_code = lookup(
-    lookup(EXIT_CODE_BY_DECISION, vd.decision) ?? {},
-    String(vetoable),
-  );
-  // Unreachable while the import-time totality check and `normalizeVerdict` both
-  // hold; kept because the alternative to throwing is `exit_code: undefined`,
-  // which `process.exit` renders as 0 — the exact silent allow this table exists
-  // to eliminate.
-  if (exit_code === undefined)
-    throw new Error(
-      `amp adapter: exit-code table has no entry for decision ${JSON.stringify(vd.decision)} / this_call_vetoable ${JSON.stringify(vetoable)}`,
-    );
-  return nativeResponse({
+  const exit_code = exitCodeFor(EXIT_CODE_BY_DECISION, vd.decision, vetoable);
+  return gatedResponse(AGENT, {
     transport: INTEGRATION_MODE,
-    exit_code,
+    unblocked_exit_code: exit_code,
     enforced,
-    ...(enforced && vd.reason !== undefined ? { stderr: vd.reason } : {}),
+    reason: vd.reason,
   });
 }
 
@@ -251,7 +305,10 @@ export const ampAdapter = {
   INTEGRATION_MODE,
   COVERAGE,
   UNRENDERED_FIELDS,
+  NATIVE_ASK_TIER,
   NATIVE_EVENT_FOR,
+  PRE_TOOL_FILING,
+  PRE_TOOL_RESPONSE,
   parse,
   render,
 };
