@@ -1,0 +1,44 @@
+name: Review-findings merge gate
+
+# The merge-queue leg of review-findings-gate.yaml, and the job whose name
+# registers "Review findings resolved" as a required check. It must never gain a
+# PR-event trigger: a `skipped` run of this job on a PR head would satisfy the
+# required check over a red status. agent-review's review-findings-gate.yaml
+# header documents this job's shape; merge-group-gate.sh evaluates every PR in
+# the queued batch and exits non-zero on any red one.
+on:
+  merge_group:
+
+permissions: {}
+
+jobs:
+  merge_gate:
+    name: Review findings resolved # required-check: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # read the severity config
+      pull-requests: read # read each PR's reviews and threads
+    steps:
+      - name: Check out the severity config (default branch)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: config/review-severities.json
+          sparse-checkout-cone-mode: false
+      - name: Check out the gate at the pinned agent-review sha
+        run: |
+          git clone --no-tags https://github.com/AlexanderMattTurner/agent-review.git "$RUNNER_TEMP/r"
+          git -C "$RUNNER_TEMP/r" checkout --detach 667f5f240c84496a55b09763a03c94927878733b
+      - name: Evaluate the gate for every PR in the batch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          MG_REF: ${{ github.event.merge_group.head_ref }}
+          MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          # The base BRANCH: under batching merge_group.base_sha is the previous entry.
+          MG_BASE_REF: ${{ github.event.merge_group.base_ref }}
+          GATE_CONTEXT: Review findings resolved
+          SEVERITY_CONFIG: ${{ github.workspace }}/config/review-severities.json
+        run: bash "$RUNNER_TEMP/r/.github/reviewer/merge-group-gate.sh"

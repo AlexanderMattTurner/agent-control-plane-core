@@ -1,0 +1,40 @@
+name: Review-findings gate
+
+# Posts the "Review findings resolved" commit status on each PR head: red or
+# pending until the reviewer has read the PR, red while an unresolved reviewer
+# thread carries a gating finding (config/review-severities.json `gating`),
+# green otherwise. The predicate, its scripts and its trust model live in
+# AlexanderMattTurner/agent-review's review-findings-gate.yaml at the pinned sha;
+# this file only calls it. The required-check name is registered by the
+# merge_group job in review-findings-merge-gate.yaml.
+#
+# Resolving a thread fires no event. Re-run the gate by removing and re-adding
+# the `recheck-review-gate` label; a push re-runs it too.
+on: # zizmor: ignore[dangerous-triggers] — no PR code executes: the called workflow runs API-only scripts off a pinned clone
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize, labeled]
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request_review_comment:
+    types: [created]
+
+# Per head, never cancelling: a late event for an old head must not displace the current one.
+concurrency:
+  group: review-findings-gate-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  evaluate:
+    name: Evaluate the review-findings gate # required-check: false
+    # The ceiling the called job needs; less ends the run in startup_failure.
+    permissions:
+      contents: read # sparse-checkout the severity config
+      statuses: write # post the verdict on the head
+      pull-requests: write # read the threads, remove the re-check label
+    uses: AlexanderMattTurner/agent-review/.github/workflows/review-findings-gate.yaml@667f5f240c84496a55b09763a03c94927878733b # pin-comment-ok: agent-review cuts no release yet; re-pin with claude-review.yaml
+    with:
+      reviewer-repository: AlexanderMattTurner/agent-review
+      reviewer-ref: 667f5f240c84496a55b09763a03c94927878733b
+      status-context: Review findings resolved
