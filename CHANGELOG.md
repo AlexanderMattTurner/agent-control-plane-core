@@ -12,6 +12,14 @@ the prose from the release's commits.
 
 ## Unreleased
 
+## [0.15.10] - 2026-11-22
+
+### Fixed
+
+- Blue nit findings from code review no longer block merges.
+- Review gate and advisory checks no longer post cancelled check runs.
+- Review findings gate now uses its own concurrency group to prevent interference with other workflows.
+
 ## [0.15.9] - 2026-11-21
 
 ### Changed
