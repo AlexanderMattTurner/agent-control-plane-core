@@ -19,8 +19,10 @@ on: # zizmor: ignore[dangerous-triggers] — no PR code executes: the called wor
     types: [created]
 
 # Per head, never cancelling: a late event for an old head must not displace the current one.
+# The name differs from the called job's own `review-findings-gate-<pr>-<sha>` group:
+# a job whose group equals its enclosing run's fails at once with no steps and no status.
 concurrency:
-  group: review-findings-gate-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  group: review-findings-gate-caller-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
   cancel-in-progress: false
 
 permissions: {}
